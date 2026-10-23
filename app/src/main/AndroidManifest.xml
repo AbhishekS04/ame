@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Required to attach the reverb effect to our own audio session. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Required from API 33 for the playback notification to be visible. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!--
+      Square updates itself: it re-implements Spotify's protocol, so the Play
+      Store is out and its own releases are the only channel there is. The user
+      still confirms every install in Android's own dialog.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!--
+      Reading the audio already on the phone. Square hands downloading to
+      another app, so what comes back is an ordinary file in the media store
+      rather than anything this app placed. Audio only: the newer permission
+      exists so a music player does not have to ask to see photographs.
+    -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
+    <!--
+      Package visibility, required from Android 11 to see any of this. Without
+      it a downloader is invisible to resolve and to setPackage alike, so the
+      hand-off cannot tell an installed app from an absent one and every link
+      falls back to the chooser.
+    -->
+    <queries>
+        <package android:name="com.deniscerri.ytdl" />
+        <intent>
+            <action android:name="android.intent.action.SEND" />
+            <data android:mimeType="text/plain" />
+        </intent>
+    </queries>
+
+    <application
+        android:name=".SquareApplication"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:localeConfig="@xml/locales_config"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Square">
+
+        <activity
+            android:name=".playback.websdk.WebSdkActivity"
+            android:exported="false"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden" />
+        <service
+            android:name=".playback.websdk.WebSdkService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:supportsPictureInPicture="true"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <!-- A music player, for whatever lists the phone's music apps. -->
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+
+            <!--
+              Spotify's own scheme. Nothing verifies these, so a phone with both
+              apps installed simply asks which one, and a phone with only Square
+              opens Square.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="spotify" />
+            </intent-filter>
+
+            <!--
+              The links people actually send each other.
+
+              `autoVerify` asks Android to check for a statement file on the
+              host, and open.spotify.com will never carry one naming this app, so
+              the check fails and the link is not handled automatically. That is
+              the platform working as designed: since Android 12 a web link
+              belongs to whoever the domain vouches for, and everyone else has to
+              be chosen by hand, once, under "Open by default" — which the
+              settings screen links to.
+            -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="open.spotify.com" />
+                <data android:scheme="http" android:host="open.spotify.com" />
+                <data android:scheme="https" android:host="link.tospotify.com" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          The download of a new version, which has to be allowed to finish:
+          see UpdateService.
+        -->
+        <!--
+          Its own service, not a second job for the player's: a playlist can be
+          downloading with nothing playing, and music can play with nothing left
+          to fetch. Not exported — only this app ever starts it.
+        -->
+        <service
+            android:name=".download.DownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <service
+            android:name=".update.UpdateService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!--
+          Held while the listener signs in to Spotify in the browser, so the
+          process is not frozen before the redirect to 127.0.0.1 arrives.
+        -->
+        <!--
+          Media buttons with the app closed: a headset, a car, the system's own
+          media controls. Also what apps such as Good Lock's Sound Assist read
+          to list the phone's media players; without it Square was not among
+          them. Handed to PlaybackService, which resumes the saved session.
+        -->
+        <receiver
+            android:name="androidx.media3.session.MediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+
+        <!-- The two-by-two square, the same widget offered at that size. -->
+        <receiver
+            android:name=".widget.SquareWidget$Tile"
+            android:exported="true"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/square_widget_tile_info" />
+        </receiver>
+
+        <!-- The home-screen widget; see widget/SquareWidget. -->
+        <receiver
+            android:name=".widget.SquareWidget"
+            android:exported="true"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/square_widget_info" />
+        </receiver>
+
+        <service
+            android:name=".auth.LoginKeepAlive"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <service
+            android:name=".playback.PlaybackService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaLibraryService" />
+            </intent-filter>
+            <!--
+              Android Auto binds the legacy browser interface, not the Media3
+              one. Media3's service answers both, but only if the old action is
+              declared: without it the car finds no service to connect to.
+            -->
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+        </service>
+
+        <receiver
+            android:name=".update.InstallReceiver"
+            android:exported="false" />
+
+        <!-- The crash report, handed to whatever app it is shared to; see Report. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.reports"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/report_paths" />
+        </provider>
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+
+    </application>
+
+</manifest>

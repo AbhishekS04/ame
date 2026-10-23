@@ -1,0 +1,342 @@
+package dev.lelonio.square.data
+
+import dev.lelonio.square.nativecore.NativeBridge
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonPrimitive
+
+/**
+ * A track as shown in the UI.
+ *
+ * Deliberately flat and free of Web API shapes: it is produced by the native
+ * catalogue, and nothing above this layer should care which transport supplied
+ * it.
+ */
+@Serializable
+data class CatalogTrack(
+    val uri: String,
+    val name: String,
+    val artist: String,
+    /** The first artist's own uri, when the source gives one; see catalog.rs. */
+    val artistUri: String? = null,
+    /**
+     * Every artist credited, named and addressed.
+     *
+     * [artist] is these names run together for the places that show one line;
+     * this is what makes each of them its own way into the app.
+     */
+    val artists: List<CatalogArtist> = emptyList(),
+    val album: String = "",
+    /**
+     * The record's own address, where the source gives one.
+     *
+     * What makes the album under a title in the player a way to reach it rather
+     * than a caption. Null through the access point, which names the record but
+     * does not address it; the player falls back to a lookup there.
+     */
+    val albumUri: String? = null,
+    /**
+     * The year the record came out, or empty where the source does not say.
+     *
+     * Only the four digits: an artist page names a song by the record it is on
+     * and when that record happened, and the month and day of a release are not
+     * how anybody places an album.
+     */
+    val year: String = "",
+    val durationMs: Long = 0,
+    val explicit: Boolean = false,
+    val smartRecommended: Boolean = false,
+    val artworkUrl: String? = null,
+    /**
+     * When the track was added to the playlist it was read from, ISO-8601.
+     *
+     * Only the Web API knows this — the access point's context has no such
+     * field — so it is null for anything resolved through the fallback path,
+     * and sorting by it then leaves the list in playlist order.
+     */
+    val addedAt: String? = null,
+    /**
+     * The file on this phone that plays for this entry, where there is one.
+     *
+     * Set for the phone's own music, and for a local file a Spotify playlist
+     * names once a file here has been matched to it (see
+     * LocalLibrary.match). Null on a `spotify:local:` entry means this phone
+     * has nothing to play for it.
+     */
+    val localFile: String? = null,
+    /**
+     * For a podcast episode: when it came out, ISO-8601. Null for music, whose
+     * release is a year on its record rather than a day.
+     */
+    val releasedAt: String? = null,
+    /** For an episode: how far into it the listener got, where the source says. */
+    val resumeMs: Long = 0,
+    /** For an episode: whether the listener heard it to the end. */
+    val played: Boolean = false,
+    /** For an episode: whether it comes with a picture as well as sound. */
+    val hasVideo: Boolean = false,
+    /** For an episode: what the show says it is about, as plain text. */
+    val summary: String = "",
+) {
+    /**
+     * A podcast episode rather than a song, on either source.
+     *
+     * What the player and the lists ask before offering what only a song has:
+     * lyrics, a heart, a radio, credits.
+     */
+    val isEpisode: Boolean
+        get() = uri.startsWith("spotify:episode:") || releasedAt != null
+}
+
+/**
+ * One line of lyrics.
+ *
+ * @param startTimeMs when the line begins, or null for unsynced lyrics — the
+ *   distinction decides whether the view can highlight along with playback.
+ */
+@Serializable
+data class LyricLine(
+    val startTimeMs: Long?,
+    val text: String,
+    /**
+     * When each word of this line is sung, where the source says so.
+     *
+     * Empty for everything that only times whole lines, which is most of what
+     * exists: Spotify's own lyrics and LrcLib both stop at the line. See
+     * Ttml for the one that does not.
+     */
+    val words: List<LyricWord> = emptyList(),
+    /**
+     * The same line in the listener's language, where the source carries it.
+     *
+     * Only TTML has this, and only for a song worth translating: an Apple
+     * document ships the subtitle track a label had made, so it is a real
+     * translation rather than a machine's guess, and it is missing far more
+     * often than not. Null means the view has nothing to show under the line.
+     */
+    val translation: String? = null,
+)
+
+/** One word, and the moment it belongs to. */
+@Serializable
+data class LyricWord(val startMs: Long, val endMs: Long, val text: String)
+
+@Serializable
+data class Lyrics(
+    val lines: List<LyricLine>,
+    val synced: Boolean,
+    /** The LyricsSource it came from, by name; null for words kept before this was recorded. */
+    val source: String? = null,
+    /** Who to credit under the words, where the source requires it; see LyricsCredit. */
+    val credit: LyricsCredit? = null,
+)
+
+/**
+ * The credit a source asks to be shown wherever its words are: its name, and
+ * for community syncs the person who uploaded them and the one who made them.
+ */
+@Serializable
+data class LyricsCredit(
+    val provider: String,
+    val uploader: String? = null,
+    val uploaderUrl: String? = null,
+    val maker: String? = null,
+    val makerUrl: String? = null,
+)
+
+/**
+ * A track's Canvas.
+ *
+ * @param isVideo false for the handful of canvases that are a still image; those
+ *   are shown as a picture rather than handed to a video surface.
+ */
+data class CanvasClip(val url: String, val isVideo: Boolean)
+
+/** A playlist owned by the logged-in account. */
+@Serializable
+data class CatalogPlaylist(
+    val uri: String,
+    val name: String,
+    /** Null when the playlist has no custom cover; the UI draws a tile instead. */
+    val artworkUrl: String? = null,
+    /**
+     * Who it is by, or what it is: the line a home shelf writes under the name.
+     *
+     * Null in the account's own library, where every row is the user's and the
+     * line would say nothing.
+     */
+    val subtitle: String? = null,
+    /**
+     * An artist rather than a record.
+     *
+     * The only thing the tile does differently, and it does matter: a round
+     * portrait among square covers is how a shelf says "these are people".
+     */
+    val isArtist: Boolean = false,
+    /**
+     * Whether it is the account's own, where the account's index says: what
+     * decides if it can be edited. Null when nobody said.
+     */
+    val mine: Boolean? = null,
+)
+
+/** One credited artist: what to write, and where it leads. */
+@Serializable
+data class CatalogArtist(val name: String, val uri: String? = null)
+
+/** Bridges a Web API track into the model the UI and the queue already use. */
+fun TrackDto.toCatalogTrack(addedAt: String? = null): CatalogTrack = CatalogTrack(
+    uri = uri,
+    name = name,
+    artist = artists.joinToString(", ") { it.name },
+    artistUri = artists.firstOrNull()?.uri,
+    artists = artists.map { CatalogArtist(it.name, it.uri) },
+    album = album?.name.orEmpty(),
+    albumUri = album?.uri,
+    year = album?.releaseDate?.take(4).orEmpty(),
+    durationMs = durationMs,
+    explicit = explicit,
+    artworkUrl = album?.images?.firstOrNull()?.url,
+    addedAt = addedAt,
+)
+
+/**
+ * Catalogue reads over the Spotify access point.
+ *
+ * This exists instead of [SpotifyApi] because `api.spotify.com` meters requests
+ * per application, and the client id librespot uses is shared with every other
+ * user of it — so the quota runs out regardless of how this app behaves. The
+ * access point returns the same data for the logged-in user without that limit.
+ *
+ * Every call blocks on native code, so all are confined to [Dispatchers.IO].
+ */
+object Catalog {
+
+    private val json = Json { ignoreUnknownKeys = true }
+
+    suspend fun username(): String = withContext(Dispatchers.IO) {
+        NativeBridge.username()
+    }
+
+    /** Track URIs in a playlist, album, or the account's Liked Songs. */
+    suspend fun contextTrackUris(contextUri: String): List<String> = withContext(Dispatchers.IO) {
+        json.decodeFromString<List<String>>(NativeBridge.contextTracks(contextUri))
+    }
+
+    suspend fun tracks(uris: List<String>): List<CatalogTrack> = withContext(Dispatchers.IO) {
+        if (uris.isEmpty()) return@withContext emptyList()
+        val urisJson = json.encodeToString(ListSerializer(String.serializer()), uris)
+        json.decodeFromString<List<CatalogTrack>>(NativeBridge.tracksMetadata(urisJson))
+    }
+
+    /**
+     * Lyrics for a track, or null when Spotify has none.
+     *
+     * Most of the catalogue has no lyrics, so absence is an ordinary answer
+     * rather than a failure; the native side already turns a missing-lyrics
+     * response into a null instead of an error.
+     */
+    suspend fun lyrics(trackUri: String): Lyrics? = withContext(Dispatchers.IO) {
+        val raw = NativeBridge.lyrics(trackUri)
+        val root = runCatching { json.parseToJsonElement(raw) }.getOrNull() ?: return@withContext null
+        val body = root as? JsonObject ?: return@withContext null
+        val lyrics = body["lyrics"] as? JsonObject ?: return@withContext null
+
+        // "LINE_SYNCED" means every line carries a timestamp; anything else is
+        // a plain block of text.
+        val synced = lyrics["syncType"]?.jsonPrimitive?.content == "LINE_SYNCED"
+
+        val lines = (lyrics["lines"] as? JsonArray).orEmpty().mapNotNull { element ->
+            val line = element as? JsonObject ?: return@mapNotNull null
+            val words = line["words"]?.jsonPrimitive?.content.orEmpty()
+            if (words.isBlank()) return@mapNotNull null
+            LyricLine(
+                startTimeMs = line["startTimeMs"]?.jsonPrimitive?.content?.toLongOrNull()
+                    ?.takeIf { synced },
+                text = words,
+            )
+        }
+
+        lines.takeIf { it.isNotEmpty() }?.let { Lyrics(it, synced) }
+    }
+
+    /**
+     * The Canvas clip for a track, or null when there is none.
+     *
+     * Most of the catalogue has no canvas, so a null here is an ordinary answer
+     * and the player falls back to the cover rather than showing an error.
+     */
+    suspend fun canvas(trackUri: String): CanvasClip? = withContext(Dispatchers.IO) {
+        val raw = runCatching { NativeBridge.canvas(trackUri) }.getOrNull() ?: return@withContext null
+        val root = runCatching { json.parseToJsonElement(raw) }.getOrNull() as? JsonObject
+            ?: return@withContext null
+        val url = root["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+            ?: return@withContext null
+        CanvasClip(
+            url = url,
+            isVideo = root["isVideo"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: true,
+        )
+    }
+
+    /**
+     * Spotify's DJ, which is not a playlist.
+     *
+     * The access point lists it among them, but it is a generated stream: it has
+     * no track list to open, so it is played as a session rather than opened;
+     * see SpotifyDj. The same id for every account.
+     */
+    const val DJ_URI = "spotify:playlist:37i9dQZF1EYkqdzj48dyYq"
+
+    /** The account's own playlists. */
+    /** Whether a playlist is the account's own, from the playlist service; see catalog.rs. */
+    suspend fun playlistMine(uri: String): Boolean? = withContext(Dispatchers.IO) {
+        runCatching { json.decodeFromString<Boolean?>(NativeBridge.playlistMine(uri)) }.getOrNull()
+    }
+
+    suspend fun playlists(): List<CatalogPlaylist> = withContext(Dispatchers.IO) {
+        json.decodeFromString<List<CatalogPlaylist>>(NativeBridge.rootlist())
+            // Kept out unless the DJ is on: played as a list, it has nothing in it.
+            .filterNot { it.uri == DJ_URI && !dev.lelonio.square.backend.spotify.SpotifyDj.enabled }
+    }
+
+    /**
+     * The cover of one playlist, fetched on its own.
+     *
+     * Only worth calling for playlists the rootlist gave no artwork for — see
+     * the note on the native side. Null both when Spotify has no cover and when
+     * the lookup fails: a missing tile falls back to the generated one either
+     * way, and a playlist list should not fail over an image.
+     */
+    suspend fun playlistCover(uri: String): String? = withContext(Dispatchers.IO) {
+        runCatching { json.decodeFromString<String?>(NativeBridge.playlistCover(uri)) }.getOrNull()
+    }
+
+    /** The title of a playlist the account does not follow; see the native side. */
+    suspend fun playlistName(uri: String): String? = withContext(Dispatchers.IO) {
+        runCatching { json.decodeFromString<String?>(NativeBridge.playlistName(uri)) }
+            .onFailure { android.util.Log.w("SquareCatalog", "no name for $uri: $it") }
+            .getOrNull()
+    }
+
+    /**
+     * Tracks of the account's first playlist.
+     *
+     * A placeholder for a real browse screen, and currently the only listing
+     * that works: `spotify:user:{id}:collection` — Liked Songs — is not a valid
+     * context for the access point's context endpoint and answers 503, so the
+     * collection needs a different call than the one playlists use.
+     *
+     * @param limit how many tracks to resolve. Each is its own access-point
+     *   round trip, so a whole playlist is not something to fetch eagerly.
+     */
+    suspend fun firstPlaylistTracks(limit: Int = 50): List<CatalogTrack> {
+        val first = playlists().firstOrNull() ?: error("nessuna playlist trovata nell'account")
+        return tracks(contextTrackUris(first.uri).take(limit))
+    }
+}

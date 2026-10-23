@@ -1,0 +1,435 @@
+package dev.lelonio.square.data
+
+import android.content.Context
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+/**
+ * Small UI choices that should survive the screen being left.
+ *
+ * Kept as strings rather than as an enum so this module does not have to know
+ * about the screens that use it, and so a value written by an older version that
+ * no longer exists reads back as "not set" instead of crashing.
+ */
+class PreferencesStore(context: Context) {
+
+    private val prefs = context.applicationContext
+        .getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
+
+    data class TrackOrder(val sort: String? = null, val descending: Boolean = false)
+
+    private val _trackOrders = MutableStateFlow(
+        prefs.all.keys.filter { it.startsWith("track_order:") }.associate { key ->
+            val uri = key.removePrefix("track_order:")
+            uri to TrackOrder(prefs.getString(key, null), prefs.getBoolean("track_direction:$uri", false))
+        },
+    )
+    val trackOrders = _trackOrders.asStateFlow()
+
+    /**
+     * The one order every playlist shared before each kept its own, for the
+     * playlists that have not been given one yet: without it an update put
+     * every list back in playlist order.
+     */
+    val defaultTrackOrder = TrackOrder(prefs.getString(KEY_TRACK_SORT, null), prefs.getBoolean(KEY_TRACK_DESC, false))
+
+    fun setTrackSort(uri: String, value: String) {
+        val previous = _trackOrders.value[uri] ?: TrackOrder()
+        _trackOrders.value = _trackOrders.value + (uri to previous.copy(sort = value))
+        prefs.edit().putString("track_order:$uri", value).apply()
+    }
+
+    fun setTrackSortDescending(uri: String, value: Boolean) {
+        val previous = _trackOrders.value[uri] ?: TrackOrder()
+        _trackOrders.value = _trackOrders.value + (uri to previous.copy(descending = value))
+        // Persist a sort key even when only the direction was changed.
+        prefs.edit().putString("track_order:$uri", previous.sort ?: "ORIGINAL")
+            .putBoolean("track_direction:$uri", value).apply()
+    }
+
+    private val _showConnectedDevice = MutableStateFlow(prefs.getBoolean("show_connected_device", true))
+    val showConnectedDevice = _showConnectedDevice.asStateFlow()
+
+    fun setShowConnectedDevice(value: Boolean) {
+        _showConnectedDevice.value = value
+        prefs.edit().putBoolean("show_connected_device", value).apply()
+    }
+
+    /**
+     * This phone's Connect id, made once and kept for good.
+     *
+     * A uuid rather than anything drawn from the hardware: it identifies an
+     * install to one account's device list and nothing else, and there is no
+     * reason for it to survive the app being removed.
+     */
+    fun deviceId(): String = prefs.getString(KEY_DEVICE_ID, null) ?: run {
+        val id = java.util.UUID.randomUUID().toString()
+        prefs.edit().putString(KEY_DEVICE_ID, id).apply()
+        id
+    }
+
+    private val _onboarded = MutableStateFlow(prefs.getBoolean(KEY_ONBOARDED, false))
+
+    /**
+     * Whether the welcome tutorial has been finished at least once.
+     *
+     * Kept apart from "is the app configured": the setup can be undone later —
+     * logging out, unlinking the Web API application — and re-running the whole
+     * tutorial at that point would be answering a question nobody asked. The
+     * tutorial stays reachable from the settings instead.
+     */
+    val onboarded: StateFlow<Boolean> = _onboarded.asStateFlow()
+
+    fun setOnboarded(value: Boolean) {
+        _onboarded.value = value
+        prefs.edit().putBoolean(KEY_ONBOARDED, value).apply()
+    }
+
+    private val _canvasEnabled = MutableStateFlow(prefs.getBoolean(KEY_CANVAS, true))
+
+    /**
+     * Whether covers move at all, from either source; see [animatedCoverSource].
+     *
+     * On by default: it is the thing the player is built around. Off is for the
+     * listener who wants the artwork and nothing moving, and it is not only a
+     * drawing decision, since with this off no clip is asked for and the data
+     * is not spent either. Kept under its old key: whoever had Canvas off has
+     * every moving cover off now, which is what they were asking for.
+     */
+    val canvasEnabled: StateFlow<Boolean> = _canvasEnabled.asStateFlow()
+
+    fun setCanvasEnabled(value: Boolean) {
+        _canvasEnabled.value = value
+        prefs.edit().putBoolean(KEY_CANVAS, value).apply()
+    }
+
+    private val _spicyLyricsKey = MutableStateFlow(prefs.getString(KEY_SPICY_LYRICS, null).orEmpty())
+
+    /** The listener's own Spicy Lyrics key; blank leaves that source out. */
+    val spicyLyricsKey: StateFlow<String> = _spicyLyricsKey.asStateFlow()
+
+    fun setSpicyLyricsKey(value: String) {
+        _spicyLyricsKey.value = value.trim()
+        prefs.edit().putString(KEY_SPICY_LYRICS, value.trim()).apply()
+    }
+
+    private val _preferredLyricsSource = MutableStateFlow(prefs.getString(KEY_PREFERRED_LYRICS, null).orEmpty())
+
+    /**
+     * The lyrics source to show whenever it has words for the song, by its
+     * LyricsSource name; blank for the best of them, which is the default.
+     */
+    val preferredLyricsSource: StateFlow<String> = _preferredLyricsSource.asStateFlow()
+
+    fun setPreferredLyricsSource(value: String) {
+        _preferredLyricsSource.value = value
+        prefs.edit().putString(KEY_PREFERRED_LYRICS, value).apply()
+    }
+
+    /** How the lyrics are drawn: animated word by word, or as plain lines. */
+    enum class LyricsStyle { ANIMATED, CLASSIC }
+
+    private val _lyricsStyle = MutableStateFlow(
+        LyricsStyle.entries.firstOrNull { it.name == prefs.getString(KEY_LYRICS_STYLE, null) } ?: LyricsStyle.ANIMATED,
+    )
+    val lyricsStyle: StateFlow<LyricsStyle> = _lyricsStyle.asStateFlow()
+
+    fun setLyricsStyle(value: LyricsStyle) {
+        _lyricsStyle.value = value
+        prefs.edit().putString(KEY_LYRICS_STYLE, value.name).apply()
+    }
+
+    /** How YouTube Music's sound is chosen; see [youtubeQuality]. */
+    enum class YouTubeQuality { AUTO, HIGH, LOW }
+
+    private val _youtubeQuality = MutableStateFlow(
+        YouTubeQuality.entries.firstOrNull { it.name == prefs.getString(KEY_YOUTUBE_QUALITY, null) } ?: YouTubeQuality.AUTO,
+    )
+
+    /**
+     * The stream YouTube Music plays from: the highest rate, the lowest, or
+     * the highest on Wi-Fi and the lowest on a metered connection. Read when a
+     * track is resolved, so a change applies from the next one.
+     */
+    val youtubeQuality: StateFlow<YouTubeQuality> = _youtubeQuality.asStateFlow()
+
+    fun setYoutubeQuality(value: YouTubeQuality) {
+        _youtubeQuality.value = value
+        prefs.edit().putString(KEY_YOUTUBE_QUALITY, value.name).apply()
+    }
+
+    private val _systemFont = MutableStateFlow(prefs.getBoolean(KEY_SYSTEM_FONT, false))
+
+    /**
+     * The phone's own typeface instead of Inter.
+     *
+     * Asked for by listeners whose phones set a face of their own (HyperOS,
+     * One UI), next to which the app's thinner type read as out of place.
+     */
+    val systemFont: StateFlow<Boolean> = _systemFont.asStateFlow()
+
+    fun setSystemFont(value: Boolean) {
+        _systemFont.value = value
+        prefs.edit().putBoolean(KEY_SYSTEM_FONT, value).apply()
+    }
+
+    /** Light, dark, or whichever the phone is set to; see [themeMode]. */
+    enum class ThemeMode { SYSTEM, LIGHT, DARK }
+
+    private val _themeMode = MutableStateFlow(
+        ThemeMode.entries.firstOrNull { it.name == prefs.getString(KEY_THEME_MODE, null) } ?: ThemeMode.SYSTEM,
+    )
+
+    /**
+     * The app's own light or dark, independent of the phone's.
+     *
+     * Asked for by listeners who keep the phone light and want the app dark,
+     * and the other way round. The phone's setting is the default, as it was
+     * before this existed.
+     */
+    val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
+
+    fun setThemeMode(value: ThemeMode) {
+        _themeMode.value = value
+        prefs.edit().putString(KEY_THEME_MODE, value.name).apply()
+    }
+
+    /** Where the moving covers come from; see [animatedCoverSource]. */
+    enum class CoverSource { SPOTIFY, APPLE_MUSIC }
+
+    private val _animatedCoverSource = MutableStateFlow(
+        CoverSource.entries.firstOrNull { it.name == prefs.getString(KEY_COVER_SOURCE, null) } ?: CoverSource.SPOTIFY,
+    )
+
+    /**
+     * Which catalogue's moving covers are shown: Spotify's Canvas clips or
+     * Apple Music's animated artwork. One or the other, so turning Canvas
+     * off no longer left some records moving anyway, as Apple's motion did
+     * whenever there was no clip.
+     */
+    val animatedCoverSource: StateFlow<CoverSource> = _animatedCoverSource.asStateFlow()
+
+    fun setAnimatedCoverSource(value: CoverSource) {
+        _animatedCoverSource.value = value
+        prefs.edit().putString(KEY_COVER_SOURCE, value.name).apply()
+    }
+
+    private val _keepPlayingOnClose = MutableStateFlow(prefs.getBoolean(KEY_KEEP_PLAYING, false))
+
+    /**
+     * Whether the music survives the app being swiped out of the recents.
+     *
+     * Off by default, and deliberately: a player that goes on after the app has
+     * been dismissed is a player the gesture did not reach, and the shade is
+     * then the only way to stop it. But the same gesture is easy to make by
+     * accident, and losing the song for it is worse for the people who asked
+     * (#27) — so it is a choice rather than a rule.
+     */
+    val keepPlayingOnClose: StateFlow<Boolean> = _keepPlayingOnClose.asStateFlow()
+
+    fun setKeepPlayingOnClose(value: Boolean) {
+        _keepPlayingOnClose.value = value
+        prefs.edit().putBoolean(KEY_KEEP_PLAYING, value).apply()
+    }
+
+    private val _sponsorBlock = MutableStateFlow(prefs.getBoolean(KEY_SPONSOR_BLOCK, true))
+
+    /**
+     * Whether the non-music parts of a YouTube track are skipped; see
+     * SponsorBlock. On to begin with: nobody opens a music app for the sketch
+     * at the start of a music video.
+     */
+    val sponsorBlock: StateFlow<Boolean> = _sponsorBlock.asStateFlow()
+
+    fun setSponsorBlock(value: Boolean) {
+        _sponsorBlock.value = value
+        prefs.edit().putBoolean(KEY_SPONSOR_BLOCK, value).apply()
+    }
+
+    private val _autoplayInfinite = MutableStateFlow(prefs.getBoolean(KEY_AUTOPLAY_INFINITE, false))
+
+    /** Whether playback automatically appends similar tracks when reaching queue end. */
+    val autoplayInfinite: StateFlow<Boolean> = _autoplayInfinite.asStateFlow()
+
+    fun setAutoplayInfinite(value: Boolean) {
+        _autoplayInfinite.value = value
+        prefs.edit().putBoolean(KEY_AUTOPLAY_INFINITE, value).apply()
+    }
+
+    private val _spotifyDj = MutableStateFlow(prefs.getBoolean(KEY_SPOTIFY_DJ, true))
+
+    /**
+     * Whether Spotify's DJ is offered: shown among the playlists, and played
+     * with its lines when opened. Off, it is kept out of sight as before.
+     */
+    val spotifyDj: StateFlow<Boolean> = _spotifyDj.asStateFlow()
+
+    fun setSpotifyDj(value: Boolean) {
+        _spotifyDj.value = value
+        prefs.edit().putBoolean(KEY_SPOTIFY_DJ, value).apply()
+    }
+
+    private val _skipFade = MutableStateFlow(prefs.getBoolean(KEY_SKIP_FADE, true))
+
+    /**
+     * Whether a track the listener changes away from is dissolved into the one
+     * they asked for, rather than cut off.
+     *
+     * On by default, and short: see SKIP_FADE_MS. Apart from the crossfade,
+     * which is what the end of a track sounds like when it runs out on its own.
+     */
+    val skipFade: StateFlow<Boolean> = _skipFade.asStateFlow()
+
+    fun setSkipFade(value: Boolean) {
+        _skipFade.value = value
+        prefs.edit().putBoolean(KEY_SKIP_FADE, value).apply()
+        runCatching {
+            dev.lelonio.square.nativecore.NativeBridge.setSkipFade(skipFadeMs())
+        }
+    }
+
+    /** What the engine and the other source are told, in milliseconds. */
+    fun skipFadeMs(): Int = if (_skipFade.value) SKIP_FADE_MS else 0
+
+    private val _trimSilence = MutableStateFlow(prefs.getBoolean(KEY_TRIM_SILENCE, true))
+
+    /** Whether trailing silence triggers early crossfade. */
+    val trimSilence: StateFlow<Boolean> = _trimSilence.asStateFlow()
+
+    fun setTrimSilence(value: Boolean) {
+        _trimSilence.value = value
+        prefs.edit().putBoolean(KEY_TRIM_SILENCE, value).apply()
+        runCatching {
+            dev.lelonio.square.nativecore.NativeBridge.setTrimSilence(value)
+        }
+    }
+
+    /**
+     * Whether the player was open when the app was last left.
+     *
+     * Read straight rather than as a flow: the answer decides what the *first*
+     * composed frame is, so it has to be available before anything is drawn. A
+     * value that arrives a moment later is what produced the flash of the home
+     * page this replaced.
+     */
+    fun playerWasOpen(): Boolean = prefs.getBoolean(KEY_PLAYER_OPEN, false)
+
+    fun setPlayerOpen(value: Boolean) {
+        prefs.edit().putBoolean(KEY_PLAYER_OPEN, value).apply()
+    }
+
+    private val _backend = MutableStateFlow(
+        runCatching { dev.lelonio.square.backend.BackendId.valueOf(prefs.getString(KEY_BACKEND, null) ?: "") }
+            .getOrDefault(dev.lelonio.square.backend.BackendId.SPOTIFY),
+    )
+
+    /** Which [dev.lelonio.square.backend.MusicBackend] the app plays through. */
+    val backend: StateFlow<dev.lelonio.square.backend.BackendId> = _backend.asStateFlow()
+
+    fun setBackend(value: dev.lelonio.square.backend.BackendId) {
+        _backend.value = value
+        _backendChosen.value = true
+        prefs.edit().putString(KEY_BACKEND, value.name).apply()
+    }
+
+    private val _backendChosen = MutableStateFlow(prefs.contains(KEY_BACKEND))
+
+    /**
+     * Whether the user has ever picked a source.
+     *
+     * Separate from [backend] having a value: that one defaults to Spotify so
+     * the rest of the app never has to handle "none", while this stays false
+     * until the choice was actually made. It is what puts the picker in front
+     * of a fresh install — and only once.
+     */
+    val backendChosen: StateFlow<Boolean> = _backendChosen.asStateFlow()
+
+    /** When GitHub was last asked about a newer release. See [UpdateChecker]. */
+    /**
+     * The account's name and picture, as they were last read.
+     *
+     * Kept because they are the one part of the library that has nothing to do
+     * with the network and was being fetched anyway: offline the header used to
+     * go blank, which reads as being signed out of an app that is doing exactly
+     * what it was asked to. The picture is a URL, and the copy of it saved
+     * beside the downloads is what Artwork actually draws; see DownloadExtras.
+     */
+    fun profile(): Pair<String, String?> =
+        prefs.getString(KEY_PROFILE_NAME, null).orEmpty() to prefs.getString(KEY_PROFILE_ART, null)
+
+    fun setProfile(name: String, artworkUrl: String?) {
+        prefs.edit()
+            .putString(KEY_PROFILE_NAME, name)
+            .putString(KEY_PROFILE_ART, artworkUrl)
+            .apply()
+    }
+
+    fun lastUpdateCheck(): Long = prefs.getLong(KEY_LAST_UPDATE_CHECK, 0L)
+
+    fun setLastUpdateCheck(value: Long) {
+        prefs.edit().putLong(KEY_LAST_UPDATE_CHECK, value).apply()
+    }
+
+    /**
+     * The version the user has already been told about and dismissed.
+     *
+     * One version rather than a set: releases only move forward, so a newer one
+     * than the dismissed one is news again, and an older one cannot appear.
+     */
+    fun skippedUpdate(): String? = prefs.getString(KEY_SKIPPED_UPDATE, null)
+
+    fun setSkippedUpdate(value: String) {
+        prefs.edit().putString(KEY_SKIPPED_UPDATE, value).apply()
+    }
+
+    /** The account's country code, saved from the Spotify profile. */
+    val userCountry: String?
+        get() = prefs.getString(KEY_USER_COUNTRY, null)
+
+    fun setUserCountry(value: String?) {
+        if (value.isNullOrBlank()) {
+            prefs.edit().remove(KEY_USER_COUNTRY).apply()
+        } else {
+            prefs.edit().putString(KEY_USER_COUNTRY, value).apply()
+        }
+    }
+
+    private companion object {
+        const val FILE_NAME = "square_preferences"
+        const val KEY_TRACK_SORT = "track_sort"
+        const val KEY_TRACK_DESC = "track_sort_descending"
+        const val KEY_DEVICE_ID = "device_id"
+        const val KEY_ONBOARDED = "onboarded"
+        const val KEY_CANVAS = "canvas_enabled"
+        const val KEY_COVER_SOURCE = "animated_cover_source"
+        const val KEY_SYSTEM_FONT = "system_font"
+        const val KEY_THEME_MODE = "theme_mode"
+        const val KEY_YOUTUBE_QUALITY = "youtube_quality"
+        const val KEY_LYRICS_STYLE = "lyrics_style"
+        const val KEY_SPICY_LYRICS = "spicy_lyrics_key"
+        const val KEY_PREFERRED_LYRICS = "preferred_lyrics_source"
+        const val KEY_KEEP_PLAYING = "keep_playing_on_close"
+        const val KEY_SPONSOR_BLOCK = "sponsor_block"
+        const val KEY_AUTOPLAY_INFINITE = "autoplay_infinite"
+        const val KEY_SPOTIFY_DJ = "spotify_dj"
+        const val KEY_TRIM_SILENCE = "trim_silence"
+        const val KEY_SKIP_FADE = "skip_fade"
+        const val KEY_PLAYER_OPEN = "player_open"
+        const val KEY_BACKEND = "backend"
+        const val KEY_PROFILE_NAME = "profile_name"
+        const val KEY_PROFILE_ART = "profile_art"
+        const val KEY_LAST_UPDATE_CHECK = "last_update_check"
+        const val KEY_SKIPPED_UPDATE = "skipped_update"
+        const val KEY_USER_COUNTRY = "user_country"
+    }
+}
+
+/**
+ * How long a track the listener changes away from takes to go, and the one
+ * they asked for to arrive, in milliseconds.
+ *
+ * A second: long enough to be a dissolve rather than a cut, short enough that
+ * the song somebody just chose is not kept waiting for it.
+ */
+const val SKIP_FADE_MS = 1_000

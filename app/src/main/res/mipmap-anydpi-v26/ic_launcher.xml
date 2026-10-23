@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?><!--
+  The wave alone in front, its glow included, and the plate's own shading as the
+  background, filling the whole shape.
+
+  The front used to carry the round plate itself, drawn inside the safe zone on
+  a field of its colour. On a launcher whose mask is not a circle (HyperOS's
+  squircle, for one) that showed as a circle inside the icon. Split this way,
+  whatever mask the launcher applies cuts the plate, never a plate within it.
+
+  Both layers come from app/icon-src/icona.png: the wave separated from the
+  plate (icon-src/wave-glow.png) and the plate's light extended to the edges.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@mipmap/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />
+</adaptive-icon>

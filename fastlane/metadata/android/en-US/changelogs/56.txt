@@ -1,0 +1,3 @@
+Songs from search are followed by similar ones. Songs added to a downloaded playlist download on their own. Faster refresh rate.
+Fixed YouTube Music libraries that showed no playlists when one had no cover.
+Smoother scroll bar, lyrics glow no longer boxed in, one glass for the whole player, media buttons placed for OxygenOS.

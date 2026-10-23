@@ -1,0 +1,209 @@
+package dev.lelonio.square.ui.components
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
+
+/**
+ * A cover that moves.
+ *
+ * Some records have one: a few seconds of the sleeve animating, which the
+ * reference plays at the top of the page instead of showing a still. It is a
+ * picture, not a video — there is no sound, no controls, and it loops.
+ *
+ * Its own player rather than the app's. The one in the service is what the
+ * listener is playing and is bound to a media session, a notification and the
+ * car; handing it a silent loop of album art would replace the song on the lock
+ * screen. This one holds no audio focus and is released with the screen.
+ */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+@Composable
+fun MotionCover(
+    url: String,
+    modifier: Modifier = Modifier,
+    /**
+     * Small copies of the frames as they play, for what is drawn out of the
+     * cover around it: see HeroBackdrop, whose blur and extension were made
+     * from the still and stayed on the first frame while the cover moved
+     * above them. Null reads nothing.
+     */
+    onFrame: ((android.graphics.Bitmap) -> Unit)? = null,
+    /**
+     * False holds it on the frame it is at, rather than taking it away: behind
+     * a panel the cover stands still, and when the panel closes it carries on
+     * from there. Taken away and made again, it came back as a new video
+     * appearing at once over the still, with nothing in between.
+     */
+    playing: Boolean = true,
+) {
+    val context = LocalContext.current
+    // The surface the frames are read from, once the view exists.
+    val surface = remember { arrayOfNulls<android.view.TextureView>(1) }
+
+    val player = remember(url) {
+        ExoPlayer.Builder(context).build().apply {
+            // Explicitly not asking for focus: what is playing keeps playing.
+            setAudioAttributes(AudioAttributes.DEFAULT, false)
+            volume = 0f
+            repeatMode = Player.REPEAT_MODE_ALL
+            setMediaItem(MediaItem.fromUri(url))
+            playWhenReady = true
+            prepare()
+        }
+    }
+
+    // Stopped while the app is away. A loop nobody is looking at is a radio
+    // that costs battery and data for a picture on a screen that is off.
+    val wanted = rememberUpdatedState(playing)
+    LaunchedEffect(player, playing) { player.playWhenReady = playing }
+
+    // Faded in on its first frame rather than appearing in one: until then the
+    // still underneath is what shows, and the change from one to the other is
+    // the cover beginning to move, not a second picture arriving on top.
+    var firstFrame by remember(url) { mutableStateOf(false) }
+    DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onRenderedFirstFrame() {
+                firstFrame = true
+            }
+        }
+        player.addListener(listener)
+        onDispose { player.removeListener(listener) }
+    }
+    val appear by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (firstFrame) 1f else 0f,
+        animationSpec = androidx.compose.animation.core.tween(APPEAR_MS),
+        label = "motionAppear",
+    )
+
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle, player) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> player.pause()
+                Lifecycle.Event.ON_START -> if (wanted.value) player.play()
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+            player.release()
+        }
+    }
+
+    if (onFrame != null) {
+        val latest by rememberUpdatedState(onFrame)
+        LaunchedEffect(player) {
+            // Nothing is read before the first frame: until then the surface
+            // holds nothing, and a blank copy would put the blur back to black.
+            val rendered = CompletableDeferred<Unit>()
+            val listener = object : Player.Listener {
+                override fun onRenderedFirstFrame() {
+                    rendered.complete(Unit)
+                }
+            }
+            player.addListener(listener)
+            try {
+                rendered.await()
+                while (true) {
+                    val view = surface[0]
+                    // Only while it moves: a paused loop is a still, and the
+                    // last copy read is already that still.
+                    if (view != null && view.isAvailable && player.isPlaying &&
+                        view.width > 0 && view.height > 0
+                    ) {
+                        val height = (FRAME_PX.toLong() * view.height / view.width).toInt()
+                            .coerceAtLeast(1)
+                        // Copied and worked on away from the main thread; see
+                        // copyFrame. Both used to run on it, a copy every
+                        // frame or two, and the player dropped more than half
+                        // of its frames while a cover moved.
+                        view.copyFrame(FRAME_PX, height)?.let { frame ->
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                                latest(frame)
+                            }
+                        }
+                    }
+                    delay(FRAME_EVERY_MS)
+                }
+            } finally {
+                player.removeListener(listener)
+            }
+        }
+    }
+
+    AndroidView(
+        factory = { ctx ->
+            // Inflated, for the surface type; see the layout's own note. Built
+            // in code this is a SurfaceView — a second window under the app's,
+            // which does not fade or move with the composition, so a page
+            // leaving the screen left its video behind for a moment after
+            // everything else had gone.
+            val view = android.view.LayoutInflater.from(ctx)
+                .inflate(dev.lelonio.square.R.layout.motion_cover, null) as PlayerView
+            view.apply {
+                useController = false
+                // Filling the frame, cropping what does not fit: the header is
+                // whatever shape the phone is, and letterboxing a cover leaves
+                // two bars of black across the top of the page.
+                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                this.player = player
+                surface[0] = videoSurfaceView as? android.view.TextureView
+            }
+        },
+        update = { it.player = player },
+        // Released with the composition rather than left to the view pool: the
+        // surface has to go when the page does.
+        onRelease = {
+            it.player = null
+            surface[0] = null
+        },
+        modifier = modifier.graphicsLayer { alpha = appear },
+    )
+}
+
+/** How long a moving cover takes to come up over its still. */
+private const val APPEAR_MS = 450
+
+/**
+ * How wide the copies of the frames are read, and how often.
+ *
+ * Small, because what is made of them is a blur and a band of colour. Not as
+ * small as it was: forty-eight across, stretched to the screen under the
+ * cover, showed as a grid of squares down the fade. And as often as the cover
+ * changes, about thirty times a second: read less often, the colours under it
+ * trailed the picture and stepped from one to the next. The cover only moves
+ * on the player's own screen (a panel stills it), so this is the one place it
+ * costs anything.
+ *
+ * Less often since then, about seven times a second. Every copy is a read of
+ * the video on the render thread, and redraws the blurred band below the
+ * cover; at fifteen a second those two were most of what the player's frames
+ * spent. The blend that follows the copies takes bigger steps to keep pace;
+ * see FRAME_FOLLOW.
+ */
+private const val FRAME_PX = 96
+private const val FRAME_EVERY_MS = 150L
