@@ -25,7 +25,7 @@ re-deriving it here.
 
 The corollary: **treat this directory as read-only.** Anything this app needs
 that the module does not do belongs in `app/`, in
-`dev.lelonio.square.backend.youtube`, not in edits made here — an edit made here
+`com.abhishek.ame.backend.youtube`, not in edits made here — an edit made here
 is an edit that has to be re-applied by hand every time upstream is pulled.
 
 ## Local changes

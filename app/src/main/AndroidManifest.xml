@@ -12,14 +12,14 @@
     <!-- Required from API 33 for the playback notification to be visible. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!--
-      Square updates itself: it re-implements Spotify's protocol, so the Play
+      Ame updates itself: it re-implements Spotify's protocol, so the Play
       Store is out and its own releases are the only channel there is. The user
       still confirms every install in Android's own dialog.
     -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!--
-      Reading the audio already on the phone. Square hands downloading to
+      Reading the audio already on the phone. Ame hands downloading to
       another app, so what comes back is an ordinary file in the media store
       rather than anything this app placed. Audio only: the newer permission
       exists so a music player does not have to ask to see photographs.
@@ -44,13 +44,13 @@
     </queries>
 
     <application
-        android:name=".SquareApplication"
+        android:name=".AmeApplication"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:localeConfig="@xml/locales_config"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Square">
+        android:theme="@style/Theme.Ame">
 
         <activity
             android:name=".playback.websdk.WebSdkActivity"
@@ -77,8 +77,8 @@
 
             <!--
               Spotify's own scheme. Nothing verifies these, so a phone with both
-              apps installed simply asks which one, and a phone with only Square
-              opens Square.
+              apps installed simply asks which one, and a phone with only Ame
+              opens Ame.
             -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -134,7 +134,7 @@
         <!--
           Media buttons with the app closed: a headset, a car, the system's own
           media controls. Also what apps such as Good Lock's Sound Assist read
-          to list the phone's media players; without it Square was not among
+          to list the phone's media players; without it Ame was not among
           them. Handed to PlaybackService, which resumes the saved session.
         -->
         <receiver
@@ -147,7 +147,7 @@
 
         <!-- The two-by-two square, the same widget offered at that size. -->
         <receiver
-            android:name=".widget.SquareWidget$Tile"
+            android:name=".widget.AmeWidget$Tile"
             android:exported="true"
             android:label="@string/app_name">
             <intent-filter>
@@ -155,12 +155,12 @@
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/square_widget_tile_info" />
+                android:resource="@xml/ame_widget_tile_info" />
         </receiver>
 
-        <!-- The home-screen widget; see widget/SquareWidget. -->
+        <!-- The home-screen widget; see widget/AmeWidget. -->
         <receiver
-            android:name=".widget.SquareWidget"
+            android:name=".widget.AmeWidget"
             android:exported="true"
             android:label="@string/app_name">
             <intent-filter>
@@ -168,7 +168,7 @@
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/square_widget_info" />
+                android:resource="@xml/ame_widget_info" />
         </receiver>
 
         <service

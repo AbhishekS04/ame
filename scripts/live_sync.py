@@ -10,8 +10,8 @@ WATCH_DIRS = [
 
 EXTENSIONS = {".kt", ".java", ".xml", ".properties", ".gradle", ".kts"}
 ADB_PATH = "/home/abhishek/Android/Sdk/platform-tools/adb"
-PACKAGE_NAME = "dev.lelonio.square"
-MAIN_ACTIVITY = "dev.lelonio.square/.ui.MainActivity"
+PACKAGE_NAME = "com.abhishek.ame"
+MAIN_ACTIVITY = "com.abhishek.ame/.ui.MainActivity"
 
 def get_file_mtimes():
     mtimes = {}

@@ -1,4 +1,4 @@
-# Baseline Profile for Square
+# Baseline Profile for Ame
 # Pre-compiles critical code ahead of time (AOT) to eliminate JIT pauses,
 # reduce cold-start latency, and maintain 60-120 FPS during initial gestures.
 #
@@ -12,19 +12,19 @@
 # same numbers a warm run gives. These rules ship that head start.
 
 # 1. Preload application and UI classes
-Ldev/lelonio/square/**;
+Lcom/abhishek/ame/**;
 
 # 2. Jetpack Compose UI methods with complete signatures (Composer, bitmask, and return types)
 # Explicit signature with parameters and types ensures the AOT compiler does not silently discard the profile.
-HSPLdev/lelonio/square/ui/**;->*(**Landroidx/compose/runtime/Composer;*)V
-HSPLdev/lelonio/square/ui/**;->*(**Landroidx/compose/runtime/Composer;I)V
-HSPLdev/lelonio/square/ui/**;->*(**Landroidx/compose/runtime/Composer;II)V
-HSPLdev/lelonio/square/ui/**;->*(Landroidx/compose/runtime/Composer;I)V
-HSPLdev/lelonio/square/ui/**;->*(Landroidx/compose/runtime/Composer;II)V
-HSPLdev/lelonio/square/ui/**;->*(**Landroidx/compose/runtime/Composer;*)Lkotlin/Unit;
-HSPLdev/lelonio/square/ui/**;->*(**Landroidx/compose/runtime/Composer;*)**
+HSPLcom/abhishek/ame/ui/**;->*(**Landroidx/compose/runtime/Composer;*)V
+HSPLcom/abhishek/ame/ui/**;->*(**Landroidx/compose/runtime/Composer;I)V
+HSPLcom/abhishek/ame/ui/**;->*(**Landroidx/compose/runtime/Composer;II)V
+HSPLcom/abhishek/ame/ui/**;->*(Landroidx/compose/runtime/Composer;I)V
+HSPLcom/abhishek/ame/ui/**;->*(Landroidx/compose/runtime/Composer;II)V
+HSPLcom/abhishek/ame/ui/**;->*(**Landroidx/compose/runtime/Composer;*)Lkotlin/Unit;
+HSPLcom/abhishek/ame/ui/**;->*(**Landroidx/compose/runtime/Composer;*)**
 
 # 3. Whole UI, playback, and data layers
-HSPLdev/lelonio/square/ui/**;->*(**)**
-HSPLdev/lelonio/square/playback/**;->*(**)**
-HSPLdev/lelonio/square/data/**;->*(**)**
+HSPLcom/abhishek/ame/ui/**;->*(**)**
+HSPLcom/abhishek/ame/playback/**;->*(**)**
+HSPLcom/abhishek/ame/data/**;->*(**)**

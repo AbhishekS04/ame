@@ -347,7 +347,7 @@ pub fn init_android_context(context: &JObject) -> EngineResult<()> {
 /// Build the session and player, then authenticate with an OAuth access token
 /// obtained by the Kotlin side.
 ///
-/// `listener` must implement `dev.lelonio.square.nativecore.NativeEvents`.
+/// `listener` must implement `com.abhishek.ame.nativecore.NativeEvents`.
 pub fn start(
     client_id: &str,
     device_name: &str,
@@ -371,7 +371,7 @@ pub fn start(
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
-        .thread_name("squarecore")
+        .thread_name("amecore")
         .build()
         .map_err(|e| format!("failed to build runtime: {e}"))?;
 
@@ -1239,7 +1239,7 @@ fn spawn_event_pump(
     state_dir: String,
 ) {
     std::thread::Builder::new()
-        .name("squarecore-events".into())
+        .name("amecore-events".into())
         .spawn(move || {
             let vm = match JAVA_VM.get() {
                 Some(vm) => vm,

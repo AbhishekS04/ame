@@ -35,6 +35,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
+name = "amecore"
+version = "0.1.0"
+dependencies = [
+ "android_logger",
+ "bytes",
+ "futures-util",
+ "http",
+ "http-body-util",
+ "jni",
+ "librespot-audio",
+ "librespot-connect",
+ "librespot-core",
+ "librespot-metadata",
+ "librespot-playback",
+ "librespot-protocol",
+ "log",
+ "ndk-context",
+ "once_cell",
+ "protobuf",
+ "serde_json",
+ "symphonia",
+ "tokio",
+]
+
+[[package]]
 name = "android_log-sys"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2351,31 +2376,6 @@ checksum = "d91ed6c858b01f942cd56b37a94b3e0a1798290327d1236e4d9cf4eaca44d29d"
 dependencies = [
  "base64ct",
  "der",
-]
-
-[[package]]
-name = "squarecore"
-version = "0.1.0"
-dependencies = [
- "android_logger",
- "bytes",
- "futures-util",
- "http",
- "http-body-util",
- "jni",
- "librespot-audio",
- "librespot-connect",
- "librespot-core",
- "librespot-metadata",
- "librespot-playback",
- "librespot-protocol",
- "log",
- "ndk-context",
- "once_cell",
- "protobuf",
- "serde_json",
- "symphonia",
- "tokio",
 ]
 
 [[package]]

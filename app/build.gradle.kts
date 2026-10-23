@@ -41,7 +41,7 @@ val keystoreProperties = Properties().apply {
 }
 
 android {
-    namespace = "dev.lelonio.square"
+    namespace = "com.abhishek.ame"
     compileSdk = 37
     ndkVersion = ndkVersionForCargo
 
@@ -178,7 +178,7 @@ android {
     packaging {
         // The Rust cdylib is already stripped by the release profile; letting
         // Gradle re-strip it with the wrong tool breaks the arm64 build.
-        jniLibs.keepDebugSymbols += "**/libsquarecore.so"
+        jniLibs.keepDebugSymbols += "**/libamecore.so"
         // The universal APK would otherwise carry the x86 builds some
         // dependencies ship, without the Rust core: installable on an x86
         // device, and closing at once there.
