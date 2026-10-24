@@ -82,6 +82,9 @@
     <string name="good_morning">Good morning</string>
     <string name="good_afternoon">Good afternoon</string>
     <string name="good_evening">Good evening</string>
+    <string name="saved_to_library">Saved to library</string>
+    <string name="already_in_library">Already in your library</string>
+    <string name="save_to_library">Save to library</string>
     <string name="feed_all">Everything</string>
     <string name="feed_for_you">For you</string>
     <string name="feed_discover">Discover</string>
@@ -719,4 +722,9 @@
     <string name="change_custom_banner">Change banner</string>
     <string name="remove_custom_banner">Remove custom banner</string>
     <string name="banner_updated">Banner updated</string>
+    <string name="category_all">All</string>
+    <string name="category_music">Music</string>
+    <string name="new_releases_for_you">New releases for you</string>
+    <string name="singers_you_follow">Singers you follow</string>
+    <string name="new_release_from">New release from</string>
 </resources>

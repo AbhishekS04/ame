@@ -523,6 +523,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private var sourceNewJob: Job? = null
     private var sourceRadioJob: Job? = null
 
+    /** User custom banner mappings: uri -> absolute file path. */
+    val customBanners: StateFlow<Map<String, String>> = container.customBanners.banners
+
+    /** Public & community playlists saved by the user to their library. */
+    val savedPlaylists: StateFlow<List<CatalogPlaylist>> = container.savedPlaylists.saved
+
     /**
      * The New tab for a source that lays its own out. Read once a session: it
      * is the same page for anyone in the country and moves once a week.
@@ -2720,7 +2726,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 name = string(R.string.downloaded_tracks),
                 artworkUrl = container.customBanners.getBanner(DownloadStore.SINGLES)?.let { "file://$it" } ?: com.abhishek.ame.ui.components.DOWNLOADS_COVER,
             ),
-        ) + playlists
+        ) + (playlists + container.savedPlaylists.getSaved())
             .filterNot { it.uri == DownloadStore.SINGLES || it.uri == LocalLibrary.CONTEXT_URI || container.deletedPlaylists.isDeleted(it.uri, it.name) }
             .map { pl ->
                 val custom = container.customBanners.getBanner(pl.uri)
@@ -5219,9 +5225,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun deletePlaylist(uri: String) = viewModelScope.launch {
         container.deletedPlaylists.markDeleted(uri)
         container.customBanners.removeBanner(uri)
+        container.savedPlaylists.remove(uri)
         val ready = _state.value as? UiState.Ready
         if (ready != null) {
-            _state.value = ready.copy(playlists = ready.playlists.filterNot { it.uri == uri })
+            val updated = ready.playlists.filterNot { it.uri == uri }
+            _state.value = ready.copy(playlists = updated)
+            keepLibrarySnapshot(ready.copy(playlists = updated))
         }
 
         runCatching { container.activeBackend.deletePlaylist(uri) }
@@ -5233,6 +5242,34 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun hasCustomBanner(uri: String): Boolean = container.customBanners.getBanner(uri) != null
 
+    fun savePublicPlaylist(playlist: CatalogPlaylist) {
+        val added = container.savedPlaylists.save(playlist)
+        if (!added) {
+            android.widget.Toast.makeText(
+                getApplication(),
+                string(R.string.already_in_library),
+                android.widget.Toast.LENGTH_SHORT,
+            ).show()
+            return
+        }
+        val ready = _state.value as? UiState.Ready
+        if (ready != null) {
+            val updated = (listOf(playlist) + ready.playlists).distinctBy { it.uri }
+            val newReady = ready.copy(playlists = updated)
+            _state.value = newReady
+            viewModelScope.launch {
+                keepLibrarySnapshot(newReady)
+            }
+        }
+        android.widget.Toast.makeText(
+            getApplication(),
+            string(R.string.saved_to_library),
+            android.widget.Toast.LENGTH_SHORT,
+        ).show()
+    }
+
+    fun isPlaylistSaved(uri: String): Boolean = container.savedPlaylists.isSaved(uri)
+
     fun setPlaylistCustomBanner(uri: String, imageUri: android.net.Uri) = viewModelScope.launch {
         runCatching {
             getApplication<android.app.Application>().contentResolver.openInputStream(imageUri)?.use { stream ->
@@ -5243,7 +5280,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     val updated = ready.playlists.map { pl ->
                         if (pl.uri == uri) pl.copy(artworkUrl = bannerUrl) else pl
                     }
-                    _state.value = ready.copy(playlists = updated)
+                    val newReady = ready.copy(playlists = updated)
+                    _state.value = newReady
+                    keepLibrarySnapshot(newReady)
                 }
                 val current = _playlist.value
                 if (current.uri == uri) {
@@ -5253,6 +5292,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         coverUrl = bannerUrl,
                     )
                 }
+                // Also update YouTube home shelves in memory so any matching tile gets the custom image
+                val ytHome = _youtubeHome.value
+                val updatedYtRows = ytHome.rows.map { row ->
+                    row.copy(
+                        items = row.items.map { item ->
+                            if (item.uri == uri) item.copy(artworkUrl = bannerUrl) else item
+                        }
+                    )
+                }
+                _youtubeHome.value = ytHome.copy(rows = updatedYtRows)
                 invalidateContext(uri)
             }
         }.onFailure {

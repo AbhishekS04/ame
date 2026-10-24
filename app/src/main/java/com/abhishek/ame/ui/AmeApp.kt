@@ -701,6 +701,24 @@ fun AmeApp(
      */
     val newPage by viewModel.newPage.collectAsStateWithLifecycle()
     val followedReleases by viewModel.followedReleases.collectAsStateWithLifecycle()
+    val customBanners by viewModel.customBanners.collectAsStateWithLifecycle()
+    val savedPlaylists by viewModel.savedPlaylists.collectAsStateWithLifecycle()
+
+    val dynamicPlayingColor = remember(palette) {
+        val base = palette.firstOrNull() ?: Color(0xFF1ED760)
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(
+            android.graphics.Color.rgb(
+                (base.red * 255).toInt(),
+                (base.green * 255).toInt(),
+                (base.blue * 255).toInt(),
+            ),
+            hsv,
+        )
+        if (hsv[2] < 0.65f) hsv[2] = 0.85f
+        if (hsv[1] < 0.35f) hsv[1] = 0.65f
+        Color(android.graphics.Color.HSVToColor(hsv))
+    }
 
     LaunchedEffect(playback.mediaId, playback.title, playback.album, playback.artist) {
         viewModel.loadNowPlayingArt(
@@ -1741,6 +1759,9 @@ fun AmeApp(
                         composable(Routes.HOME) {
                             LaunchedEffect(Unit) {
                                 viewModel.loadBrowse()
+                                viewModel.loadFeed()
+                                viewModel.loadYouTubeHome()
+                                viewModel.loadSourceNew()
                             }
                             HomeScreen(
                                 state = state,
@@ -1752,6 +1773,8 @@ fun AmeApp(
                                 onOpenPlaylist = openList,
                                 playlistOrder = playlistOrder,
                                 recent = recent,
+                                sourceNew = sourceNew.rows,
+                                userPlaylists = (state as? MainViewModel.UiState.Ready)?.playlists.orEmpty(),
                                 onPlayRecent = { tracks, index ->
                                     onPlay(tracks, index, null, false, playAgainLabel, 0L)
                                 },
@@ -1814,6 +1837,18 @@ fun AmeApp(
                                     // playing is only worth showing if it is
                                     // what they are playing now.
                                     viewModel.loadFriends()
+                                },
+                                currentTrackUri = playback.mediaId,
+                                currentContextUri = playback.contextUri,
+                                isPlaying = playback.isPlaying,
+                                playingColor = dynamicPlayingColor,
+                                customBanners = customBanners,
+                                savedPlaylists = savedPlaylists,
+                                onSavePlaylist = viewModel::savePublicPlaylist,
+                                accountName = if (backend == com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC) {
+                                    youtubeAccountName
+                                } else {
+                                    (state as? MainViewModel.UiState.Ready)?.displayName
                                 },
                             )
                         }
@@ -2023,6 +2058,7 @@ fun AmeApp(
                                 onOpenPlaylist = openList,
                                 listeningEvents = listeningEvents,
                                 listeningFromSpotify = backend == com.abhishek.ame.backend.BackendId.SPOTIFY,
+                                currentPlayingUri = playerState?.contextUri,
                                 playlistOrder = playlistOrder,
                                 pinned = pinnedPlaylists,
                                 canEdit = viewModel.canEditPlaylists,

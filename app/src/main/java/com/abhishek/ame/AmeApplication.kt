@@ -241,6 +241,11 @@ class AmeApplication : Application(), ImageLoaderFactory {
         com.abhishek.ame.data.DeletedPlaylistStore(this)
     }
 
+    /** Public and community playlists saved by the user into their library. */
+    val savedPlaylists: com.abhishek.ame.data.SavedPlaylistStore by lazy {
+        com.abhishek.ame.data.SavedPlaylistStore(this)
+    }
+
     /**
      * The user's own Spotify application. Web API calls go through it so they
      * are metered against a quota nobody else shares — see [WebApiAccount].

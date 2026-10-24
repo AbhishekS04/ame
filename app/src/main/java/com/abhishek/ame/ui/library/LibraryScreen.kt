@@ -98,11 +98,6 @@ import com.adamglin.phosphoricons.regular.Plus
 import com.adamglin.phosphoricons.regular.SquaresFour
 import com.adamglin.phosphoricons.regular.FolderSimple
 
-/** How the playlists are arranged (3D Vinyl Stack vs 3-Column Grid). */
-private enum class Layout { STACK, GRID }
-// Legacy list mode preserved for future reference:
-// private enum class Layout { GRID, LIST }
-
 /** What the library is sorted by. */
 private enum class Order(val key: String, @StringRes val label: Int) {
     RECENT("recent", R.string.recently_opened),
@@ -175,6 +170,7 @@ fun LibraryScreen(
     listeningEvents: List<com.abhishek.ame.data.ListeningEvent>? = null,
     /** Whether those were played from Spotify, rather than YouTube Music. */
     listeningFromSpotify: Boolean = true,
+    currentPlayingUri: String? = null,
     backdrop: Backdrop,
 ) {
     when (state) {
@@ -217,9 +213,8 @@ fun LibraryScreen(
             // left and written as they change; see LibraryViewStore.
             val appContext = LocalContext.current.applicationContext
             val view = remember(appContext) {
-                (appContext as com.abhishek.ame.AmeApplication).libraryView
+                (appContext as com.abhishek.ame.AmeApplication).libraryView.apply { grid = true }
             }
-            var layout by remember { mutableStateOf(if (view.grid) Layout.GRID else Layout.STACK) }
             var order by remember {
                 mutableStateOf(Order.entries.firstOrNull { it.key == view.order } ?: Order.RECENT)
             }
@@ -233,7 +228,6 @@ fun LibraryScreen(
             val listBackdrop = rememberLayerBackdrop()
             val listBackdropFreeze = rememberBackdropFreeze()
             val gridState = rememberLazyGridState()
-            val listState = rememberLazyListState()
             var descending by remember { mutableStateOf(view.descending) }
             val onOrderChosen: (Order) -> Unit = {
                 order = it
@@ -331,16 +325,13 @@ fun LibraryScreen(
                 val heading: @Composable () -> Unit = {
                     Header(
                         count = playlists.size,
-                        layout = layout,
                         order = order,
                         filter = filter,
+                        query = query,
+                        onQuery = { query = it },
                         hasPodcasts = podcasts.isNotEmpty(),
                         backdrop = backdrop,
                         topPadding = contentPadding.calculateTopPadding(),
-                        onLayout = {
-                            layout = it
-                            view.grid = it == Layout.GRID
-                        },
                         onOrder = { onOrderChosen(it) },
                         onFilter = { filter = it },
                         onSort = { sortOpen = true },
@@ -352,155 +343,56 @@ fun LibraryScreen(
                 }
                 if (!sideways) heading()
 
-                val listPadding = PaddingValues(
-                    start = 20.dp,
-                    end = 20.dp,
-                    top = 8.dp,
-                    bottom = contentPadding.calculateBottomPadding(),
-                )
-                // Stack view cards handle their own horizontal padding internally.
-                val stackPadding = PaddingValues(
-                    start = 0.dp,
-                    end = 0.dp,
-                    top = 8.dp,
-                    bottom = contentPadding.calculateBottomPadding(),
-                )
-
-                AnimatedContent(
-                    targetState = layout,
-                    transitionSpec = {
-                        if (targetState == Layout.GRID) {
-                            (fadeIn(animationSpec = tween(220)) +
-                                scaleIn(initialScale = 0.94f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.82f)))
-                                .togetherWith(
-                                    fadeOut(animationSpec = tween(160)) +
-                                    scaleOut(targetScale = 1.04f, animationSpec = tween(160))
-                                )
-                        } else {
-                            (fadeIn(animationSpec = tween(220)) +
-                                scaleIn(initialScale = 1.04f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.82f)))
-                                .togetherWith(
-                                    fadeOut(animationSpec = tween(160)) +
-                                    scaleOut(targetScale = 0.94f, animationSpec = tween(160))
-                                )
+                LazyVerticalGrid(
+                    state = gridState,
+                    columns = GridCells.Fixed(3),
+                    contentPadding = PaddingValues(
+                        start = 14.dp,
+                        end = 14.dp,
+                        top = 6.dp,
+                        bottom = contentPadding.calculateBottomPadding() + 80.dp,
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .nestedScroll(listBackdropFreeze.connection)
+                        .layerBackdrop(
+                            listBackdrop,
+                            frozen = { listBackdropFreeze.frozen() || gridState.isScrollInProgress },
+                        ),
+                ) {
+                    if (sideways) {
+                        item(span = { GridItemSpan(maxLineSpan) }, key = "heading") {
+                            Box(Modifier.bleed(20.dp)) { heading() }
                         }
-                    },
-                    label = "libraryLayoutTransition",
-                ) { currentLayout ->
-                    when (currentLayout) {
-                        Layout.STACK -> LazyColumn(
-                            state = listState,
-                            contentPadding = stackPadding,
-                            verticalArrangement = Arrangement.spacedBy(0.dp),
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .nestedScroll(listBackdropFreeze.connection)
-                                .layerBackdrop(
-                                    listBackdrop,
-                                    frozen = { listBackdropFreeze.frozen() || listState.isScrollInProgress },
-                                ),
-                        ) {
-                            if (sideways) {
-                                item(key = "heading") { Box(Modifier.bleed(20.dp)) { heading() } }
-                            }
-                            item(key = "search") {
-                                com.abhishek.ame.ui.components.ListSearchField(
-                                    query = query,
-                                    onQuery = { query = it },
-                                    placeholder = stringResource(R.string.search_library),
-                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
-                                )
-                            }
+                    }
 
-                            item(key = "offline") {
-                                com.abhishek.ame.ui.components.OfflineNotice(onRetry = onRetryOnline)
-                            }
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "offline") {
+                        com.abhishek.ame.ui.components.OfflineNotice(onRetry = onRetryOnline)
+                    }
 
-                            if (signInHint) {
-                                item(key = "sign-in") {
-                                    com.abhishek.ame.ui.components.SignInHint(onSignIn = onSignIn)
-                                }
-                            }
-
-                            itemsIndexed(playlists, key = { _, it -> "stack_${it.uri}" }) { index, playlist ->
-                                VinylStackCard(
-                                    playlist = playlist,
-                                    index = index,
-                                    pinned = playlist.uri in pinned,
-                                    onClick = { open(playlist, artists, onOpenPlaylist, onOpenArtist) },
-                                    onLongClick = if (canEdit) {
-                                        { onPlaylistMenu(playlist) }
-                                    } else {
-                                        null
-                                    },
-                                )
-                            }
-
-                            item(key = "stack_spacer") {
-                                Spacer(Modifier.height(140.dp))
-                            }
+                    if (signInHint) {
+                        item(span = { GridItemSpan(maxLineSpan) }, key = "sign-in") {
+                            com.abhishek.ame.ui.components.SignInHint(onSignIn = onSignIn)
                         }
+                    }
 
-                        Layout.GRID -> LazyVerticalGrid(
-                            state = gridState,
-                            columns = GridCells.Fixed(3),
-                            contentPadding = PaddingValues(
-                                start = 14.dp,
-                                end = 14.dp,
-                                top = 8.dp,
-                                bottom = contentPadding.calculateBottomPadding() + 40.dp,
-                            ),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .nestedScroll(listBackdropFreeze.connection)
-                                .layerBackdrop(
-                                    listBackdrop,
-                                    frozen = { listBackdropFreeze.frozen() || gridState.isScrollInProgress },
-                                ),
-                        ) {
-                            if (sideways) {
-                                item(span = { GridItemSpan(maxLineSpan) }, key = "heading") {
-                                    Box(Modifier.bleed(20.dp)) { heading() }
-                                }
-                            }
-                            item(span = { GridItemSpan(maxLineSpan) }, key = "search") {
-                                com.abhishek.ame.ui.components.ListSearchField(
-                                    query = query,
-                                    onQuery = { query = it },
-                                    placeholder = stringResource(R.string.search_library),
-                                    modifier = Modifier.padding(bottom = 6.dp),
-                                )
-                            }
-
-                            item(span = { GridItemSpan(maxLineSpan) }, key = "offline") {
-                                com.abhishek.ame.ui.components.OfflineNotice(onRetry = onRetryOnline)
-                            }
-
-                            if (signInHint) {
-                                item(span = { GridItemSpan(maxLineSpan) }, key = "sign-in") {
-                                    com.abhishek.ame.ui.components.SignInHint(onSignIn = onSignIn)
-                                }
-                            }
-
-                            itemsIndexed(
-                                items = playlists,
-                                key = { _, item: CatalogPlaylist -> "grid_${item.uri}" },
-                            ) { index, playlist ->
-                                VinylGridTile(
-                                    playlist = playlist,
-                                    index = index,
-                                    pinned = playlist.uri in pinned,
-                                    onClick = { open(playlist, artists, onOpenPlaylist, onOpenArtist) },
-                                    onLongClick = if (canEdit) {
-                                        { onPlaylistMenu(playlist) }
-                                    } else {
-                                        null
-                                    },
-                                )
-                            }
-                        }
+                    itemsIndexed(
+                        items = playlists,
+                        key = { _, item: CatalogPlaylist -> "grid_${item.uri}" },
+                    ) { index, playlist ->
+                        CdJewelCard(
+                            playlist = playlist,
+                            pinned = playlist.uri in pinned,
+                            isCurrentlyPlaying = playlist.uri == currentPlayingUri,
+                            onClick = { open(playlist, artists, onOpenPlaylist, onOpenArtist) },
+                            onLongClick = if (canEdit) {
+                                { onPlaylistMenu(playlist) }
+                            } else {
+                                null
+                            },
+                        )
                     }
                 }
             }
@@ -576,14 +468,14 @@ private fun open(
 @Composable
 private fun Header(
     count: Int,
-    layout: Layout,
     order: Order,
     filter: Filter,
+    query: String,
+    onQuery: (String) -> Unit,
     /** Whether the podcast chip has anything under it. */
     hasPodcasts: Boolean = false,
     backdrop: Backdrop,
     topPadding: Dp,
-    onLayout: (Layout) -> Unit,
     onOrder: (Order) -> Unit,
     onFilter: (Filter) -> Unit,
     onSort: () -> Unit,
@@ -649,13 +541,21 @@ private fun Header(
                 }
             }
 
-            // 3D Vinyl Stack vs 3-Column Flat Grid switcher (MD Vinyl 60fps motion)
-            VinylLayoutToggle(
-                isGrid = layout == Layout.GRID,
-                onToggle = { isGrid ->
-                    onLayout(if (isGrid) Layout.GRID else Layout.STACK)
-                },
-            )
+            // 4-Squares Grid icon button matching inspo-ame/library.png
+            LiquidButton(
+                onClick = {},
+                backdrop = backdrop,
+                modifier = Modifier.size(42.dp),
+                contentHeight = 42.dp,
+                contentPadding = 0.dp,
+            ) {
+                Icon(
+                    PhosphorIcons.Regular.SquaresFour,
+                    contentDescription = null,
+                    tint = Ink,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
         }
 
         // The chips say what is being shown, the whole width to themselves:
@@ -718,6 +618,17 @@ private fun Header(
             )
 
         }
+
+        // Search bar directly under "Recently opened" (matching inspo-ame/library.png)
+        com.abhishek.ame.ui.components.ListSearchField(
+            query = query,
+            onQuery = onQuery,
+            placeholder = stringResource(R.string.search_library),
+            height = 46.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
+        )
     }
 }
 
