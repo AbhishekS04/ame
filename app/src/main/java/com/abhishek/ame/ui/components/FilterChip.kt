@@ -54,18 +54,22 @@ fun FilterChip(
 
     // Eased, because a row of these is usually tapped along and a cut between
     // two solid fills reads as the row redrawing itself.
+    val targetFill = if (selected) Ink else resting
+    val targetLabel = if (selected) pageGround() else Ink
+    val targetEdge = if (selected) Color.Transparent else Ink.copy(alpha = 0.14f)
+
     val fill by animateColorAsState(
-        targetValue = if (selected) Ink else resting,
+        targetValue = targetFill,
         animationSpec = tween(durationMillis = 180),
         label = "chipFill",
     )
     val labelInk by animateColorAsState(
-        targetValue = if (selected) pageGround() else Ink,
+        targetValue = targetLabel,
         animationSpec = tween(durationMillis = 180),
         label = "chipInk",
     )
     val edge by animateColorAsState(
-        targetValue = if (selected) Color.Transparent else Ink.copy(alpha = 0.14f),
+        targetValue = targetEdge,
         animationSpec = tween(durationMillis = 180),
         label = "chipEdge",
     )

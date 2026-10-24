@@ -76,11 +76,14 @@ import com.abhishek.ame.data.CatalogTrack
 import com.abhishek.ame.data.SearchItem
 import com.abhishek.ame.ui.MainViewModel
 import com.abhishek.ame.ui.components.AppGlyph
-import com.abhishek.ame.ui.components.AppPlate
 import com.abhishek.ame.ui.components.Artwork
 import com.abhishek.ame.ui.components.FilterChip
 import com.abhishek.ame.ui.glass.LiquidButton
+import com.abhishek.ame.ui.glass.LocalGlassEffectConfig
+import com.abhishek.ame.ui.glass.ProgressiveBlur
+import com.abhishek.ame.ui.glass.ProgressiveBlurPosition
 import com.abhishek.ame.ui.glass.backdrop.Backdrop
+import com.abhishek.ame.ui.glass.liquidGlass
 import com.abhishek.ame.ui.glass.pressable
 import com.abhishek.ame.ui.theme.Ink
 import com.abhishek.ame.ui.theme.InkDim
@@ -89,7 +92,12 @@ import com.adamglin.PhosphorIcons
 import com.adamglin.phosphoricons.Fill
 import com.adamglin.phosphoricons.Regular
 import com.adamglin.phosphoricons.fill.BookmarkSimple
+import com.adamglin.phosphoricons.fill.Pause
+import com.adamglin.phosphoricons.fill.Play
 import com.adamglin.phosphoricons.regular.BookmarkSimple
+import com.adamglin.phosphoricons.regular.Check
+import com.adamglin.phosphoricons.regular.DotsThree
+import com.adamglin.phosphoricons.regular.Plus
 import com.adamglin.phosphoricons.regular.User
 import java.util.Calendar
 
@@ -122,9 +130,10 @@ private fun greetingText(accountName: String?): String {
 }
 
 /**
- * Clean Top Navbar matching the design in Ame:
- * - Left: Ame plate logo icon + Time-of-day greeting (with user's name if logged in)
- * - Right: Liquid glass circular profile icon button
+ * Top Navbar:
+ * - Clean typography without enclosing tab-bar-like pill/border background.
+ * - Left: Dynamic time-of-day greeting (with user's first name if logged in).
+ * - Right: Liquid glass circular profile icon button.
  */
 @Composable
 private fun HomeTopNavbar(
@@ -136,61 +145,42 @@ private fun HomeTopNavbar(
 ) {
     val greeting = remember(accountName) { greetingText(accountName) }
 
-    Column(
+    Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(
-                Brush.verticalGradient(
-                    0f to com.abhishek.ame.ui.theme.pageGround(),
-                    0.80f to com.abhishek.ame.ui.theme.pageGround().copy(alpha = 0.95f),
-                    1f to Color.Transparent,
-                ),
-            )
-            .padding(top = topPadding),
+            .padding(top = topPadding + 6.dp, start = 20.dp, end = 20.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f, fill = false),
-            ) {
-                AppPlate(size = 36.dp, backdrop = backdrop)
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    text = greeting,
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp,
-                    ),
-                    color = Ink,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+        Text(
+            text = greeting,
+            style = MaterialTheme.typography.titleLarge.copy(
+                fontWeight = FontWeight.Bold,
+                fontSize = 20.sp,
+                letterSpacing = (-0.3).sp,
+            ),
+            color = Ink,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
 
-            // Liquid Glass Circular Profile Button
-            LiquidButton(
-                onClick = onOpenSettings,
-                backdrop = backdrop,
-                modifier = Modifier
-                    .size(38.dp)
-                    .background(Color.White.copy(alpha = 0.14f), CircleShape)
-                    .border(0.6.dp, Color.White.copy(alpha = 0.24f), CircleShape),
-                contentHeight = 38.dp,
-                contentPadding = 0.dp,
-            ) {
-                Icon(
-                    PhosphorIcons.Regular.User,
-                    contentDescription = stringResource(R.string.settings),
-                    tint = Ink,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+        LiquidButton(
+            onClick = onOpenSettings,
+            backdrop = backdrop,
+            modifier = Modifier
+                .size(40.dp)
+                .background(Color.White.copy(alpha = 0.12f), CircleShape)
+                .border(0.75.dp, Color.White.copy(alpha = 0.25f), CircleShape),
+            contentHeight = 40.dp,
+            contentPadding = 0.dp,
+        ) {
+            Icon(
+                PhosphorIcons.Regular.User,
+                contentDescription = stringResource(R.string.settings),
+                tint = Ink,
+                modifier = Modifier.size(20.dp),
+            )
         }
     }
 }
@@ -273,7 +263,7 @@ fun AnimatedEqualizerBadge(
 }
 
 /**
- * Filter Chips row matching YouTube Music / Ame navigation.
+ * Filter Chips row matching YouTube Music categories with 'All' at the front.
  */
 @Composable
 private fun ChipRow(
@@ -282,29 +272,42 @@ private fun ChipRow(
     backdrop: Backdrop,
     onPick: (com.abhishek.ame.backend.HomeChip?) -> Unit,
 ) {
-    if (chips.isEmpty()) return
+    val allChip = remember { com.abhishek.ame.backend.HomeChip(title = "All", params = null) }
+    val displayChips = remember(chips) {
+        listOf(allChip) + chips.filterNot { it.title.equals("All", ignoreCase = true) }
+    }
     LazyRow(
         contentPadding = PaddingValues(horizontal = 20.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
+        modifier = Modifier.padding(top = 4.dp, bottom = 10.dp),
     ) {
-        items(chips, key = { it.title }) { chip ->
-            val isSelected = chip.title == selected
+        items(displayChips, key = { it.title }) { chip ->
+            val isSelected = if (chip.title == "All") {
+                selected == null || selected == "All"
+            } else {
+                chip.title == selected
+            }
             FilterChip(
                 label = chip.title,
                 selected = isSelected,
-                onClick = { onPick(if (isSelected) null else chip) },
+                onClick = {
+                    if (chip.title == "All") {
+                        onPick(null)
+                    } else {
+                        onPick(if (isSelected) null else chip)
+                    }
+                },
             )
         }
     }
 }
 
 /**
- * Section Heading with strapline and title.
+ * Section Heading with optional strapline and title.
  */
 @Composable
 private fun Heading(text: String, strapline: String? = null) {
-    Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 26.dp)) {
+    Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 24.dp)) {
         strapline?.takeIf { it.isNotBlank() }?.let {
             Text(
                 it.uppercase(),
@@ -592,18 +595,21 @@ private fun TrackRow(
     }
 }
 
+
+
 /**
  * YouTube Music Home Page:
- * Matches the reference image cleanly without clutter:
- * - Navbar with Greeting & Profile
- * - Chips row
- * - Quick picks (4 rows per column, horizontal snap)
- * - Curated shelves (India's biggest hits, Play again, etc.)
+ * Decluttered & Clean:
+ * - Liquid glass navbar with time-of-day greeting (and name if logged in) + liquid glass profile button
+ * - Filter chips (Podcasts, Romance, Feel good, Relax, Energize, Workout, Party)
+ * - When on main feed: ONLY Quick Picks / Daily Discovery, New Releases, and My History (Played earlier)!
+ * - When a filter chip is tapped: dedicated rows for that category.
  */
 @Composable
 private fun YouTubeHome(
     contentPadding: PaddingValues,
     home: MainViewModel.YouTubeHomeState,
+    sourceNew: List<com.abhishek.ame.backend.HomeRow> = emptyList(),
     recent: List<CatalogTrack>,
     accountName: String?,
     backdrop: Backdrop,
@@ -639,11 +645,24 @@ private fun YouTubeHome(
         { uri -> savedPlaylists.any { it.uri == uri } }
     }
 
+    // Default chips list if YouTube chips are empty initially
+    val displayChips = remember(home.chips) {
+        if (home.chips.isNotEmpty()) {
+            home.chips
+        } else {
+            listOf("Podcasts", "Romance", "Feel good", "Relax", "Energize", "Workout", "Party").map {
+                com.abhishek.ame.backend.HomeChip(title = it, params = null)
+            }
+        }
+    }
+
+    // If a filter chip is active, enable infinite scrolling
+    val isCategoryFiltered = home.chip != null
     val shouldLoadMore by remember {
         derivedStateOf {
             val total = listState.layoutInfo.totalItemsCount
             val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            total > 0 && last >= total - 2
+            isCategoryFiltered && total > 0 && last >= total - 2
         }
     }
     LaunchedEffect(shouldLoadMore) {
@@ -652,100 +671,38 @@ private fun YouTubeHome(
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
-        // Sticky Top Navbar: Greeting (with name if signed in) on left, liquid glass Profile on right
-        HomeTopNavbar(
-            accountName = accountName,
-            backdrop = backdrop,
-            topPadding = contentPadding.calculateTopPadding(),
-            onOpenSettings = onOpenSettings,
-        )
+    val topPadding = contentPadding.calculateTopPadding()
+    val headerHeight = topPadding + 102.dp
+    val blurHeight = topPadding + 138.dp
 
-        // Filter chips row (Podcasts, Romance, Relax, Feel good, etc.)
-        ChipRow(
-            chips = home.chips,
-            selected = home.chip,
-            backdrop = backdrop,
-            onPick = onPickChip,
-        )
-
+    Box(Modifier.fillMaxSize()) {
         if (distinctRows.isEmpty() && home.loading) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
+                    .fillMaxSize()
+                    .padding(top = headerHeight),
                 contentAlignment = Alignment.Center,
             ) {
                 CircularProgressIndicator(color = Ink, strokeWidth = 2.dp)
             }
-        } else if (distinctRows.isEmpty() && !home.loading) {
-            if (recent.isNotEmpty()) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = contentPadding.calculateBottomPadding() + 80.dp),
-                ) {
-                    item(key = "recent-head") { Heading(stringResource(R.string.play_again)) }
-                    item(key = "recent") {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 20.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.padding(top = 14.dp),
-                        ) {
-                            itemsIndexed(recent, key = { _, track -> track.uri }) { index, track ->
-                                val isPlayingThis = isPlaying && (currentTrackUri == track.uri)
-                                TrackTile(
-                                    track = track,
-                                    isPlayingThis = isPlayingThis,
-                                    playingColor = playingColor,
-                                ) { onPlayRecent(recent, index) }
-                            }
-                        }
-                    }
-                }
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        stringResource(R.string.youtube_home_empty),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = InkDim,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 40.dp),
-                    )
-                }
-            }
-        } else {
+        } else if (isCategoryFiltered) {
+            // Category filtered feed (dedicated shelves for selected mood/genre)
             LazyColumn(
                 state = listState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
-                    .drawWithContent {
-                        drawContent()
-                        drawRect(
-                            brush = Brush.verticalGradient(
-                                0f to Color.Transparent,
-                                FADE_FRACTION to Color.Black,
-                            ),
-                            blendMode = BlendMode.DstIn,
-                        )
-                    },
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
+                    top = headerHeight,
                     bottom = contentPadding.calculateBottomPadding() + 80.dp,
                 ),
             ) {
                 distinctRows.forEachIndexed { index, row ->
-                    item(key = "head-$index-${row.title}") {
+                    item(key = "filter-head-$index-${row.title}") {
                         Heading(row.title, row.strapline)
                     }
 
                     if (row.tracks.isNotEmpty()) {
-                        item(key = "tracks-$index-${row.title}") {
-                            if (row.tracks.size >= QUICK_PICK_MINIMUM || row.title.contains("Quick picks", ignoreCase = true) || row.title.contains("Top picks", ignoreCase = true)) {
+                        item(key = "filter-tracks-$index-${row.title}") {
+                            if (row.tracks.size >= QUICK_PICK_MINIMUM) {
                                 QuickPicks(
                                     tracks = row.tracks,
                                     currentTrackUri = currentTrackUri,
@@ -768,7 +725,7 @@ private fun YouTubeHome(
                     }
 
                     if (row.items.isNotEmpty()) {
-                        item(key = "items-$index-${row.title}") {
+                        item(key = "filter-items-$index-${row.title}") {
                             LazyRow(
                                 contentPadding = PaddingValues(horizontal = 20.dp),
                                 horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -809,6 +766,203 @@ private fun YouTubeHome(
                     }
                 }
             }
+        } else {
+            // Main Home Screen: STRICTLY DECLUTTERED
+            // 1. Daily Discovery (if present)
+            // 2. Quick Picks (The 4-item column horizontal snap carousel)
+            // 3. New releases (Standard horizontal carousel)
+            // 4. Play again / My History
+
+            val dailyDiscoverRow = distinctRows.find {
+                it.title.contains("daily discover", ignoreCase = true) ||
+                it.title.contains("discovery", ignoreCase = true)
+            }
+
+            val quickPicksRow = distinctRows.find {
+                it.title.contains("Quick picks", ignoreCase = true) ||
+                it.title.contains("Top picks", ignoreCase = true)
+            } ?: distinctRows.firstOrNull { it !== dailyDiscoverRow && it.tracks.size >= 4 }
+
+            val quickPicksTracks = quickPicksRow?.tracks.orEmpty()
+
+            val newReleasesRow = distinctRows.find {
+                it !== dailyDiscoverRow && it !== quickPicksRow && (
+                    it.title.contains("New", ignoreCase = true) ||
+                    it.title.contains("Release", ignoreCase = true) ||
+                    it.title.contains("Fresh", ignoreCase = true)
+                )
+            } ?: sourceNew.firstOrNull { it.items.isNotEmpty() || it.tracks.isNotEmpty() }
+              ?: distinctRows.firstOrNull { it !== dailyDiscoverRow && it !== quickPicksRow && (it.items.isNotEmpty() || it.tracks.isNotEmpty()) }
+
+            val newReleasesTitle = remember(newReleasesRow) {
+                newReleasesRow?.title?.takeIf { it.isNotBlank() } ?: "New releases"
+            }
+            val newReleasesStrapline = remember(newReleasesRow) {
+                newReleasesRow?.strapline ?: "FRESH MUSIC"
+            }
+
+            val newReleaseItems = remember(sourceNew, newReleasesRow) {
+                (newReleasesRow?.items.orEmpty() + sourceNew.flatMap { it.items }).distinctBy { it.uri }
+            }
+            val newReleaseTracks = remember(newReleasesRow, sourceNew) {
+                (newReleasesRow?.tracks.orEmpty() + sourceNew.flatMap { it.tracks }).distinctBy { it.uri }
+            }
+
+            val historyTracks = remember(recent, home.rows) {
+                if (recent.isNotEmpty()) recent
+                else home.rows.find {
+                    it.title.contains("Listen again", ignoreCase = true) ||
+                    it.title.contains("Play again", ignoreCase = true) ||
+                    it.title.contains("history", ignoreCase = true)
+                }?.tracks.orEmpty()
+            }
+
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    top = headerHeight,
+                    bottom = contentPadding.calculateBottomPadding() + 80.dp,
+                ),
+            ) {
+                // 1. Daily Discovery (if present)
+                if (dailyDiscoverRow != null && dailyDiscoverRow.tracks.isNotEmpty()) {
+                    item(key = "daily_discover_head") {
+                        Heading(dailyDiscoverRow.title, dailyDiscoverRow.strapline ?: "DAILY DISCOVERY")
+                    }
+                    item(key = "daily_discover_tracks") {
+                        if (dailyDiscoverRow.tracks.size >= QUICK_PICK_MINIMUM) {
+                            QuickPicks(
+                                tracks = dailyDiscoverRow.tracks.take(16),
+                                currentTrackUri = currentTrackUri,
+                                isPlaying = isPlaying,
+                                playingColor = playingColor,
+                            ) { i ->
+                                onPlayTrending(dailyDiscoverRow.tracks, i)
+                            }
+                        } else {
+                            TrackRow(
+                                tracks = dailyDiscoverRow.tracks.take(16),
+                                currentTrackUri = currentTrackUri,
+                                isPlaying = isPlaying,
+                                playingColor = playingColor,
+                            ) { i ->
+                                onPlayTrending(dailyDiscoverRow.tracks, i)
+                            }
+                        }
+                    }
+                }
+
+                // 2. Quick Picks (The 4-item column horizontal snap carousel)
+                if (quickPicksTracks.isNotEmpty()) {
+                    item(key = "quick_picks_head") {
+                        val quickPicksTitle = if (quickPicksRow?.title?.contains("pick", ignoreCase = true) == true) {
+                            quickPicksRow.title
+                        } else {
+                            "Quick picks"
+                        }
+                        Heading(quickPicksTitle, "START RADIO FROM A SONG")
+                    }
+                    item(key = "quick_picks_tracks") {
+                        QuickPicks(
+                            tracks = quickPicksTracks.take(16),
+                            currentTrackUri = currentTrackUri,
+                            isPlaying = isPlaying,
+                            playingColor = playingColor,
+                        ) { i ->
+                            onPlayTrending(quickPicksTracks, i)
+                        }
+                    }
+                }
+
+                // 3. New releases / Featured Music (Standard horizontal carousel)
+                if (newReleaseItems.isNotEmpty()) {
+                    item(key = "new_releases_head") {
+                        Heading(newReleasesTitle, newReleasesStrapline)
+                    }
+                    item(key = "new_releases_items") {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 20.dp),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            modifier = Modifier.padding(top = 14.dp),
+                        ) {
+                            items(newReleaseItems.take(15), key = { it.uri }) { entry ->
+                                val isPlayingThis = isPlaying && (currentContextUri == entry.uri || currentTrackUri == entry.uri)
+                                val isSaved = isPlaylistSaved(entry.uri)
+                                val bannerUrl = customBanners[entry.uri] ?: entry.artworkUrl
+                                PlaylistTile(
+                                    playlist = entry.copy(artworkUrl = bannerUrl),
+                                    isPlayingThis = isPlayingThis,
+                                    playingColor = playingColor,
+                                    isSaved = isSaved,
+                                    onSave = { onSavePlaylist(entry) },
+                                    onClick = { onOpenPlaylist(entry) },
+                                )
+                            }
+                        }
+                    }
+                } else if (newReleaseTracks.isNotEmpty()) {
+                    item(key = "new_releases_head") {
+                        Heading(newReleasesTitle, newReleasesStrapline)
+                    }
+                    item(key = "new_releases_tracks") {
+                        TrackRow(
+                            tracks = newReleaseTracks.take(15),
+                            currentTrackUri = currentTrackUri,
+                            isPlaying = isPlaying,
+                            playingColor = playingColor,
+                        ) { i ->
+                            onPlayTrending(newReleaseTracks, i)
+                        }
+                    }
+                }
+
+                // 4. Play again / My History
+                if (historyTracks.isNotEmpty()) {
+                    item(key = "history_head") {
+                        Heading(stringResource(R.string.play_again), "MY HISTORY")
+                    }
+                    item(key = "history_tracks") {
+                        TrackRow(
+                            tracks = historyTracks.take(16),
+                            currentTrackUri = currentTrackUri,
+                            isPlaying = isPlaying,
+                            playingColor = playingColor,
+                        ) { i ->
+                            onPlayRecent(historyTracks, i)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Magic UI Progressive Blur: Anchored at top, fading smoothly downward over scrolling content
+        ProgressiveBlur(
+            height = blurHeight,
+            position = ProgressiveBlurPosition.Top,
+            backdrop = backdrop,
+            modifier = Modifier.align(Alignment.TopCenter),
+        )
+
+        // Top Header: Greeting row + Filter Chips row (floating cleanly over the progressive blur)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopCenter),
+        ) {
+            HomeTopNavbar(
+                accountName = accountName,
+                backdrop = backdrop,
+                topPadding = topPadding,
+                onOpenSettings = onOpenSettings,
+            )
+
+            ChipRow(
+                chips = displayChips,
+                selected = home.chip,
+                backdrop = backdrop,
+                onPick = onPickChip,
+            )
         }
     }
 }
@@ -866,6 +1020,7 @@ fun HomeScreen(
         YouTubeHome(
             contentPadding = contentPadding,
             home = youtubeHome,
+            sourceNew = sourceNew,
             recent = recent,
             accountName = accountName,
             backdrop = backdrop,
@@ -935,7 +1090,7 @@ fun HomeScreen(
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 20.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
+                    modifier = Modifier.padding(top = 4.dp, bottom = 10.dp),
                 ) {
                     items(Feed.entries.toList(), key = { it.name }) { entry ->
                         FilterChip(
