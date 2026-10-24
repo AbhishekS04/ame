@@ -11,3 +11,8 @@
   - Strictly decluttered Home feed: Daily Discovery, 4-track Quick Picks snap carousel, New Releases, and My History / Play again.
   - Removed blocky featured release cards that overlapped chips.
   - Fully verified GitHub Actions release pipeline with `SIGNING_KEYSTORE_BASE64`, `SIGNING_STORE_PASSWORD`, `SIGNING_KEY_ALIAS`, and `SIGNING_KEY_PASSWORD`.
+
+## 🔒 Keystore Integrity & Agent Protection
+- Official release signing key: `ame-release.jks` (MD5: `1023458fc11e2cde98fdefa6dc9e2d1c`).
+- Persistent agent instructions established in `AGENTS.md`.
+- Strict rule: Under NO circumstances may any agent regenerate, overwrite, or commit keystores or signing secrets.
