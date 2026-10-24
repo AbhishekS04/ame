@@ -40,6 +40,15 @@ val keystoreProperties = Properties().apply {
     if (file.exists()) file.inputStream().use(::load)
 }
 
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use(::load)
+}
+val supabaseUrl = localProperties.getProperty("supabase.url")
+    ?: "https://kasxrvmzbvdtiubcufch.supabase.co"
+val supabaseAnonKey = localProperties.getProperty("supabase.anon.key")
+    ?: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imthc3hydm16YnZkdGl1YmN1ZmNoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI4NjM1MTEsImV4cCI6MjEwODQzOTUxMX0.ly_1mzOOs-aIuKavt06K4gG8oJJlb2SY6up0GhbET0I"
+
 android {
     namespace = "com.abhishek.ame"
     compileSdk = 37
@@ -50,9 +59,11 @@ android {
         // cpal's Android host is AAudio, which the ndk crate gates at API 26.
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.0.3"
+        versionCode = 5
+        versionName = "1.0.4"
         buildConfigField("boolean", "VERBOSE_LOG", "false")
+        buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
 
         // Bungee only for the ABIs that ship; see the splits below.
         externalNativeBuild {
@@ -238,6 +249,11 @@ dependencies {
     implementation(libs.backdrop)
     implementation(libs.kyant.shapes)
     implementation(libs.phosphor)
+
+    implementation(platform(libs.supabase.bom))
+    implementation(libs.supabase.postgrest)
+    implementation(libs.supabase.storage)
+    implementation(libs.supabase.realtime)
 
     coreLibraryDesugaring(libs.desugaring)
 }

@@ -926,6 +926,30 @@ class YouTubeBackend(private val account: YouTubeAccount) : MusicBackend {
         }
     }
 
+    override suspend fun uploadPlaylistBanner(playlistUri: String, imageBytes: ByteArray): String? =
+        withContext(Dispatchers.IO) {
+            if (!account.isSignedIn) return@withContext null
+            val playlistId = playlistUri.removePrefix(PLAYLIST_PREFIX)
+            if (playlistId == LIKED_MUSIC_ID) return@withContext null
+            runCatching {
+                YouTube.uploadCustomThumbnailLink(playlistId, imageBytes).getOrThrow()
+            }.onFailure {
+                android.util.Log.e(LOG_TAG, "Failed to upload playlist custom thumbnail to YouTube for $playlistId", it)
+            }.getOrNull()
+        }
+
+    override suspend fun removePlaylistBanner(playlistUri: String): Unit =
+        withContext(Dispatchers.IO) {
+            if (!account.isSignedIn) return@withContext
+            val playlistId = playlistUri.removePrefix(PLAYLIST_PREFIX)
+            if (playlistId == LIKED_MUSIC_ID) return@withContext
+            runCatching {
+                YouTube.removeThumbnailPlaylist(playlistId).getOrThrow()
+            }.onFailure {
+                android.util.Log.e(LOG_TAG, "Failed to remove playlist custom thumbnail on YouTube for $playlistId", it)
+            }
+        }
+
     override suspend fun isFollowing(artistUri: String): Boolean? = withContext(Dispatchers.IO) {
         if (!account.isSignedIn) return@withContext null
         val id = publicArtistId(artistUri.removePrefix(ARTIST_PREFIX))

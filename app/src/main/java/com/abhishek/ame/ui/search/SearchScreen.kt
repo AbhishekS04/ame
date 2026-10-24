@@ -67,6 +67,7 @@ private enum class Kind(@StringRes val label: Int) {
     ALBUMS(R.string.albums),
     PLAYLISTS(R.string.playlists),
     PODCASTS(R.string.podcasts),
+    PROFILES(R.string.profiles),
 }
 
 /**
@@ -103,6 +104,12 @@ fun SearchScreen(
     /** Opens the same track sheet the library rows open. */
     onTrackMenu: (CatalogTrack) -> Unit,
     onOpenContext: (SearchItem) -> Unit,
+    onOpenProfile: (String) -> Unit = {},
+    socialProfiles: List<com.abhishek.ame.data.social.SocialProfile> = emptyList(),
+    activeJams: Map<String, com.abhishek.ame.data.social.JamTrack> = emptyMap(),
+    onJoinJam: (com.abhishek.ame.data.social.JamTrack) -> Unit = {},
+    onSearchSocialProfiles: (String) -> Unit = {},
+    onToggleFollow: (String) -> Unit = {},
     /**
      * What is typed goes here.
      *
@@ -121,6 +128,12 @@ fun SearchScreen(
     // of the answer rather than staying filtered to what the last one was about.
     val query = state.query
     remember(query) { kind = Kind.ALL }
+
+    LaunchedEffect(query, kind) {
+        if (kind == Kind.PROFILES || query.isNotBlank()) {
+            onSearchSocialProfiles(query)
+        }
+    }
 
     val listState = rememberLazyListState()
 
@@ -365,6 +378,27 @@ fun SearchScreen(
                                 round = false,
                                 onClick = { onPlayTrack(episodes, index) },
                                 onMenu = { onTrackMenu(episode) },
+                            )
+                        }
+                    }
+                }
+
+                // Profiles / People search results
+                if (all || kind == Kind.PROFILES) {
+                    if (socialProfiles.isNotEmpty()) {
+                        item(contentType = "section") { SectionTitle(stringResource(R.string.profiles)) }
+                        items(
+                            count = socialProfiles.size,
+                            key = { "profile-${socialProfiles[it].id}" },
+                            contentType = { "profile" },
+                        ) { index ->
+                            val profile = socialProfiles[index]
+                            PersonSearchResultRow(
+                                profile = profile,
+                                accentColor = MaterialTheme.colorScheme.primary,
+                                onClick = { onOpenProfile(profile.id) },
+                                jam = activeJams[profile.id],
+                                onJoinJam = onJoinJam,
                             )
                         }
                     }

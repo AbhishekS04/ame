@@ -236,6 +236,21 @@ class AmeApplication : Application(), ImageLoaderFactory {
         com.abhishek.ame.data.CustomBannerStore(this)
     }
 
+    /** User custom profile avatar, banner, and bio customizations. */
+    val profileStore: com.abhishek.ame.data.ProfileStore by lazy {
+        com.abhishek.ame.data.ProfileStore(this)
+    }
+
+    /** Social repository for user discovery, public profiles, and follow relations. */
+    val socialRepository: com.abhishek.ame.data.social.SocialRepository by lazy {
+        com.abhishek.ame.data.social.SocialRepository(this)
+    }
+
+    /** Live Jam Session / Listen Along engine over Supabase Realtime. */
+    val jamEngine: com.abhishek.ame.data.social.JamEngine by lazy {
+        com.abhishek.ame.data.social.JamEngine()
+    }
+
     /** Playlists deleted or permanently hidden by the user. */
     val deletedPlaylists: com.abhishek.ame.data.DeletedPlaylistStore by lazy {
         com.abhishek.ame.data.DeletedPlaylistStore(this)

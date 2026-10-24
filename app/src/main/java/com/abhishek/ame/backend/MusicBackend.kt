@@ -241,6 +241,12 @@ interface MusicBackend {
     suspend fun removeFromPlaylist(playlistUri: String, trackUri: String): Unit =
         throw UnsupportedOperationException()
 
+    /** Uploads a custom thumbnail/banner to the backend service for this playlist. Returns remote URL if supported. */
+    suspend fun uploadPlaylistBanner(playlistUri: String, imageBytes: ByteArray): String? = null
+
+    /** Removes custom thumbnail on the backend service, reverting to default. */
+    suspend fun removePlaylistBanner(playlistUri: String): Unit {}
+
     /** Whether the account follows an artist; null when the source cannot say. */
     suspend fun isFollowing(artistUri: String): Boolean? = null
 

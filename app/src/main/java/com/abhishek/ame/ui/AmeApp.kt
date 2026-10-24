@@ -139,7 +139,9 @@ import com.abhishek.ame.ui.components.UpdateSheet
 import com.abhishek.ame.update.Updater
 import com.abhishek.ame.ui.library.openLink
 import com.adamglin.phosphoricons.regular.Download
+import com.adamglin.phosphoricons.regular.Globe
 import com.adamglin.phosphoricons.regular.LinkSimple
+import com.adamglin.phosphoricons.regular.Lock
 import com.adamglin.phosphoricons.regular.PencilSimple
 import com.adamglin.phosphoricons.regular.PushPin
 import com.adamglin.phosphoricons.regular.Plus
@@ -209,6 +211,9 @@ import com.adamglin.phosphoricons.regular.Broadcast
 import com.adamglin.phosphoricons.regular.House
 import com.adamglin.phosphoricons.regular.MagnifyingGlass
 import com.adamglin.phosphoricons.regular.MusicNotes
+import com.adamglin.phosphoricons.fill.GearSix
+import com.adamglin.phosphoricons.bold.GearSix
+import com.adamglin.phosphoricons.regular.GearSix
 
 /** A name being asked for: null playlist means one that does not exist yet. */
 private data class NamingRequest(val playlist: CatalogPlaylist?)
@@ -227,6 +232,7 @@ object Routes {
     const val LIBRARY = "library"
     const val PLAYLIST = "playlist"
     const val SETTINGS = "settings"
+    const val PROFILE = "profile"
 }
 
 /** How the player settles when it is not being dragged. */
@@ -570,6 +576,22 @@ fun AmeApp(
     val videoOn by YouTubeVideoMode.enabled.collectAsStateWithLifecycle()
     val videoUnavailable by YouTubeVideoMode.unavailable.collectAsStateWithLifecycle()
 
+    // Supabase Realtime Jam Presence broadcast (Discord-style Listen Along)
+    LaunchedEffect(local.mediaId, local.isPlaying) {
+        if (local.hasItem && local.isPlaying && local.title.isNotBlank()) {
+            viewModel.broadcastJamPresence(
+                trackTitle = local.title,
+                artistName = local.artist,
+                trackUri = local.mediaId ?: "",
+                artworkUrl = local.artworkUrl,
+                isPlaying = local.isPlaying,
+                positionMs = localPosition.value,
+            )
+        } else if (!local.isPlaying) {
+            viewModel.stopJamPresence()
+        }
+    }
+
     // Video keeps playing when the app leaves the foreground, surface or no
     // surface. Switching back to the audio-only stream would be tidier, but the
     // stream has to reopen to do it and that break is audible — which, for
@@ -703,6 +725,20 @@ fun AmeApp(
     val followedReleases by viewModel.followedReleases.collectAsStateWithLifecycle()
     val customBanners by viewModel.customBanners.collectAsStateWithLifecycle()
     val savedPlaylists by viewModel.savedPlaylists.collectAsStateWithLifecycle()
+    val customProfileBanner by viewModel.profileBanner.collectAsStateWithLifecycle()
+    val customProfileAvatar by viewModel.profileAvatar.collectAsStateWithLifecycle()
+    val customProfileBannerCloud by viewModel.profileBannerCloudUrl.collectAsStateWithLifecycle()
+    val customProfileAvatarCloud by viewModel.profileAvatarCloudUrl.collectAsStateWithLifecycle()
+    val customProfileDisplayName by viewModel.profileDisplayName.collectAsStateWithLifecycle()
+    val customProfileUsername by viewModel.profileUsername.collectAsStateWithLifecycle()
+    val profileBio by viewModel.profileBio.collectAsStateWithLifecycle()
+    val profileIsPrivate by viewModel.profileIsPrivate.collectAsStateWithLifecycle()
+    val profileFollowers by viewModel.profileFollowers.collectAsStateWithLifecycle()
+    val profileFollowing by viewModel.profileFollowing.collectAsStateWithLifecycle()
+    val publicPlaylists by viewModel.publicPlaylists.collectAsStateWithLifecycle()
+    val activeJams by viewModel.activeJams.collectAsStateWithLifecycle()
+    val socialSearchResults by viewModel.socialSearchResults.collectAsStateWithLifecycle()
+    val visitedSocialProfile by viewModel.visitedSocialProfile.collectAsStateWithLifecycle()
 
     val dynamicPlayingColor = remember(palette) {
         val base = palette.firstOrNull() ?: Color(0xFF1ED760)
@@ -1007,6 +1043,13 @@ fun AmeApp(
     val youtubeAccountName by remember(context) {
         (context.applicationContext as com.abhishek.ame.AmeApplication).youtubeAccount.accountName
     }.collectAsStateWithLifecycle()
+
+    // Seamless cloud profile restoration when YouTube Account is authenticated
+    LaunchedEffect(youtubeAccountName) {
+        if (!youtubeAccountName.isNullOrBlank()) {
+            viewModel.restoreProfileFromCloud(youtubeAccountName)
+        }
+    }
     // What is kept on the phone. Read here rather than inside the pages that
     // draw it, because the same answer is wanted by the playlist button, the
     // track rows and the track menu, and one collection is one recomposition.
@@ -1570,6 +1613,12 @@ fun AmeApp(
                         if (navController.currentDestination?.route != Routes.PLAYLIST) {
                             navController.navigate(Routes.PLAYLIST) { launchSingleTop = true }
                         }
+                    } else if (uri.startsWith("ame:profile:")) {
+                        val handle = uri.removePrefix("ame:profile:").removePrefix("@").trim()
+                        viewModel.openSocialProfileByUsername(handle)
+                        if (navController.currentDestination?.route != Routes.PROFILE) {
+                            navController.navigate(Routes.PROFILE)
+                        }
                     } else if (uri.startsWith("spotify:track:")) {
                         sharedTrack = viewModel.resolveTrack(uri)
                     } else {
@@ -1829,6 +1878,10 @@ fun AmeApp(
                                 onUseYouTube = {
                                     preferences.setBackend(com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC)
                                 },
+                                onOpenProfile = {
+                                    viewModel.clearVisitedSocialProfile()
+                                    navController.navigate(Routes.PROFILE)
+                                },
                                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                                 friends = friends,
                                 onOpenFriends = {
@@ -1845,11 +1898,14 @@ fun AmeApp(
                                 customBanners = customBanners,
                                 savedPlaylists = savedPlaylists,
                                 onSavePlaylist = viewModel::savePublicPlaylist,
-                                accountName = if (backend == com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC) {
+                                accountName = customProfileDisplayName ?: if (backend == com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC) {
                                     youtubeAccountName
                                 } else {
                                     (state as? MainViewModel.UiState.Ready)?.displayName
                                 },
+                                customAvatarPath = customProfileAvatar,
+                                customAvatarCloudUrl = customProfileAvatarCloud,
+                                defaultAvatarUrl = (state as? MainViewModel.UiState.Ready)?.avatarUrl,
                             )
                         }
 
@@ -2041,6 +2097,23 @@ fun AmeApp(
                                         navController.navigate(Routes.PLAYLIST) { launchSingleTop = true }
                                     }
                                 },
+                                onOpenProfile = { userId ->
+                                    viewModel.openSocialProfile(userId)
+                                    navController.navigate(Routes.PROFILE)
+                                },
+                                socialProfiles = socialSearchResults,
+                                activeJams = activeJams,
+                                onJoinJam = { jam ->
+                                    val jamTrack = CatalogTrack(
+                                        uri = jam.trackUri,
+                                        name = jam.trackTitle,
+                                        artist = jam.artistName,
+                                        artworkUrl = jam.artworkUrl,
+                                    )
+                                    onPlay(listOf(jamTrack), 0, null, false, "Jam with ${jam.displayName}", jam.positionMs)
+                                },
+                                onSearchSocialProfiles = viewModel::searchSocialProfiles,
+                                onToggleFollow = viewModel::toggleFollowUser,
                                 onLoadMore = viewModel::loadMoreSearch,
                                 backdrop = artBackdrop,
                             )
@@ -2122,6 +2195,64 @@ fun AmeApp(
                                     // read for the one before it.
                                     viewModel.refresh()
                                     viewModel.loadYouTubeHome(force = true)
+                                },
+                            )
+                        }
+
+                        composable(Routes.PROFILE) {
+                            val readyState = state as? MainViewModel.UiState.Ready
+                            com.abhishek.ame.ui.profile.ProfileScreen(
+                                visitedProfile = visitedSocialProfile,
+                                currentUserId = viewModel.profileUserId,
+                                onToggleFollow = viewModel::toggleFollowUser,
+                                accountName = if (backend == com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC) {
+                                    youtubeAccountName
+                                } else {
+                                    readyState?.displayName
+                                },
+                                defaultAvatarUrl = readyState?.avatarUrl,
+                                customBannerPath = customProfileBanner,
+                                customAvatarPath = customProfileAvatar,
+                                customBannerCloudUrl = customProfileBannerCloud,
+                                customAvatarCloudUrl = customProfileAvatarCloud,
+                                customDisplayName = customProfileDisplayName,
+                                customUsername = customProfileUsername,
+                                bio = profileBio,
+                                isPrivate = profileIsPrivate,
+                                followersCount = profileFollowers,
+                                followingCount = profileFollowing,
+                                listeningEvents = listeningEvents,
+                                publicPlaylists = publicPlaylists,
+                                activeJam = activeJams[visitedSocialProfile?.id],
+                                onJoinJam = { jam ->
+                                    val jamTrack = CatalogTrack(
+                                        uri = jam.trackUri,
+                                        name = jam.trackTitle,
+                                        artist = jam.artistName,
+                                        artworkUrl = jam.artworkUrl,
+                                    )
+                                    onPlay(listOf(jamTrack), 0, null, false, "Jam with ${jam.displayName}", jam.positionMs)
+                                },
+                                contentPadding = listPadding,
+                                backdrop = artBackdrop,
+                                accentColor = dynamicPlayingColor,
+                                onPickBanner = { uri -> viewModel.setProfileBanner(uri) },
+                                onPickAvatar = { uri -> viewModel.setProfileAvatar(uri) },
+                                onSaveDisplayName = viewModel::setProfileDisplayName,
+                                onSaveUsername = viewModel::setProfileUsername,
+                                onCheckUsernameAvailability = viewModel::checkUsernameAvailability,
+                                onSaveBio = viewModel::setProfileBio,
+                                onSetPrivate = viewModel::setProfilePrivate,
+                                onOpenPlaylist = openList,
+                                onBack = {
+                                    if (visitedSocialProfile != null) {
+                                        viewModel.clearVisitedSocialProfile()
+                                    }
+                                    if (navController.previousBackStackEntry != null) {
+                                        navController.popBackStack()
+                                    } else {
+                                        navController.switchTab(Routes.HOME)
+                                    }
                                 },
                             )
                         }
@@ -2845,10 +2976,9 @@ fun AmeApp(
                                     searchOpen = true
                                     navController.switchTab(Routes.SEARCH)
                                 }
-                                BarProfileTab(
-                                    R.string.profile,
-                                    profileAvatarUrl,
-                                    profileName,
+                                BarTab(
+                                    R.string.settings,
+                                    PhosphorIcons.Fill.GearSix,
                                     activeTab == Routes.SETTINGS,
                                     tabAccent,
                                     barInk,
@@ -3016,7 +3146,7 @@ fun AmeApp(
                             key = Routes.SETTINGS,
                             title = {
                                 Text(
-                                    stringResource(R.string.profile),
+                                    stringResource(R.string.settings),
                                     fontSize = 9.sp,
                                     lineHeight = 11.sp,
                                     style = LocalTextStyle.current.copy(
@@ -3033,28 +3163,12 @@ fun AmeApp(
                                 )
                             },
                             icon = {
-                                if (!profileAvatarUrl.isNullOrBlank()) {
-                                    com.abhishek.ame.ui.components.ProfilePicture(
-                                        url = profileAvatarUrl,
-                                        name = profileName,
-                                        size = TabIcon,
-                                        decodeSize = TabIcon,
-                                        modifier = Modifier
-                                            .size(TabIcon)
-                                            .clip(CircleShape)
-                                            .then(
-                                                if (activeTab == Routes.SETTINGS) Modifier.border(1.5.dp, tabAccent, CircleShape)
-                                                else Modifier
-                                            ),
-                                    )
-                                } else {
-                                    Icon(
-                                        PhosphorIcons.Fill.User,
-                                        contentDescription = stringResource(R.string.profile),
-                                        tint = if (activeTab == Routes.SETTINGS) tabAccent else barInk,
-                                        modifier = Modifier.size(TabIcon),
-                                    )
-                                }
+                                Icon(
+                                    PhosphorIcons.Fill.GearSix,
+                                    contentDescription = stringResource(R.string.settings),
+                                    tint = if (activeTab == Routes.SETTINGS) tabAccent else barInk,
+                                    modifier = Modifier.size(TabIcon),
+                                )
                             },
                             onClick = {
                                 viewModel.clearPageHistory()
@@ -3596,6 +3710,19 @@ fun AmeApp(
                                 playlistMenu = null
                                 viewModel.removePlaylistCustomBanner(shownPlaylist.uri)
                             }
+                        }
+                        val isPublic = viewModel.isPlaylistPublic(shownPlaylist.uri)
+                        TrackSheetAction(
+                            stringResource(if (isPublic) R.string.make_playlist_private else R.string.make_playlist_public),
+                            if (isPublic) PhosphorIcons.Regular.Lock else PhosphorIcons.Regular.Globe,
+                        ) {
+                            playlistMenu = null
+                            val nowPublic = viewModel.togglePlaylistPublic(shownPlaylist)
+                            android.widget.Toast.makeText(
+                                context,
+                                if (nowPublic) R.string.playlist_made_public else R.string.playlist_made_private,
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
                         }
                         // The whole playlist in one link. yt-dlp and the apps
                         // built on it expand a playlist URL themselves, so this
@@ -4219,9 +4346,9 @@ private fun BottomBar(
                 routeIndex >= 0 && selected == 1,
             ) { onSelect(Routes.LIBRARY) }
             BottomItem(
-                stringResource(R.string.profile),
-                PhosphorIcons.Fill.User,
-                PhosphorIcons.Regular.User,
+                stringResource(R.string.settings),
+                PhosphorIcons.Fill.GearSix,
+                PhosphorIcons.Bold.GearSix,
                 routeIndex >= 0 && selected == 2,
             ) { onSelect(Routes.SETTINGS) }
             }

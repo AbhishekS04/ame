@@ -106,6 +106,16 @@
                 <data android:scheme="http" android:host="open.spotify.com" />
                 <data android:scheme="https" android:host="link.tospotify.com" />
             </intent-filter>
+
+            <!-- Ame Universal Links for Profiles and Playlists -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="ame.app" />
+                <data android:scheme="http" android:host="ame.app" />
+                <data android:scheme="ame" />
+            </intent-filter>
         </activity>
 
         <!--

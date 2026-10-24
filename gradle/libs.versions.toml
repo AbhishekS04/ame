@@ -9,6 +9,7 @@ okhttp = "4.12.0"
 retrofit = "2.11.0"
 serialization = "1.7.3"
 ktor = "3.5.2"
+supabase = "3.8.0"
 
 [libraries]
 androidx-profileinstaller = { module = "androidx.profileinstaller:profileinstaller", version = "1.4.1" }
@@ -84,6 +85,10 @@ kyant-shapes = { module = "io.github.kyant0:shapes", version = "1.2.0" }
 # they cannot be used here; Phosphor is the closest set that can, and it carries
 # the outline/fill pair this UI already relies on for selected states.
 phosphor = { module = "com.adamglin:phosphor-icon", version = "1.0.0" }
+supabase-bom = { module = "io.github.jan-tennert.supabase:bom", version.ref = "supabase" }
+supabase-postgrest = { module = "io.github.jan-tennert.supabase:postgrest-kt" }
+supabase-storage = { module = "io.github.jan-tennert.supabase:storage-kt" }
+supabase-realtime = { module = "io.github.jan-tennert.supabase:realtime-kt" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

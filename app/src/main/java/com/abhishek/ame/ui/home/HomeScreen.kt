@@ -99,6 +99,17 @@ import com.adamglin.phosphoricons.regular.Check
 import com.adamglin.phosphoricons.regular.DotsThree
 import com.adamglin.phosphoricons.regular.Plus
 import com.adamglin.phosphoricons.regular.User
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.ui.platform.LocalContext
+import coil.request.CachePolicy
+import coil.request.ImageRequest
+import com.abhishek.ame.ui.components.ProfilePicture
+import java.io.File
 import java.util.Calendar
 
 private const val FADE_FRACTION = 0.02f
@@ -140,15 +151,31 @@ private fun HomeTopNavbar(
     accountName: String?,
     backdrop: Backdrop,
     topPadding: Dp,
-    onOpenSettings: () -> Unit,
+    onOpenProfile: () -> Unit,
     modifier: Modifier = Modifier,
+    customAvatarPath: String? = null,
+    customAvatarCloudUrl: String? = null,
+    defaultAvatarUrl: String? = null,
 ) {
     val greeting = remember(accountName) { greetingText(accountName) }
+    val context = LocalContext.current
+    val statusBarInsets = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val cutoutInsets = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
+    val safeTopPadding = maxOf(topPadding, maxOf(statusBarInsets, cutoutInsets)) + 12.dp
+
+    val avatarModel = remember(customAvatarPath, customAvatarCloudUrl, defaultAvatarUrl) {
+        when {
+            customAvatarPath != null && File(customAvatarPath).exists() -> File(customAvatarPath)
+            !customAvatarCloudUrl.isNullOrBlank() -> customAvatarCloudUrl
+            !defaultAvatarUrl.isNullOrBlank() -> defaultAvatarUrl
+            else -> null
+        }
+    }
 
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = topPadding + 6.dp, start = 20.dp, end = 20.dp, bottom = 6.dp),
+            .padding(top = safeTopPadding, start = 20.dp, end = 20.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
@@ -166,7 +193,7 @@ private fun HomeTopNavbar(
         )
 
         LiquidButton(
-            onClick = onOpenSettings,
+            onClick = onOpenProfile,
             backdrop = backdrop,
             modifier = Modifier
                 .size(40.dp)
@@ -175,12 +202,30 @@ private fun HomeTopNavbar(
             contentHeight = 40.dp,
             contentPadding = 0.dp,
         ) {
-            Icon(
-                PhosphorIcons.Regular.User,
-                contentDescription = stringResource(R.string.settings),
-                tint = Ink,
-                modifier = Modifier.size(20.dp),
-            )
+            if (avatarModel != null) {
+                val avatarRequest = remember(avatarModel) {
+                    ImageRequest.Builder(context)
+                        .data(avatarModel)
+                        .crossfade(false)
+                        .memoryCachePolicy(CachePolicy.ENABLED)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .build()
+                }
+                AsyncImage(
+                    model = avatarRequest,
+                    contentDescription = stringResource(R.string.profile),
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                )
+            } else {
+                ProfilePicture(
+                    url = null,
+                    name = accountName,
+                    size = 40.dp,
+                    decodeSize = 40.dp,
+                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                )
+            }
         }
     }
 }
@@ -346,10 +391,12 @@ private fun QuickPicks(
 ) {
     val columns = tracks.chunked(QUICK_PICK_ROWS)
     val width = LocalConfiguration.current.screenWidthDp.dp - 44.dp
+    val rowState = rememberLazyListState()
     LazyRow(
+        state = rowState,
         contentPadding = PaddingValues(horizontal = 20.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
-        flingBehavior = rememberSnapFlingBehavior(rememberLazyListState()),
+        flingBehavior = rememberSnapFlingBehavior(rowState),
         modifier = Modifier.padding(top = 14.dp),
     ) {
         itemsIndexed(columns, key = { _, column -> column.first().uri }) { columnIndex, column ->
@@ -616,6 +663,7 @@ private fun YouTubeHome(
     onPlayRecent: (List<CatalogTrack>, Int) -> Unit,
     onPlayTrending: (List<CatalogTrack>, Int) -> Unit,
     onOpenPlaylist: (CatalogPlaylist) -> Unit,
+    onOpenProfile: () -> Unit = {},
     onOpenSettings: () -> Unit,
     onSwitchSource: () -> Unit,
     onPickChip: (com.abhishek.ame.backend.HomeChip?) -> Unit,
@@ -629,6 +677,9 @@ private fun YouTubeHome(
     customBanners: Map<String, String> = emptyMap(),
     savedPlaylists: List<CatalogPlaylist> = emptyList(),
     onSavePlaylist: (CatalogPlaylist) -> Unit = {},
+    customAvatarPath: String? = null,
+    customAvatarCloudUrl: String? = null,
+    defaultAvatarUrl: String? = null,
 ) {
     val listState = rememberLazyListState()
 
@@ -671,12 +722,31 @@ private fun YouTubeHome(
         }
     }
 
+    // Ensure home feed always starts cleanly at the top
+    LaunchedEffect(Unit) {
+        listState.scrollToItem(0, 0)
+    }
+    LaunchedEffect(distinctRows.isNotEmpty()) {
+        if (distinctRows.isNotEmpty()) {
+            listState.scrollToItem(0, 0)
+        }
+    }
+    LaunchedEffect(home.chip) {
+        listState.scrollToItem(0, 0)
+    }
+
     val topPadding = contentPadding.calculateTopPadding()
-    val headerHeight = topPadding + 102.dp
-    val blurHeight = topPadding + 138.dp
+    val statusBarInsets = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val cutoutInsets = WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
+    val safeTop = maxOf(topPadding, maxOf(statusBarInsets, cutoutInsets)) + 12.dp
+
+    // Pixel-perfect header height: perfectly clears status bar & punch-hole camera,
+    // and eliminates huge empty gap above Quick Picks
+    val headerHeight = safeTop + 96.dp
+    val blurHeight = safeTop + 92.dp
 
     Box(Modifier.fillMaxSize()) {
-        if (distinctRows.isEmpty() && home.loading) {
+        if (distinctRows.isEmpty() && (home.loading || home.rows.isEmpty()) && home.error == null) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -954,7 +1024,10 @@ private fun YouTubeHome(
                 accountName = accountName,
                 backdrop = backdrop,
                 topPadding = topPadding,
-                onOpenSettings = onOpenSettings,
+                onOpenProfile = onOpenProfile,
+                customAvatarPath = customAvatarPath,
+                customAvatarCloudUrl = customAvatarCloudUrl,
+                defaultAvatarUrl = defaultAvatarUrl,
             )
 
             ChipRow(
@@ -985,6 +1058,7 @@ fun HomeScreen(
     onPlayFeed: (List<CatalogTrack>, Int, String) -> Unit,
     feed: MainViewModel.FeedState,
     onOpenItem: (SearchItem) -> Unit,
+    onOpenProfile: () -> Unit = {},
     onOpenSettings: () -> Unit,
     friends: List<com.abhishek.ame.data.FriendListen> = emptyList(),
     onOpenFriends: () -> Unit = {},
@@ -1015,6 +1089,9 @@ fun HomeScreen(
     savedPlaylists: List<CatalogPlaylist> = emptyList(),
     onSavePlaylist: (CatalogPlaylist) -> Unit = {},
     accountName: String? = null,
+    customAvatarPath: String? = null,
+    customAvatarCloudUrl: String? = null,
+    defaultAvatarUrl: String? = null,
 ) {
     if (youtubeMode) {
         YouTubeHome(
@@ -1027,6 +1104,7 @@ fun HomeScreen(
             onPlayRecent = onPlayRecent,
             onPlayTrending = onPlayTrending,
             onOpenPlaylist = onOpenPlaylist,
+            onOpenProfile = onOpenProfile,
             onOpenSettings = onOpenSettings,
             onSwitchSource = onSwitchSource,
             onPickChip = onPickYouTubeChip,
@@ -1040,6 +1118,9 @@ fun HomeScreen(
             customBanners = customBanners,
             savedPlaylists = savedPlaylists,
             onSavePlaylist = onSavePlaylist,
+            customAvatarPath = customAvatarPath,
+            customAvatarCloudUrl = customAvatarCloudUrl,
+            defaultAvatarUrl = defaultAvatarUrl,
         )
         return
     }
@@ -1083,7 +1164,10 @@ fun HomeScreen(
                     accountName = accountName ?: state.displayName,
                     backdrop = backdrop,
                     topPadding = contentPadding.calculateTopPadding(),
-                    onOpenSettings = onOpenSettings,
+                    onOpenProfile = onOpenProfile,
+                    customAvatarPath = customAvatarPath,
+                    customAvatarCloudUrl = customAvatarCloudUrl,
+                    defaultAvatarUrl = defaultAvatarUrl ?: state.avatarUrl,
                 )
 
                 // Chips row

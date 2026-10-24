@@ -66,6 +66,13 @@
     <string name="devices">Devices</string>
     <string name="settings">Settings</string>
     <string name="profile">Profile</string>
+    <string name="profiles">Profiles</string>
+    <string name="streak_current">Current Streak</string>
+    <string name="streak_best">Best Streak</string>
+    <string name="streak_total_tracks">Songs Listened</string>
+    <string name="streak_days">%d Days</string>
+    <string name="streak_heatmap_title">Listening Activity</string>
+    <string name="streak_empty_hint">Play songs to build your streak!</string>
     <string name="home">Home</string>
     <string name="library">Library</string>
     <string name="switch_to_video">Switch to video</string>
@@ -575,6 +582,10 @@
     <string name="public_playlist">Public</string>
     <string name="public_playlist_on">Anyone can find it on your profile</string>
     <string name="public_playlist_off">Only you can see it</string>
+    <string name="make_playlist_public">Make Public (Feature on Profile)</string>
+    <string name="make_playlist_private">Make Private (Hide from Profile)</string>
+    <string name="playlist_made_public">Featured on your public profile</string>
+    <string name="playlist_made_private">Hidden from your public profile</string>
     <string name="create_playlist_failed">The playlist could not be created. Check your connection and try again.</string>
     <string name="cover_failed">The playlist was created, but its cover could not be saved.</string>
     <string name="cover_needs_permission">The playlist was created without its cover: connect your Spotify app again in Settings to allow covers.</string>

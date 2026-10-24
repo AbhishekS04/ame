@@ -526,6 +526,166 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** User custom banner mappings: uri -> absolute file path. */
     val customBanners: StateFlow<Map<String, String>> = container.customBanners.banners
 
+    /** User custom profile customizations. */
+    val profileUserId: String get() = container.profileStore.userId
+    val profileBanner: StateFlow<String?> = container.profileStore.bannerPath
+    val profileAvatar: StateFlow<String?> = container.profileStore.avatarPath
+    val profileBannerCloudUrl: StateFlow<String?> = container.profileStore.bannerCloudUrl
+    val profileAvatarCloudUrl: StateFlow<String?> = container.profileStore.avatarCloudUrl
+    val profileDisplayName: StateFlow<String?> = container.profileStore.customDisplayName
+    val profileUsername: StateFlow<String?> = container.profileStore.customUsername
+    val profileBio: StateFlow<String> = container.profileStore.bio
+    val profileIsPrivate: StateFlow<Boolean> = container.profileStore.isPrivate
+    val profileFollowers: StateFlow<Int> = container.profileStore.followersCount
+    val profileFollowing: StateFlow<Int> = container.profileStore.followingCount
+    val publicPlaylists: StateFlow<List<CatalogPlaylist>> = container.profileStore.publicPlaylists
+
+    /** Live Jam Sessions / Listen Along presence over Supabase Realtime */
+    val activeJams: StateFlow<Map<String, com.abhishek.ame.data.social.JamTrack>> = container.jamEngine.activeJams
+
+    fun broadcastJamPresence(
+        trackTitle: String,
+        artistName: String,
+        trackUri: String,
+        artworkUrl: String?,
+        isPlaying: Boolean,
+        positionMs: Long = 0L,
+    ) {
+        val myId = container.profileStore.userId
+        val myName = container.profileStore.customDisplayName.value ?: "Abhishek Singh"
+        val myHandle = container.profileStore.customUsername.value ?: "abhishek"
+        val myAvatar = container.profileStore.avatarCloudUrl.value
+        container.jamEngine.broadcastPlaying(
+            userId = myId,
+            username = myHandle,
+            displayName = myName,
+            avatarUrl = myAvatar,
+            trackTitle = trackTitle,
+            artistName = artistName,
+            trackUri = trackUri,
+            artworkUrl = artworkUrl,
+            isPlaying = isPlaying,
+            positionMs = positionMs,
+        )
+    }
+
+    fun stopJamPresence() {
+        container.jamEngine.stopBroadcasting(container.profileStore.userId)
+    }
+
+    fun restoreProfileFromCloud(identifier: String? = null) = viewModelScope.launch {
+        container.profileStore.restoreProfileFromCloud(identifier)
+    }
+
+    fun isPlaylistPublic(uri: String): Boolean = container.profileStore.isPublic(uri)
+
+    fun togglePlaylistPublic(playlist: CatalogPlaylist): Boolean =
+        container.profileStore.togglePublic(playlist)
+
+    fun setProfileDisplayName(name: String) {
+        container.profileStore.setDisplayName(name)
+    }
+
+    fun setProfileUsername(username: String) {
+        container.profileStore.setUsername(username)
+    }
+
+    fun checkUsernameAvailability(username: String): String? =
+        container.profileStore.checkUsernameAvailability(username)
+
+    fun setProfilePrivate(isPrivate: Boolean) {
+        container.profileStore.setPrivate(isPrivate)
+    }
+
+    fun setProfileBanner(imageUri: android.net.Uri) = viewModelScope.launch(Dispatchers.IO) {
+        container.profileStore.setBanner(imageUri)
+    }
+
+    fun setProfileAvatar(imageUri: android.net.Uri) = viewModelScope.launch(Dispatchers.IO) {
+        container.profileStore.setAvatar(imageUri)
+    }
+
+    fun setProfileBio(newBio: String) {
+        container.profileStore.setBio(newBio)
+    }
+
+    /** Social Profiles Discovery & Following */
+    val followedUserIds: StateFlow<Set<String>> = container.socialRepository.followedUserIds
+
+    private val _socialSearchResults = MutableStateFlow<List<com.abhishek.ame.data.social.SocialProfile>>(emptyList())
+    val socialSearchResults: StateFlow<List<com.abhishek.ame.data.social.SocialProfile>> = _socialSearchResults.asStateFlow()
+
+    private val _visitedSocialProfile = MutableStateFlow<com.abhishek.ame.data.social.SocialProfile?>(null)
+    val visitedSocialProfile: StateFlow<com.abhishek.ame.data.social.SocialProfile?> = _visitedSocialProfile.asStateFlow()
+
+    private var socialSearchJob: kotlinx.coroutines.Job? = null
+
+    fun searchSocialProfiles(query: String) {
+        socialSearchJob?.cancel()
+        socialSearchJob = viewModelScope.launch {
+            if (query.isNotBlank()) {
+                kotlinx.coroutines.delay(180)
+            }
+            _socialSearchResults.value = container.socialRepository.searchProfiles(query)
+        }
+    }
+
+    suspend fun getSocialProfile(userId: String): com.abhishek.ame.data.social.SocialProfile? =
+        container.socialRepository.getProfile(userId)
+
+    fun openSocialProfile(userId: String) = viewModelScope.launch {
+        val profile = container.socialRepository.getProfile(userId)
+        _visitedSocialProfile.value = profile
+    }
+
+    fun openSocialProfileByUsername(username: String) = viewModelScope.launch {
+        val clean = username.trim().removePrefix("@").lowercase()
+        val found = container.socialRepository.getProfileByUsername(clean)
+            ?: com.abhishek.ame.data.social.SocialProfile(
+                id = "user_$clean",
+                username = clean,
+                displayName = clean.replaceFirstChar { it.uppercase() },
+                bio = "Ame Music Listener",
+                followersCount = 0,
+                followingCount = 0,
+                isPrivate = false,
+            )
+        _visitedSocialProfile.value = found
+    }
+
+    fun clearVisitedSocialProfile() {
+        _visitedSocialProfile.value = null
+    }
+
+    fun toggleFollowUser(userId: String) = viewModelScope.launch {
+        val myUserId = container.profileStore.userId
+        if (container.socialRepository.isFollowing(userId)) {
+            container.socialRepository.unfollowUser(myUserId, userId)
+        } else {
+            container.socialRepository.followUser(myUserId, userId)
+        }
+        val isNowFollowing = container.socialRepository.isFollowing(userId)
+
+        // Update visited profile if currently open
+        val currentVisited = _visitedSocialProfile.value
+        if (currentVisited?.id == userId) {
+            _visitedSocialProfile.value = currentVisited.copy(
+                isFollowing = isNowFollowing,
+                followersCount = (currentVisited.followersCount + if (isNowFollowing) 1 else -1).coerceAtLeast(0),
+            )
+        }
+
+        // Update live search results if active
+        _socialSearchResults.value = _socialSearchResults.value.map { profile ->
+            if (profile.id == userId) {
+                profile.copy(
+                    isFollowing = isNowFollowing,
+                    followersCount = (profile.followersCount + if (isNowFollowing) 1 else -1).coerceAtLeast(0),
+                )
+            } else profile
+        }
+    }
+
     /** Public & community playlists saved by the user to their library. */
     val savedPlaylists: StateFlow<List<CatalogPlaylist>> = container.savedPlaylists.saved
 
@@ -5270,11 +5430,49 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun isPlaylistSaved(uri: String): Boolean = container.savedPlaylists.isSaved(uri)
 
-    fun setPlaylistCustomBanner(uri: String, imageUri: android.net.Uri) = viewModelScope.launch {
+    fun setPlaylistCustomBanner(uri: String, imageUri: android.net.Uri) = viewModelScope.launch(Dispatchers.IO) {
         runCatching {
-            getApplication<android.app.Application>().contentResolver.openInputStream(imageUri)?.use { stream ->
-                val path = container.customBanners.setBanner(uri, stream)
-                val bannerUrl = "file://$path"
+            val bytes = getApplication<android.app.Application>().contentResolver.openInputStream(imageUri)?.use {
+                it.readBytes()
+            } ?: return@launch
+
+            // 1. Center-crop to a clean 1:1 square so YouTube Music never stretches or squashes the playlist thumbnail
+            val bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                ?: return@launch
+            val squareDim = minOf(bitmap.width, bitmap.height)
+            val xOffset = (bitmap.width - squareDim) / 2
+            val yOffset = (bitmap.height - squareDim) / 2
+            val squareBitmap = android.graphics.Bitmap.createBitmap(bitmap, xOffset, yOffset, squareDim, squareDim)
+
+            // 2. Scale down to max 1080x1080 JPEG for crisp rendering and fast upload
+            val maxDim = 1080
+            val finalBitmap = if (squareDim > maxDim) {
+                android.graphics.Bitmap.createScaledBitmap(squareBitmap, maxDim, maxDim, true).also {
+                    if (it != squareBitmap) squareBitmap.recycle()
+                }
+            } else {
+                squareBitmap
+            }
+
+            val stream = java.io.ByteArrayOutputStream()
+            finalBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, stream)
+            val jpegBytes = stream.toByteArray()
+            if (finalBitmap != bitmap) finalBitmap.recycle()
+            bitmap.recycle()
+
+            // 1. Save locally for instant UI update
+            val path = container.customBanners.setBanner(uri, java.io.ByteArrayInputStream(jpegBytes))
+            var bannerUrl = "file://$path"
+
+            // 2. If supported by backend (e.g. YouTube Music), upload directly to YouTube servers
+            if (container.activeBackend.canWriteTo(uri)) {
+                val remoteUrl = container.activeBackend.uploadPlaylistBanner(uri, jpegBytes)
+                if (remoteUrl != null) {
+                    bannerUrl = remoteUrl
+                }
+            }
+
+            withContext(Dispatchers.Main) {
                 val ready = _state.value as? UiState.Ready
                 if (ready != null) {
                     val updated = ready.playlists.map { pl ->
@@ -5309,20 +5507,25 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun removePlaylistCustomBanner(uri: String) = viewModelScope.launch {
+    fun removePlaylistCustomBanner(uri: String) = viewModelScope.launch(Dispatchers.IO) {
         container.customBanners.removeBanner(uri)
-        val ready = _state.value as? UiState.Ready
-        if (ready != null) {
-            runCatching {
-                val fresh = withLocalFiles(container.activeBackend.playlists())
-                _state.value = ready.copy(playlists = fresh)
+        if (container.activeBackend.canWriteTo(uri)) {
+            container.activeBackend.removePlaylistBanner(uri)
+        }
+        withContext(Dispatchers.Main) {
+            val ready = _state.value as? UiState.Ready
+            if (ready != null) {
+                runCatching {
+                    val fresh = withLocalFiles(container.activeBackend.playlists())
+                    _state.value = ready.copy(playlists = fresh)
+                }
             }
+            val current = _playlist.value
+            if (current.uri == uri) {
+                openPlaylist(CatalogPlaylist(uri = uri, name = current.name))
+            }
+            invalidateContext(uri)
         }
-        val current = _playlist.value
-        if (current.uri == uri) {
-            openPlaylist(CatalogPlaylist(uri = uri, name = current.name))
-        }
-        invalidateContext(uri)
     }
 
     /** Drops a context from both caches so the next open re-reads it. */

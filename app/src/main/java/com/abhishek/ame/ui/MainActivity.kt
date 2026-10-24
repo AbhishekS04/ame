@@ -264,6 +264,39 @@ class MainActivity : ComponentActivity() {
             return
         }
         if (intent.action != android.content.Intent.ACTION_VIEW) return
+        val data = intent.data ?: return
+
+        // 1. Ame Universal Deep Links (Profiles & Playlists)
+        val scheme = data.scheme.orEmpty().lowercase()
+        val host = data.host.orEmpty().lowercase()
+        if ((scheme == "https" || scheme == "http") && (host == "ame.app" || host.endsWith(".ame.app")) || scheme == "ame") {
+            val path = data.path.orEmpty().trimStart('/')
+            if (path.startsWith("user/") || path.startsWith("profile/")) {
+                val targetUser = path.substringAfter('/').removePrefix("@").trim()
+                if (targetUser.isNotEmpty()) {
+                    link = LinkRequest("ame:profile:$targetUser", (link?.n ?: 0) + 1)
+                    return
+                }
+            } else if (path.startsWith("@")) {
+                val targetUser = path.removePrefix("@").trim()
+                if (targetUser.isNotEmpty()) {
+                    link = LinkRequest("ame:profile:$targetUser", (link?.n ?: 0) + 1)
+                    return
+                }
+            } else if (path.startsWith("playlist") || host == "playlist") {
+                val playlistId = data.getQueryParameter("id")
+                if (!playlistId.isNullOrEmpty()) {
+                    val fullUri = if (playlistId.startsWith("spotify:") || playlistId.startsWith("ytmusic:")) {
+                        playlistId
+                    } else {
+                        "ytmusic:playlist:$playlistId"
+                    }
+                    link = LinkRequest(fullUri, (link?.n ?: 0) + 1)
+                    return
+                }
+            }
+        }
+
         val uri = com.abhishek.ame.data.SpotifyLink.parse(intent.data) ?: return
         link = LinkRequest(uri, (link?.n ?: 0) + 1)
     }
