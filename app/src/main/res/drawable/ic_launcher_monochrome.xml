@@ -1,16 +1,33 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-  The themed form: one flat colour, so only the wave itself is left.
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Themed Material You adaptive icon form: single flat colour.
+  Ame Music Mascot silhouette.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
+    android:viewportWidth="256"
+    android:viewportHeight="256">
+
+    <!-- Droplet body with cutouts -->
     <path
-        android:fillColor="#00000000"
-        android:pathData="M28,58 L28,40 L54,40 L54,68 L80,68 L80,52"
-        android:strokeColor="#FFFFFFFF"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="miter"
-        android:strokeWidth="9" />
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M 128,74 C 142,94 174,134 174,160 C 174,186 153,200 128,200 C 103,200 82,186 82,160 C 82,134 114,96 128,74 Z M 96,148 A 5,5 0 1,0 96,158 A 5,5 0 1,0 96,148 Z M 160,148 A 5,5 0 1,0 160,158 A 5,5 0 1,0 160,148 Z M 103,144 C 105,137 115,137 117,144 C 117,146 115,146 115,144 C 113,139 107,139 105,144 C 105,146 103,146 103,144 Z M 139,144 C 141,137 151,137 153,144 C 153,146 151,146 151,144 C 149,139 143,139 141,144 C 141,146 139,146 139,144 Z M 123,162 C 125,166 131,166 133,162 C 133,160 131,160 131,162 C 129,164 127,164 125,162 C 125,160 123,160 123,162 Z" />
+
+    <!-- Headband Arch Band -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M 72,142 C 72,78 96,38 128,38 C 160,38 184,78 184,142 L 172,142 C 172,86 152,50 128,50 C 104,50 84,86 84,142 Z" />
+
+    <!-- Left Ear Cup -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M 67,118 L 67,118 A 9,9 0 0,1 76,127 L 76,159 A 9,9 0 0,1 67,168 L 67,168 A 9,9 0 0,1 58,159 L 58,127 A 9,9 0 0,1 67,118 Z M 54,126 L 54,126 A 2.25,2.25 0 0,1 56.25,128.25 L 56.25,157.75 A 2.25,2.25 0 0,1 54,160 L 54,160 A 2.25,2.25 0 0,1 51.75,157.75 L 51.75,128.25 A 2.25,2.25 0 0,1 54,126 Z" />
+
+    <!-- Right Ear Cup -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M 189,118 L 189,118 A 9,9 0 0,1 198,127 L 198,159 A 9,9 0 0,1 189,168 L 189,168 A 9,9 0 0,1 180,159 L 180,127 A 9,9 0 0,1 189,118 Z M 202,126 L 202,126 A 2.25,2.25 0 0,1 204.25,128.25 L 204.25,157.75 A 2.25,2.25 0 0,1 202,160 L 202,160 A 2.25,2.25 0 0,1 199.75,157.75 L 199.75,128.25 A 2.25,2.25 0 0,1 202,126 Z" />
+
 </vector>

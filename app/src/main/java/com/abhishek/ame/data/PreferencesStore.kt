@@ -321,7 +321,7 @@ class PreferencesStore(context: Context) {
 
     private val _backend = MutableStateFlow(
         runCatching { com.abhishek.ame.backend.BackendId.valueOf(prefs.getString(KEY_BACKEND, null) ?: "") }
-            .getOrDefault(com.abhishek.ame.backend.BackendId.SPOTIFY),
+            .getOrDefault(com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC),
     )
 
     /** Which [com.abhishek.ame.backend.MusicBackend] the app plays through. */
@@ -333,7 +333,7 @@ class PreferencesStore(context: Context) {
         prefs.edit().putString(KEY_BACKEND, value.name).apply()
     }
 
-    private val _backendChosen = MutableStateFlow(prefs.contains(KEY_BACKEND))
+    private val _backendChosen = MutableStateFlow(true)
 
     /**
      * Whether the user has ever picked a source.
