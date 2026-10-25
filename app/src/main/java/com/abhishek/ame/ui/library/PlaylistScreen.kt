@@ -729,6 +729,7 @@ fun PlaylistScreen(
             topPadding = topPadding,
             onBack = onBack,
             onSetCustomBanner = onSetCustomBanner,
+            onMenu = onMenu,
             onPlay = {
                 visible.takeIf { it.isNotEmpty() }?.let { onPlayInOrder(it, asContext) }
             },
@@ -1572,6 +1573,7 @@ private fun DetailHeader(
     /** What the header opens at, which the artist page makes taller. */
     heroHeight: Dp = HERO_HEIGHT,
     onSetCustomBanner: (() -> Unit)? = null,
+    onMenu: () -> Unit = {},
 ) {
     val density = LocalDensity.current
     val heroPx = with(density) { heroHeight.roundToPx() }
@@ -1583,10 +1585,9 @@ private fun DetailHeader(
             .heroCollapse(heroPx, collapsedPx, collapse, overflowBelow = PLAY_SHADOW_ROOM)
             .then(
                 if (onSetCustomBanner != null) {
-                    Modifier.clickable(
-                        onClick = onSetCustomBanner,
-                        indication = null,
-                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    Modifier.pressable(
+                        onClick = {},
+                        onLongClick = onMenu,
                     )
                 } else Modifier
             ),

@@ -539,6 +539,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val profileFollowers: StateFlow<Int> = container.profileStore.followersCount
     val profileFollowing: StateFlow<Int> = container.profileStore.followingCount
     val publicPlaylists: StateFlow<List<CatalogPlaylist>> = container.profileStore.publicPlaylists
+    val hasCreatedProfile: StateFlow<Boolean> = container.profileStore.hasCreatedProfile
 
     /** Live Jam Sessions / Listen Along presence over Supabase Realtime */
     val activeJams: StateFlow<Map<String, com.abhishek.ame.data.social.JamTrack>> = container.jamEngine.activeJams
@@ -551,9 +552,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         isPlaying: Boolean,
         positionMs: Long = 0L,
     ) {
+        if (!container.profileStore.hasCreatedProfile.value) return
         val myId = container.profileStore.userId
-        val myName = container.profileStore.customDisplayName.value ?: "Abhishek Singh"
-        val myHandle = container.profileStore.customUsername.value ?: "abhishek"
+        val myName = container.profileStore.customDisplayName.value ?: return
+        val myHandle = container.profileStore.customUsername.value ?: return
         val myAvatar = container.profileStore.avatarCloudUrl.value
         container.jamEngine.broadcastPlaying(
             userId = myId,
@@ -573,9 +575,32 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         container.jamEngine.stopBroadcasting(container.profileStore.userId)
     }
 
-    fun restoreProfileFromCloud(identifier: String? = null) = viewModelScope.launch {
-        container.profileStore.restoreProfileFromCloud(identifier)
+    suspend fun createProfile(
+        displayName: String,
+        username: String,
+        password: String,
+        bio: String = "",
+        isPrivate: Boolean = false,
+        avatarUri: android.net.Uri? = null,
+    ): Result<com.abhishek.ame.data.social.SocialProfile> =
+        container.profileStore.createProfile(displayName, username, password, bio, isPrivate, avatarUri)
+
+    suspend fun loginProfile(
+        username: String,
+        password: String,
+    ): Result<com.abhishek.ame.data.social.SocialProfile> =
+        container.profileStore.loginProfile(username, password)
+
+    fun logoutProfile() {
+        container.profileStore.logoutProfile()
+        clearVisitedSocialProfile()
     }
+
+    suspend fun checkUsernameAvailabilityRemote(username: String): String? =
+        container.profileStore.checkUsernameAvailabilityRemote(username)
+
+    suspend fun restoreProfileFromCloud(identifier: String? = null): Boolean =
+        container.profileStore.restoreProfileFromCloud(identifier)
 
     fun isPlaylistPublic(uri: String): Boolean = container.profileStore.isPublic(uri)
 
@@ -611,6 +636,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Social Profiles Discovery & Following */
     val followedUserIds: StateFlow<Set<String>> = container.socialRepository.followedUserIds
+    val myFollowerIds: StateFlow<Set<String>> = container.socialRepository.myFollowerIds
 
     private val _socialSearchResults = MutableStateFlow<List<com.abhishek.ame.data.social.SocialProfile>>(emptyList())
     val socialSearchResults: StateFlow<List<com.abhishek.ame.data.social.SocialProfile>> = _socialSearchResults.asStateFlow()
@@ -618,7 +644,38 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _visitedSocialProfile = MutableStateFlow<com.abhishek.ame.data.social.SocialProfile?>(null)
     val visitedSocialProfile: StateFlow<com.abhishek.ame.data.social.SocialProfile?> = _visitedSocialProfile.asStateFlow()
 
+    private val _isVisitedProfileLoading = MutableStateFlow(false)
+    val isVisitedProfileLoading: StateFlow<Boolean> = _isVisitedProfileLoading.asStateFlow()
+
+    private val visitedProfileStack = mutableListOf<String>()
+
     private var socialSearchJob: kotlinx.coroutines.Job? = null
+
+    init {
+        // Sync social relations & listening activity streak on startup
+        viewModelScope.launch(Dispatchers.IO) {
+            container.socialRepository.syncRelations(container.profileStore.userId)
+            if (container.profileStore.hasCreatedProfile.value) {
+                syncSocialListeningHistory()
+            }
+        }
+    }
+
+    fun syncSocialRelations() = viewModelScope.launch(Dispatchers.IO) {
+        container.socialRepository.syncRelations(container.profileStore.userId)
+    }
+
+    fun syncSocialListeningHistory() = viewModelScope.launch(Dispatchers.IO) {
+        if (!container.profileStore.hasCreatedProfile.value) return@launch
+        val events = container.listeningStore.events.value
+        val daily = com.abhishek.ame.ui.profile.StreakEngine.computeDailyListening(events)
+        val streak = com.abhishek.ame.ui.profile.StreakEngine.calculateCurrentStreak(daily)
+        val cloudDaily = com.abhishek.ame.ui.profile.StreakEngine.formatForCloud(daily)
+        container.profileStore.syncToSupabase(
+            streakDays = streak,
+            listeningActivity = cloudDaily,
+        )
+    }
 
     fun searchSocialProfiles(query: String) {
         socialSearchJob?.cancel()
@@ -633,27 +690,74 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun getSocialProfile(userId: String): com.abhishek.ame.data.social.SocialProfile? =
         container.socialRepository.getProfile(userId)
 
-    fun openSocialProfile(userId: String) = viewModelScope.launch {
-        val profile = container.socialRepository.getProfile(userId)
+    suspend fun getFollowers(userId: String): List<com.abhishek.ame.data.social.SocialProfile> =
+        container.socialRepository.getFollowers(userId)
+
+    suspend fun getFollowing(userId: String): List<com.abhishek.ame.data.social.SocialProfile> =
+        container.socialRepository.getFollowing(userId)
+
+    fun openSocialProfile(profile: com.abhishek.ame.data.social.SocialProfile) {
+        val current = _visitedSocialProfile.value
+        if (current != null && current.id != profile.id) {
+            visitedProfileStack.add(current.id)
+        }
+        _isVisitedProfileLoading.value = false
         _visitedSocialProfile.value = profile
+
+        // Background refresh to get fresh counts/presence without any UI flicker
+        viewModelScope.launch {
+            val fresh = container.socialRepository.getProfile(profile.id)
+            if (fresh != null && _visitedSocialProfile.value?.id == profile.id) {
+                _visitedSocialProfile.value = fresh
+            }
+        }
     }
 
-    fun openSocialProfileByUsername(username: String) = viewModelScope.launch {
-        val clean = username.trim().removePrefix("@").lowercase()
-        val found = container.socialRepository.getProfileByUsername(clean)
-            ?: com.abhishek.ame.data.social.SocialProfile(
-                id = "user_$clean",
-                username = clean,
-                displayName = clean.replaceFirstChar { it.uppercase() },
-                bio = "Ame Music Listener",
-                followersCount = 0,
-                followingCount = 0,
-                isPrivate = false,
-            )
-        _visitedSocialProfile.value = found
+    fun openSocialProfile(userId: String, preloadedProfile: com.abhishek.ame.data.social.SocialProfile? = null) {
+        if (preloadedProfile != null) {
+            openSocialProfile(preloadedProfile)
+            return
+        }
+        val current = _visitedSocialProfile.value
+        if (current != null && current.id != userId) {
+            visitedProfileStack.add(current.id)
+        }
+        _isVisitedProfileLoading.value = true
+        viewModelScope.launch {
+            val profile = container.socialRepository.getProfile(userId)
+            _visitedSocialProfile.value = profile
+            _isVisitedProfileLoading.value = false
+        }
+    }
+
+    fun popVisitedSocialProfile(): Boolean {
+        if (visitedProfileStack.isNotEmpty()) {
+            val prevId = visitedProfileStack.removeAt(visitedProfileStack.lastIndex)
+            _isVisitedProfileLoading.value = true
+            viewModelScope.launch {
+                _visitedSocialProfile.value = container.socialRepository.getProfile(prevId)
+                _isVisitedProfileLoading.value = false
+            }
+            return true
+        }
+        _isVisitedProfileLoading.value = false
+        _visitedSocialProfile.value = null
+        return false
+    }
+
+    fun openSocialProfileByUsername(username: String) {
+        _isVisitedProfileLoading.value = true
+        viewModelScope.launch {
+            val clean = username.trim().removePrefix("@").lowercase()
+            val found = container.socialRepository.getProfileByUsername(clean)
+            _visitedSocialProfile.value = found
+            _isVisitedProfileLoading.value = false
+        }
     }
 
     fun clearVisitedSocialProfile() {
+        visitedProfileStack.clear()
+        _isVisitedProfileLoading.value = false
         _visitedSocialProfile.value = null
     }
 

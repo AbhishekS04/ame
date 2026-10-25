@@ -731,6 +731,7 @@ fun AmeApp(
     val customProfileAvatarCloud by viewModel.profileAvatarCloudUrl.collectAsStateWithLifecycle()
     val customProfileDisplayName by viewModel.profileDisplayName.collectAsStateWithLifecycle()
     val customProfileUsername by viewModel.profileUsername.collectAsStateWithLifecycle()
+    val hasCreatedProfile by viewModel.hasCreatedProfile.collectAsStateWithLifecycle()
     val profileBio by viewModel.profileBio.collectAsStateWithLifecycle()
     val profileIsPrivate by viewModel.profileIsPrivate.collectAsStateWithLifecycle()
     val profileFollowers by viewModel.profileFollowers.collectAsStateWithLifecycle()
@@ -739,6 +740,9 @@ fun AmeApp(
     val activeJams by viewModel.activeJams.collectAsStateWithLifecycle()
     val socialSearchResults by viewModel.socialSearchResults.collectAsStateWithLifecycle()
     val visitedSocialProfile by viewModel.visitedSocialProfile.collectAsStateWithLifecycle()
+    val isVisitedProfileLoading by viewModel.isVisitedProfileLoading.collectAsStateWithLifecycle()
+    val followedUserIds by viewModel.followedUserIds.collectAsStateWithLifecycle()
+    val myFollowerIds by viewModel.myFollowerIds.collectAsStateWithLifecycle()
 
     val dynamicPlayingColor = remember(palette) {
         val base = palette.firstOrNull() ?: Color(0xFF1ED760)
@@ -1047,7 +1051,7 @@ fun AmeApp(
     // Seamless cloud profile restoration when YouTube Account is authenticated
     LaunchedEffect(youtubeAccountName) {
         if (!youtubeAccountName.isNullOrBlank()) {
-            viewModel.restoreProfileFromCloud(youtubeAccountName)
+            viewModel.restoreProfileFromCloud()
         }
     }
     // What is kept on the phone. Read here rather than inside the pages that
@@ -2097,8 +2101,8 @@ fun AmeApp(
                                         navController.navigate(Routes.PLAYLIST) { launchSingleTop = true }
                                     }
                                 },
-                                onOpenProfile = { userId ->
-                                    viewModel.openSocialProfile(userId)
+                                onOpenProfile = { profile ->
+                                    viewModel.openSocialProfile(profile)
                                     navController.navigate(Routes.PROFILE)
                                 },
                                 socialProfiles = socialSearchResults,
@@ -2203,8 +2207,21 @@ fun AmeApp(
                             val readyState = state as? MainViewModel.UiState.Ready
                             com.abhishek.ame.ui.profile.ProfileScreen(
                                 visitedProfile = visitedSocialProfile,
+                                isProfileLoading = isVisitedProfileLoading,
                                 currentUserId = viewModel.profileUserId,
+                                hasCreatedProfile = hasCreatedProfile,
                                 onToggleFollow = viewModel::toggleFollowUser,
+                                myFollowerIds = myFollowerIds,
+                                followedUserIds = followedUserIds,
+                                onOpenUserProfile = { profile ->
+                                    if (profile.id == viewModel.profileUserId) {
+                                        viewModel.clearVisitedSocialProfile()
+                                    } else {
+                                        viewModel.openSocialProfile(profile)
+                                    }
+                                },
+                                fetchFollowers = { userId -> viewModel.getFollowers(userId) },
+                                fetchFollowing = { userId -> viewModel.getFollowing(userId) },
                                 accountName = if (backend == com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC) {
                                     youtubeAccountName
                                 } else {
@@ -2241,12 +2258,17 @@ fun AmeApp(
                                 onSaveDisplayName = viewModel::setProfileDisplayName,
                                 onSaveUsername = viewModel::setProfileUsername,
                                 onCheckUsernameAvailability = viewModel::checkUsernameAvailability,
+                                onCheckUsernameRemote = viewModel::checkUsernameAvailabilityRemote,
+                                onCreateProfile = viewModel::createProfile,
+                                onLoginProfile = viewModel::loginProfile,
+                                onLogoutProfile = viewModel::logoutProfile,
                                 onSaveBio = viewModel::setProfileBio,
                                 onSetPrivate = viewModel::setProfilePrivate,
                                 onOpenPlaylist = openList,
                                 onBack = {
                                     if (visitedSocialProfile != null) {
-                                        viewModel.clearVisitedSocialProfile()
+                                        val popped = viewModel.popVisitedSocialProfile()
+                                        if (popped) return@ProfileScreen
                                     }
                                     if (navController.previousBackStackEntry != null) {
                                         navController.popBackStack()

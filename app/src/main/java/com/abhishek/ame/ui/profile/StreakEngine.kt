@@ -13,7 +13,8 @@ object StreakEngine {
 
     /**
      * Aggregates listening events into a day-by-day song play count map.
-     * Only counts qualified events or events played for at least 30 seconds.
+     * Counts qualified events, plays with at least 5 seconds of listening time,
+     * or completed songs.
      */
     fun computeDailyListening(
         events: List<ListeningEvent>,
@@ -21,7 +22,7 @@ object StreakEngine {
     ): Map<LocalDate, Int> {
         val dailyMap = mutableMapOf<LocalDate, Int>()
         for (event in events) {
-            if (event.qualified || event.listenedMs >= 30_000L) {
+            if (event.qualified || event.listenedMs >= 5_000L || event.endedAt > event.startedAt) {
                 val date = Instant.ofEpochMilli(event.startedAt)
                     .atZone(zoneId)
                     .toLocalDate()
@@ -29,6 +30,22 @@ object StreakEngine {
             }
         }
         return dailyMap
+    }
+
+    /**
+     * Serializes daily listening map to ISO-8601 date string keys for Supabase storage.
+     */
+    fun formatForCloud(daily: Map<LocalDate, Int>): Map<String, Int> {
+        return daily.mapKeys { it.key.toString() }
+    }
+
+    /**
+     * Parses cloud JSON map back into LocalDate keys.
+     */
+    fun parseFromCloud(cloud: Map<String, Int>): Map<LocalDate, Int> {
+        return cloud.mapNotNull { (dateStr, count) ->
+            runCatching { LocalDate.parse(dateStr) to count }.getOrNull()
+        }.toMap()
     }
 
     /**

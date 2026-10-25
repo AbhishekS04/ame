@@ -125,18 +125,26 @@ private enum class Feed(@StringRes val label: Int, val chip: com.abhishek.ame.da
     PODCASTS(R.string.podcasts, null),
 }
 
+private val PLAYFUL_GREETINGS = listOf(
+    "Howdy",
+    "Hola",
+    "Namaste",
+    "Hey there",
+    "Hello",
+    "Welcome back",
+)
+
 private fun greetingText(accountName: String?): String {
-    val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-    val timeGreeting = when (hour) {
-        in 5..11 -> "Good morning"
-        in 12..16 -> "Good afternoon"
-        else -> "Good evening"
-    }
+    val dayOfYear = Calendar.getInstance().get(Calendar.DAY_OF_YEAR)
+    val hourChunk = Calendar.getInstance().get(Calendar.HOUR_OF_DAY) / 4
+    val greetingIndex = Math.floorMod(dayOfYear * 7 + hourChunk, PLAYFUL_GREETINGS.size)
+    val playfulGreeting = PLAYFUL_GREETINGS[greetingIndex]
+
     val firstName = accountName?.trim()?.split(" ")?.firstOrNull()?.takeIf { it.isNotBlank() }
     return if (!firstName.isNullOrBlank()) {
-        "$timeGreeting, $firstName"
+        "$playfulGreeting, $firstName"
     } else {
-        timeGreeting
+        "$playfulGreeting!"
     }
 }
 

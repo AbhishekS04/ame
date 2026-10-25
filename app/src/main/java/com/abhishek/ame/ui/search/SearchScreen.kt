@@ -104,7 +104,7 @@ fun SearchScreen(
     /** Opens the same track sheet the library rows open. */
     onTrackMenu: (CatalogTrack) -> Unit,
     onOpenContext: (SearchItem) -> Unit,
-    onOpenProfile: (String) -> Unit = {},
+    onOpenProfile: (com.abhishek.ame.data.social.SocialProfile) -> Unit = {},
     socialProfiles: List<com.abhishek.ame.data.social.SocialProfile> = emptyList(),
     activeJams: Map<String, com.abhishek.ame.data.social.JamTrack> = emptyMap(),
     onJoinJam: (com.abhishek.ame.data.social.JamTrack) -> Unit = {},
@@ -396,7 +396,7 @@ fun SearchScreen(
                             PersonSearchResultRow(
                                 profile = profile,
                                 accentColor = MaterialTheme.colorScheme.primary,
-                                onClick = { onOpenProfile(profile.id) },
+                                onClick = { onOpenProfile(profile) },
                                 jam = activeJams[profile.id],
                                 onJoinJam = onJoinJam,
                             )

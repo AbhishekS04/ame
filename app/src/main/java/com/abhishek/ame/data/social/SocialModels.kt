@@ -3,6 +3,7 @@ package com.abhishek.ame.data.social
 import com.abhishek.ame.data.CatalogPlaylist
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 
 /**
  * Model representing an Ame social user profile stored in Supabase.
@@ -26,7 +27,13 @@ data class SocialProfile(
     val followingCount: Int = 0,
     @SerialName("streak_days")
     val streakDays: Int = 0,
+    @SerialName("listening_activity")
+    val listeningActivity: Map<String, Int> = emptyMap(),
+    @SerialName("password_hash")
+    val passwordHash: String? = null,
+    @Transient
     val isFollowing: Boolean = false,
+    @Transient
     val publicPlaylists: List<CatalogPlaylist> = emptyList(),
 )
 
