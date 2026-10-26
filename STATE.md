@@ -1,6 +1,12 @@
 # Project State: Ame
 
-## Current Status: v1.0.7 Release — Mascot Logo & Complete Brand Identity Overhaul
+## Current Status: v1.0.8 Release — Android 12 Compatibility & Crash Elimination
+
+- **Android 12.0 (API 31) Compatibility Fix (`PcmMixer.kt`)**:
+  - Eliminated critical `java.lang.NoSuchMethodError` crash on Android 12.0 devices.
+  - Corrected SDK level gate for `setSpatializationBehavior` from `Build.VERSION_CODES.S` (API 31) to `Build.VERSION_CODES.S_V2` (API 32 / Android 12L).
+  - Wrapped invocation in defensive `runCatching` block to safeguard against non-standard OEM implementations.
+
 
 - **App Mascot & Brand Identity Overhaul (`icons/`, `tools/icon.py`, `README.md`, `res/`)**:
   - Replaced legacy app icon everywhere across the project with the new Ame 3D mascot assets from `icons/`:

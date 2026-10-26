@@ -72,8 +72,10 @@ class PcmMixer {
             .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
             .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
             .apply {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                    setSpatializationBehavior(android.media.AudioAttributes.SPATIALIZATION_BEHAVIOR_AUTO)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S_V2) {
+                    runCatching {
+                        setSpatializationBehavior(android.media.AudioAttributes.SPATIALIZATION_BEHAVIOR_AUTO)
+                    }
                 }
             }
             .build()
