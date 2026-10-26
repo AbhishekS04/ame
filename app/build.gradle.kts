@@ -1,12 +1,33 @@
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URI
 import java.util.Properties
+import org.gradle.api.DefaultTask
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.TaskAction
 
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+}
+
+/** Checks release signing inputs without capturing the build script in a task action. */
+abstract class VerifyReleaseSigningTask : DefaultTask() {
+    @get:Input
+    abstract val signingPropertiesComplete: Property<Boolean>
+
+    @get:Input
+    abstract val keystorePath: Property<String>
+
+    @TaskAction
+    fun verify() {
+        check(signingPropertiesComplete.get() && File(keystorePath.get()).isFile) {
+            "Production release signing is unavailable. Configure keystore.properties and the referenced keystore before building a release."
+        }
+    }
 }
 
 /**
@@ -208,12 +229,13 @@ android {
  * signing setup. The dev build intentionally keeps its debug fallback for
  * local development; only release-shaped distribution tasks are guarded.
  */
-val verifyReleaseSigning = tasks.register("verifyReleaseSigning") {
-    doLast {
-        check(releaseSigningReady) {
-            "Production release signing is unavailable. Configure keystore.properties and the referenced keystore before building a release."
-        }
-    }
+val verifyReleaseSigning = tasks.register<VerifyReleaseSigningTask>("verifyReleaseSigning") {
+    signingPropertiesComplete.set(releaseSigningReady)
+    keystorePath.set(
+        rootProject.file(
+            keystoreProperties.getProperty("storeFile").orEmpty().ifBlank { ".missing-release-keystore" },
+        ).absolutePath,
+    )
 }
 
 tasks.configureEach {
