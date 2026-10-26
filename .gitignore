@@ -17,6 +17,9 @@ app/.cxx/
 # Local agent settings: machine-specific, and no business in a public repo
 .claude/
 
+# Deferred local security audit notes; do not publish until explicitly approved.
+SECURITY_AUDIT_TODO.md
+
 # Signing. The keystore and its passwords never go near the repository.
 *.jks
 *.keystore
@@ -36,4 +39,3 @@ keystore.properties
 
 # Design inspiration scraps
 inspo-ame/
-
