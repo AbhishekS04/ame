@@ -6,7 +6,7 @@ name: Build
 # secrets to pull requests from forks anyway.
 on:
   push:
-    branches: [master]
+    branches: [main, master]
   pull_request:
   workflow_dispatch:
 

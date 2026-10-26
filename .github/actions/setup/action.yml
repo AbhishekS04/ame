@@ -49,6 +49,12 @@ runs:
         key: cargo-${{ runner.os }}-${{ hashFiles('native/Cargo.lock', 'native/vendor/**', 'native/src/**') }}
         restore-keys: cargo-${{ runner.os }}-
 
+    # Cache Bungee native DSP sources and submodules across CI runs
+    - uses: actions/cache@v6
+      with:
+        path: native-dsp/bungee
+        key: bungee-v2.4.24-${{ runner.os }}
+
     - name: cargo-ndk
       shell: bash
       run: command -v cargo-ndk > /dev/null || cargo install cargo-ndk --version 4.1.2 --locked

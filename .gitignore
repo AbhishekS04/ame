@@ -24,6 +24,7 @@ keystore.properties
 
 # IDE
 .idea/
+.kotlin/
 *.iml
 .DS_Store
 

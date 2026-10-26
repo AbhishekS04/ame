@@ -1,3 +1,5 @@
+import java.net.HttpURLConnection
+import java.net.URI
 import java.util.Properties
 
 plugins {
@@ -284,39 +286,103 @@ val fetchBungee by tasks.registering {
     // configuration cache refuses to serialize.
     val target = rootProject.file("native-dsp/bungee")
     val marker = target.resolve("bungee/Bungee.h")
+    val eigenMarker = target.resolve("submodules/eigen/Eigen/Core")
     val tag = bungeeTag
     outputs.dir(target)
 
     doLast {
-        if (marker.exists()) return@doLast
+        if (marker.exists() && eigenMarker.exists()) return@doLast
 
-        var success = false
-        var lastExit = -1
-        var lastOutput = ""
-        for (attempt in 1..3) {
+        // 1. Clone Bungee core repository if not already present
+        if (!marker.exists()) {
             target.deleteRecursively()
             target.parentFile.mkdirs()
 
-            val process = ProcessBuilder(
-                "git", "clone",
-                "--depth", "1",
-                "--branch", tag,
-                "--recurse-submodules", "--shallow-submodules",
-                "https://github.com/bungee-audio-stretch/bungee.git",
-                target.absolutePath,
-            ).redirectErrorStream(true).start()
+            var cloneSuccess = false
+            var cloneOutput = ""
+            var cloneExit = -1
+            for (attempt in 1..3) {
+                val process = ProcessBuilder(
+                    "git", "clone",
+                    "--depth", "1",
+                    "--branch", tag,
+                    "https://github.com/bungee-audio-stretch/bungee.git",
+                    target.absolutePath,
+                ).redirectErrorStream(true).start()
 
-            lastOutput = process.inputStream.bufferedReader().readText()
-            lastExit = process.waitFor()
-            if (lastExit == 0 && marker.exists()) {
-                success = true
-                break
+                cloneOutput = process.inputStream.bufferedReader().readText()
+                cloneExit = process.waitFor()
+                if (cloneExit == 0 && marker.exists()) {
+                    cloneSuccess = true
+                    break
+                }
+                logger.warn("Bungee core clone attempt $attempt failed ($cloneExit): $cloneOutput")
+                Thread.sleep(2000L * attempt)
             }
-            logger.warn("Bungee clone attempt $attempt failed (exit $lastExit): $lastOutput")
-            Thread.sleep(3000L * attempt)
+            check(cloneSuccess && marker.exists()) {
+                "could not clone Bungee $tag into $target (exit $cloneExit): $cloneOutput"
+            }
         }
 
-        check(success) { "could not clone Bungee $tag into $target (exit $lastExit): $lastOutput" }
+        // 2. Initialize fast submodules (cxxopts from GitHub, pffft from Bitbucket)
+        ProcessBuilder(
+            "git", "submodule", "update", "--init", "--depth", "1",
+            "submodules/cxxopts", "submodules/pffft"
+        ).directory(target).redirectErrorStream(true).start().waitFor()
+
+        // 3. Ensure Eigen headers are present in submodules/eigen
+        // Eigen is a header-only C++ library; Bungee only includes <Eigen/Core>.
+        // GitLab's git clone server frequently rejects connections under load (HTTP 503).
+        if (!eigenMarker.exists()) {
+            val eigenDir = target.resolve("submodules/eigen")
+            eigenDir.mkdirs()
+
+            var eigenGitSuccess = false
+            try {
+                val eigenGit = ProcessBuilder(
+                    "git", "submodule", "update", "--init", "--depth", "1", "submodules/eigen"
+                ).directory(target).redirectErrorStream(true).start()
+                val eigenGitExit = eigenGit.waitFor()
+                if (eigenGitExit == 0 && eigenMarker.exists()) {
+                    eigenGitSuccess = true
+                }
+            } catch (e: Exception) {
+                logger.warn("Git submodule update for eigen threw: ${e.message}")
+            }
+
+            // Fallback: download Cloudflare CDN-cached release tarball if GitLab git clone failed
+            if (!eigenGitSuccess || !eigenMarker.exists()) {
+                logger.warn("GitLab git clone for Eigen failed/unavailable. Using CDN archive fallback...")
+                val archiveFile = File(target, "eigen-3.4.0.tar.gz")
+                try {
+                    val url = URI.create("https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz").toURL()
+                    val conn = url.openConnection() as HttpURLConnection
+                    conn.instanceFollowRedirects = true
+                    conn.connectTimeout = 15000
+                    conn.readTimeout = 30000
+                    conn.inputStream.use { input ->
+                        archiveFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+
+                    val tarProcess = ProcessBuilder(
+                        "tar", "-xzf", archiveFile.absolutePath, "--strip-components=1", "-C", eigenDir.absolutePath
+                    ).redirectErrorStream(true).start()
+                    val tarOut = tarProcess.inputStream.bufferedReader().readText()
+                    val tarExit = tarProcess.waitFor()
+                    check(tarExit == 0 && eigenMarker.exists()) {
+                        "Failed to extract Eigen archive into $eigenDir (exit $tarExit): $tarOut"
+                    }
+                } finally {
+                    archiveFile.delete()
+                }
+            }
+        }
+
+        check(marker.exists() && eigenMarker.exists()) {
+            "Bungee setup incomplete: Bungee.h exists=${marker.exists()}, Eigen/Core exists=${eigenMarker.exists()}"
+        }
     }
 }
 

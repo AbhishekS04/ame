@@ -2,6 +2,12 @@
 
 ## Current Status: v1.0.8 Release — Android 12 Compatibility & Crash Elimination
 
+- **CI/CD Build Pipeline Hardening & GitLab Submodule Failover (`app/build.gradle.kts`, `.github/actions/setup/action.yml`, `.github/workflows/build.yml`)**:
+  - **GitLab 503 Load-Shedding Elimination**: Fixed CI build failure (`fatal: remote error: GitLab is currently unable to handle this request due to load`) caused by GitLab rate-limiting/overloading git clone requests for Bungee's `submodules/eigen`.
+  - **3-Stage Resilient Fetching (`fetchBungee`)**: Separated Bungee cloning from submodules: clones core Bungee, inits GitHub (`cxxopts`) and Bitbucket (`pffft`) submodules, and implements automatic Cloudflare-cached release archive fallback (`https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz`) if GitLab's git clone server sheds load.
+  - **CI Caching Acceleration**: Added `actions/cache@v6` for `native-dsp/bungee` in setup composite action, cutting warm CI build times and isolating workflows from third-party git outages.
+  - **Main Branch CI Coverage**: Enabled workflow triggers for `main` in `build.yml`.
+
 - **Android 12.0 (API 31) Compatibility Fix (`PcmMixer.kt`)**:
   - Eliminated critical `java.lang.NoSuchMethodError` crash on Android 12.0 devices.
   - Corrected SDK level gate for `setSpatializationBehavior` from `Build.VERSION_CODES.S` (API 31) to `Build.VERSION_CODES.S_V2` (API 32 / Android 12L).
