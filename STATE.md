@@ -2,6 +2,23 @@
 
 ## Current Status: Zero-Mismatch Strict Track & Singer Matcher Engine & Bit-Perfect 24-bit Lossless FLAC
 
+- **README Modernization & Deep-Dive Architectural Documentation (`README.md`, `docs/screenshots/`)**:
+  - Replaced outdated legacy fork screenshots (540x1136) with user-captured, uncompressed high-resolution (1080x2206) screenshots from Samsung Galaxy S24 FE.
+  - Processed and integrated:
+    - `docs/screenshots/player-lossless.png`: Sabrina Carpenter *Espresso* studio master cover with smooth vertical backdrop fade, progressive lighting, and genuine Apple Music Lossless waveform badge (`~ Lossless`).
+    - `docs/screenshots/lyrics.png`: Live synced karaoke lyrics view with dynamic typography and ambient glow.
+    - `docs/screenshots/home.png`: Personalized dynamic greeting (*"Namaste, Abhishek"*), high-contrast filter chips, curated shelves, and floating liquid glass dock.
+    - `docs/screenshots/library.png`: 3D CD Jewel cases with realistic acrylic/glass refraction and user playlists.
+    - `docs/screenshots/search.png`: Refracting liquid glass search bar with swipe-to-dismiss search history and genre shelves.
+    - `docs/screenshots/lossless-badge.png`: High-density banner spotlighting the Apple Music Lossless waveform vector badge and progress bar.
+    - `docs/screenshots/jewel-cases.png`: High-density spotlight on the retro 3D CD jewel case rendering.
+  - Fully articulated [`README.md`](README.md):
+    - Added responsive GitHub markdown showcase table aligning screenshots symmetrically across all display formats.
+    - Integrated comprehensive Mermaid system topology diagram (`flowchart TD`) mapping UI, State Coordination, Audio Resolution Engine, Media3/ExoPlayer DSP, and Hardware AudioTrack.
+    - Documented end-to-end playback lifecycle: clean metadata registration (`FidelityManager`), Media3 `ResolvingDataSource` dynamic interception, 4-tier resolution ladder with Monochrome Lossless CDN + Singapore proxy failover, and strict Zero-Mismatch Matcher algorithm (`isStrictCandidateMatch`).
+    - Documented native DSP pipeline (FFmpeg extension decoders, Bungee C++ vocoder, center vocal remover, unified sample rate mixing) and Apple Music motion visual architecture.
+    - Added 11-dimension comparison matrix detailing engineering advancements over the original Square open-source fork.
+
 - **Zero-Mismatch Strict Track & Singer Matcher Engine (`FidelityResolver.kt`, `AudioFidelity.kt`, `YouTubePlayerFactory.kt`, `MainActivity.kt`, `PlaybackService.kt`, `YouTubeBackend.kt`)**:
   - **Eliminated Song Swapping & False Substitution Bug**:
     - Previously, when searching external lossless or high-bitrate sources (Monochrome CDN or JioSaavn), Ame only checked whether duration was within tolerance, taking the first candidate regardless of title or artist.
