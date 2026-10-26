@@ -110,11 +110,24 @@ jobs:
         # and gh uploads several files at once in no fixed order.
         run: |
           name="ame-${{ steps.version.outputs.name }}"
+          cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
+          This release improves audio fidelity resolution and playback reliability.
+
+          Highlights
+          - Strengthened lossless stream matching using verified title, artist, and duration metadata.
+          - Bound fidelity activation to the active decoded stream so lossless status is not shown for prefetched or fallback audio.
+          - Improved external stream caching, prefetching, retry handling, and standard-quality fallback behavior.
+          - Improved playback stability across queue transitions and network interruptions.
+          NOTES
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" \
+              --title "v${{ steps.version.outputs.name }}" \
+              --notes-file "$RUNNER_TEMP/release-notes.md"
             gh release upload "$GITHUB_REF_NAME" "$name-arm64-v8a.apk" --clobber
           else
             gh release create "$GITHUB_REF_NAME" "$name-arm64-v8a.apk" --draft \
-              --title "${{ steps.version.outputs.name }}" --notes ""
+              --title "v${{ steps.version.outputs.name }}" \
+              --notes-file "$RUNNER_TEMP/release-notes.md"
           fi
           gh release upload "$GITHUB_REF_NAME" "$name-armeabi-v7a.apk" "$name-universal.apk" --clobber
 

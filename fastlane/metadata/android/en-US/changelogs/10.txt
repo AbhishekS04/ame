@@ -1,0 +1,4 @@
+Improved lossless stream matching using verified title, artist, and duration metadata.
+Bound fidelity activation to the active decoded stream so lossless status is not shown for prefetched or fallback audio.
+Improved external stream caching, prefetching, retry handling, and standard-quality fallback behavior.
+Improved playback stability across queue transitions and network interruptions.
