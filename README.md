@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="icons/iconNoBg.png" width="160" alt="Ame Logo" />
+</p>
+
 <h1 align="center">Ame</h1>
 
 <p align="center">
