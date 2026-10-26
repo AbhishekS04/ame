@@ -1,9 +1,11 @@
 package com.abhishek.ame.data
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -40,6 +42,7 @@ object AppleCatalog {
     private const val TAG = "AppleCatalog"
     private const val SITE = "https://beta.music.apple.com"
     private const val API = "https://amp-api.music.apple.com/v1/catalog"
+    private const val LOOKUP_TIMEOUT_MS = 8_000L
 
     private val client by lazy {
         OkHttpClient.Builder()
@@ -57,9 +60,9 @@ object AppleCatalog {
     /**
      * Artists already looked up, by the name that was asked for.
      *
-     * Misses are cached too, as nulls: an artist Apple does not have would
-     * otherwise be searched again every time their page is opened, and the
-     * answer would be the same every time.
+     * Successful answers are cached. Transient failures and cancellations are
+     * deliberately not cached, so a brief outage cannot hide artwork for the
+     * rest of the process.
      */
     private val cache = mutableMapOf<String, Any?>()
 
@@ -81,7 +84,7 @@ object AppleCatalog {
         // bigger pictures means the old rows are answers to a different
         // question. A new name retires them in one line.
         store = context.getSharedPreferences(
-            "apple-catalog-v7",
+            "apple-catalog-v8",
             android.content.Context.MODE_PRIVATE,
         )
         // Stored weakly: this object lives for the process lifetime and must not
@@ -225,16 +228,18 @@ object AppleCatalog {
 
         remembered(key)?.let { row ->
             val kept = runCatching { json.decodeFromString<Artist>(row) }.getOrNull()
-            synchronized(cache) { cache[key] = kept }
-            return kept
+            if (kept != null) {
+                synchronized(cache) { cache[key] = kept }
+                return kept
+            }
         }
 
         if (!mayAsk()) return null
 
-        val found = ask(name) { lookUpArtist(name, storefront) }
+        val found = ask(name) { withTimeoutOrNull(LOOKUP_TIMEOUT_MS) { lookUpArtist(name, storefront) } }
 
         found?.let { runCatching { remember(key, json.encodeToString(it)) } }
-        synchronized(cache) { cache[key] = found }
+        found?.let { synchronized(cache) { cache[key] = it } }
         return found
     }
 
@@ -252,23 +257,25 @@ object AppleCatalog {
         storefront: String = storefront(),
     ): Album? {
         if (name.isBlank()) return null
-        // "album2": answers filed before a moving cover counted as a picture
+        // "album3": answers filed before 3000px artwork was requested
         // chose the edition without one and kept it for a month.
-        val key = "album2 $storefront/${artist.lowercase()}/${name.lowercase()}"
+        val key = "album3 $storefront/${artist.lowercase()}/${name.lowercase()}"
         synchronized(cache) { if (cache.containsKey(key)) return cache[key] as Album? }
 
         remembered(key)?.let { row ->
             val kept = runCatching { json.decodeFromString<Album>(row) }.getOrNull()
-            synchronized(cache) { cache[key] = kept }
-            return kept
+            if (kept != null) {
+                synchronized(cache) { cache[key] = kept }
+                return kept
+            }
         }
 
         if (!mayAsk()) return null
 
-        val found = ask(name) { lookUpAlbum(name, artist, storefront) }
+        val found = ask(name) { withTimeoutOrNull(LOOKUP_TIMEOUT_MS) { lookUpAlbum(name, artist, storefront) } }
 
         found?.let { runCatching { remember(key, json.encodeToString(it)) } }
-        synchronized(cache) { cache[key] = found }
+        found?.let { synchronized(cache) { cache[key] = it } }
         return found
     }
 
@@ -297,34 +304,32 @@ object AppleCatalog {
         storefront: String = storefront(),
     ): String? {
         if (name.isBlank()) return null
-        val key = "song $storefront/${artist.lowercase()}/${name.lowercase()}/${album.lowercase()}"
+        val key = "song2 $storefront/${artist.lowercase()}/${name.lowercase()}/${album.lowercase()}"
         synchronized(cache) { if (cache.containsKey(key)) return cache[key] as String? }
 
         remembered(key)?.let { row ->
             val kept = row.takeIf { it.isNotBlank() }
-            synchronized(cache) { cache[key] = kept }
-            return kept
+            if (kept != null) {
+                synchronized(cache) { cache[key] = kept }
+                return kept
+            }
         }
 
         if (!mayAsk()) return null
 
-        val found = ask(name) { lookUpSong(name, artist, album, storefront) }
+        val found = ask(name) { withTimeoutOrNull(LOOKUP_TIMEOUT_MS) { lookUpSong(name, artist, album, storefront) } }
 
         found?.let { runCatching { remember(key, it) } }
-        synchronized(cache) { cache[key] = found }
+        found?.let { synchronized(cache) { cache[key] = it } }
         return found
     }
 
     /**
      * A lookup's answer, or null when it failed; never null because it was
-     * called off.
+     * cancelled by a caller.
      *
-     * `runCatching` catches a cancellation like any other failure. A lookup
-     * cancelled because the song changed, or because the record's name had
-     * just arrived, then counted as "Apple has nothing", and that was cached
-     * for the rest of the session, over the answer another lookup of the same
-     * record had just filed: the player fell back to Spotify's square sleeve
-     * for a record Apple has a portrait of.
+     * Cancellation remains cancellation, while provider failures simply allow
+     * the existing YouTube/Spotify artwork fallback to remain visible.
      */
     private suspend fun <T> ask(name: String, lookUp: suspend () -> T?): T? =
         try {
@@ -341,11 +346,8 @@ object AppleCatalog {
         album: String,
         storefront: String,
     ): String? {
-        // Priority 1: High-res official studio cover via iTunes Search API (1200x1200bb.jpg, no tokens, rock-solid)
-        val itunesCover = lookUpSongViaItunes(name, artist, album, storefront)
-        if (itunesCover != null) return itunesCover
-
-        // Priority 2: amp-api search
+        // Prefer the Apple Music catalog response: its artwork templates support
+        // the full 3000px master, while iTunes Search is capped at 1200px.
         val plain = plain(name)
         val credited = credited(artist)
         val results = search("${lead(artist)} $plain", "songs", storefront)
@@ -375,9 +377,9 @@ object AppleCatalog {
             if (ampCover != null) return ampCover
         }
 
-        // Return null if Apple Music has no verified high-res artwork,
-        // allowing clean fallback to YouTube Music's high-res thumbnail.
-        return null
+        // iTunes is still Apple's catalog and is the reliable fallback when the
+        // storefront endpoint has no token or has not indexed the release.
+        return lookUpSongViaItunes(name, artist, album, storefront)
     }
 
     private suspend fun lookUpSongViaItunes(
@@ -427,13 +429,11 @@ object AppleCatalog {
                         for (i in 0 until results.length()) {
                             val item = results.optJSONObject(i) ?: continue
                             val trackName = item.optString("trackName")
-                            val collectionName = item.optString("collectionName")
                             val artistName = item.optString("artistName")
                             val art100 = item.optString("artworkUrl100")
                             if (art100.isBlank()) continue
 
                             val titleMatches = sameTitle(trackName, name) || sameTitle(trackName, plainTitle)
-                            val albumMatches = album.isNotBlank() && sameTitle(collectionName, album)
                             val artistMatches = artist.isNotBlank() && (
                                 sameTitle(artistName, artist) ||
                                 sameTitle(artistName, leadArtist) ||
@@ -441,7 +441,10 @@ object AppleCatalog {
                                 leadArtist.contains(artistName, ignoreCase = true)
                             )
 
-                            if (titleMatches || albumMatches || artistMatches) {
+                            // A title-only or artist-only hit can be a different song or
+                            // compilation. Require both identities; the album only helps
+                            // choose the edition after the track identity is proven.
+                            if (titleMatches && (artist.isBlank() || artistMatches)) {
                                 val highResCover = art100
                                     .replace(Regex("""/\d+x\d+bb\.(jpg|png)"""), "/1200x1200bb.$1")
                                     .replace("100x100bb.jpg", "1200x1200bb.jpg")
@@ -451,6 +454,8 @@ object AppleCatalog {
                             }
                         }
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     android.util.Log.d(TAG, "iTunes query error for '$query': ${e.message}")
                 }
@@ -503,6 +508,8 @@ object AppleCatalog {
                         }
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 android.util.Log.d(TAG, "iTunes album search error: ${e.message}")
             }
@@ -669,8 +676,9 @@ object AppleCatalog {
                 val tall = match.tall()
                 val cover = match["artwork"]?.jsonObject?.template()
                 val motion = match.motion()
-                val motionUrl = motion?.get("video")?.jsonPrimitive?.content
-                val motionStill = motion?.get("previewFrame")?.jsonObject?.template()
+                val motionUrl = motion?.stringValue("video")
+                    ?.takeIf(::isRemoteUrl)
+                val motionStill = motion?.templateValue("previewFrame")
                 val notes = match["editorialNotes"]?.jsonObject
                     ?.let { it["standard"] ?: it["short"] }
                     ?.jsonPrimitive?.content
@@ -706,6 +714,9 @@ object AppleCatalog {
         return (w / h).takeIf { it.isFinite() && it > 0f }
     }
 
+    private fun isRemoteUrl(url: String): Boolean =
+        url.startsWith("https://", ignoreCase = true) || url.startsWith("http://", ignoreCase = true)
+
     /** The four text colours filed with an artwork row, in order. */
     private fun inkPaletteOf(art: JsonObject?): List<String> =
         listOf("textColor1", "textColor2", "textColor3", "textColor4")
@@ -718,7 +729,20 @@ object AppleCatalog {
      */
     private fun kotlinx.serialization.json.JsonObject.motion(): kotlinx.serialization.json.JsonObject? =
         listOf("motionDetailTall", "motionTallVideo3x4", "motionDetailSquare")
-            .firstNotNullOfOrNull { get("editorialVideo")?.jsonObject?.get(it)?.jsonObject }
+            .mapNotNull { get("editorialVideo")?.jsonObject?.get(it)?.jsonObject }
+            .firstOrNull { it.stringValue("video")?.let(::isRemoteUrl) == true }
+
+    /** Apple has returned both a string and an object containing `url` here. */
+    private fun JsonObject.stringValue(key: String): String? = runCatching {
+        val value = get(key) ?: return@runCatching null
+        value.jsonPrimitive.content
+    }.getOrNull() ?: runCatching {
+        get(key)?.jsonObject?.get("url")?.jsonPrimitive?.content
+    }.getOrNull()
+
+    private fun JsonObject.templateValue(key: String): String? = runCatching {
+        get(key)?.jsonObject?.template()
+    }.getOrNull() ?: stringValue(key)
 
     /**
      * The full-height picture a record's page opens with, where it has one.
@@ -941,7 +965,7 @@ object AppleCatalog {
     private const val LOGO_H = 276
 
     /** A sleeve, large enough for the header and for the page's colour. */
-    private const val COVER_PX = 1600
+    private const val COVER_PX = 3000
 
     /**
      * A record's own full-height picture, at the shape Apple files it in.

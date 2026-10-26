@@ -69,6 +69,7 @@ class AmeApplication : Application(), ImageLoaderFactory {
         // the difference between a page that opens on the right picture and one
         // that opens on Spotify's and changes it a second later.
         com.abhishek.ame.data.AppleCatalog.attach(this)
+        com.abhishek.ame.backend.fidelity.FidelityResolver.attach(this)
         com.abhishek.ame.data.LocalFileBindings.attach(this)
         com.abhishek.ame.backend.lyrics.LyricsLibrary.attach(
             this,

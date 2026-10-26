@@ -74,6 +74,11 @@ class YouTubeBackend(private val account: YouTubeAccount) : MusicBackend {
      */
     override val isReady = true
 
+    private data class SearchCacheEntry(val storedAt: Long, val results: SearchResults)
+
+    /** Reopening a recent query should not perform another InnerTube round trip. */
+    private val searchCache = java.util.concurrent.ConcurrentHashMap<String, SearchCacheEntry>()
+
     override suspend fun refreshAuth() {
         // Brings the stored cookie up to date and finds out whether it still
         // works; see [YouTubeAccount.revalidate].
@@ -87,12 +92,12 @@ class YouTubeBackend(private val account: YouTubeAccount) : MusicBackend {
     }
 
     /**
-     * Songs, albums, artists and playlists, in four calls.
+     * The fast search surface: songs, artists and albums in parallel.
      *
-     * InnerTube filters a search to one kind at a time, so the four rows the
-     * UI shows are four requests. Run together rather than one after another:
-     * serially this is the slowest thing on the screen, and they do not depend
-     * on each other.
+     * Playlists, podcasts and video uploads are secondary catalogue views. The
+     * old implementation waited for seven independent InnerTube requests before
+     * showing the song the listener typed, so a slow secondary endpoint made the
+     * whole search feel broken.
      */
     override suspend fun search(
         query: String,
@@ -107,20 +112,15 @@ class YouTubeBackend(private val account: YouTubeAccount) : MusicBackend {
             if (offset > 0) return@withContext SearchResults()
             val trimmed = query.trim()
 
+            searchCache[trimmed.lowercase()]?.takeIf {
+                android.os.SystemClock.elapsedRealtime() - it.storedAt < SEARCH_CACHE_TTL_MS
+            }?.let { return@withContext it.results }
+
             coroutineScope {
                 val songs = async { searchItems(trimmed, YouTube.SearchFilter.FILTER_SONG) }
-                val albums = async { searchItems(trimmed, YouTube.SearchFilter.FILTER_ALBUM) }
                 val artists = async { searchItems(trimmed, YouTube.SearchFilter.FILTER_ARTIST) }
-                val playlists = async {
-                    searchItems(trimmed, YouTube.SearchFilter.FILTER_COMMUNITY_PLAYLIST)
-                }
-                // Videos of every kind YouTube Music has: music videos, and the
-                // uploads people listen to rather than watch (ASMR, sessions).
-                val videos = async { searchItems(trimmed, YouTube.SearchFilter.FILTER_VIDEO) }
-                val podcasts = async { searchItems(trimmed, YouTube.SearchFilter.FILTER_PODCAST) }
-                val episodes = async { searchItems(trimmed, YouTube.SearchFilter.FILTER_EPISODE) }
-
-                SearchResults(
+                val albums = async { searchItems(trimmed, YouTube.SearchFilter.FILTER_ALBUM) }
+                val results = SearchResults(
                     tracks = songs.await().filterIsInstance<SongItem>().map(::toCatalogTrack),
                     albums = albums.await().filterIsInstance<AlbumItem>().map { album ->
                         SearchItem(
@@ -139,26 +139,15 @@ class YouTubeBackend(private val account: YouTubeAccount) : MusicBackend {
                             artworkUrl = artist.thumbnail?.atSize(COVER_SIZE),
                         )
                     },
-                    videos = videos.await().filterIsInstance<SongItem>().map(::toVideoTrack),
-                    playlists = playlists.await().filterIsInstance<PlaylistItem>().map { playlist ->
-                        SearchItem(
-                            uri = "$PLAYLIST_PREFIX${playlist.id}",
-                            title = playlist.title,
-                            subtitle = labels.playlist,
-                            artworkUrl = playlist.thumbnail?.atSize(COVER_SIZE),
-                        )
-                    },
-                    podcasts = podcasts.await().filterIsInstance<PodcastItem>().mapNotNull { show ->
-                        val tile = toCatalogPlaylist(show) ?: return@mapNotNull null
-                        SearchItem(
-                            uri = tile.uri,
-                            title = tile.name,
-                            subtitle = tile.subtitle ?: labels.podcast,
-                            artworkUrl = tile.artworkUrl,
-                        )
-                    },
-                    episodes = episodes.await().filterIsInstance<EpisodeItem>().map(::toCatalogTrack),
                 )
+                searchCache[trimmed.lowercase()] = SearchCacheEntry(
+                    android.os.SystemClock.elapsedRealtime(),
+                    results,
+                )
+                while (searchCache.size > SEARCH_CACHE_SIZE) {
+                    searchCache.entries.minByOrNull { it.value.storedAt }?.let { searchCache.remove(it.key) }
+                }
+                results
             }
         }
 
@@ -1000,6 +989,8 @@ class YouTubeBackend(private val account: YouTubeAccount) : MusicBackend {
 
     companion object {
         private const val TAG = "AmeYouTube"
+        private const val SEARCH_CACHE_TTL_MS = 2 * 60 * 1000L
+        private const val SEARCH_CACHE_SIZE = 12
         private const val HERO_SIZE = 1200
         private val BYLINE_JOINERS = setOf("&", "e", "and", "y", "et", "und", "x", "i", "и", "ve", "और", "feat.", "ft.")
         private const val COUNTERPART_PARALLELISM = 6

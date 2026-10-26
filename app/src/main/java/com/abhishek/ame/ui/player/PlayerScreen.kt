@@ -392,6 +392,8 @@ fun PlayerScreen(
      * given to fill a phone.
      */
     coverSquareUrl: String? = null,
+    /** Whether the queue's artwork may stand in for the selected cover source. */
+    allowQueueArtworkFallback: Boolean = true,
     /**
      * The other catalogue has not answered yet.
      *
@@ -661,7 +663,9 @@ fun PlayerScreen(
         if (canvas?.isVideo != true) clipReport.value(emptyList())
     }
 
-    val currentArtworkUrl = coverHeroUrl ?: coverSquareUrl ?: state.artworkUrl
+    val currentArtworkUrl = coverHeroUrl
+        ?: coverSquareUrl
+        ?: state.artworkUrl?.atSize(1200).takeIf { allowQueueArtworkFallback && !coverPending }
 
     val readPalette by com.abhishek.ame.ui.theme.rememberArtworkPalette(
         currentArtworkUrl.takeIf { canvas == null },
@@ -699,7 +703,7 @@ fun PlayerScreen(
             // different covers at once.
             if (sideways) {
                 com.abhishek.ame.ui.components.Artwork(
-                    url = state.artworkUrl,
+                    url = currentArtworkUrl,
                     title = state.title,
                     modifier = Modifier
                         .fillMaxSize()
@@ -773,10 +777,8 @@ fun PlayerScreen(
                 // and nothing of the picture itself — which was a stand-in for
                 // an image the app had all along.
                 com.abhishek.ame.ui.components.HeroBackdrop(
-                    artworkUrl = coverHeroUrl
-                        ?: coverSquareUrl
-                        ?: state.artworkUrl?.atSize(1200),
-                    thumbnailUrl = state.artworkUrl,
+                    artworkUrl = currentArtworkUrl,
+                    thumbnailUrl = state.artworkUrl.takeIf { allowQueueArtworkFallback && !coverPending },
                     trackKey = state.mediaId ?: state.title,
                     // The moving cover only while the player is standing
                     // still. Otherwise its TextureView goes black for the
@@ -882,7 +884,7 @@ fun PlayerScreen(
                     // reason. So this is now the stand-in for a screen with no
                     // artwork behind it, and nothing else.
                     if (coverHeroUrl == null && coverSquareUrl == null &&
-                        state.artworkUrl == null
+                        currentArtworkUrl == null
                     ) {
                         CoverAura(colors = auraColors, playing = state.isPlaying)
                     }

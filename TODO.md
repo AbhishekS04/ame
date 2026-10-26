@@ -52,3 +52,9 @@
 - [ ] **3.1**: Add a dedicated **"Jam / Party"** action sheet in the Now Playing screen (showing active friends and listener count).
 - [ ] **3.2**: Add an optional **"Live Friends Jamming"** carousel shelf on the Home Screen.
 - [ ] **3.3**: Add a **"Private Jam"** toggle in Profile settings to mute presence broadcasting when desired.
+
+---
+
+## 🔐 Priority 4: Deferred Security Hardening
+
+- [ ] Complete the findings and remediation checklist in [`SECURITY_AUDIT_TODO.md`](SECURITY_AUDIT_TODO.md).

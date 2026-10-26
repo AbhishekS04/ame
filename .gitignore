@@ -39,3 +39,9 @@ keystore.properties
 
 # Design inspiration scraps
 inspo-ame/
+
+# Local-only audio diagnostics
+/scripts/check_lossless.py
+/scripts/tests/test_check_lossless.py
+__pycache__/
+*.py[cod]

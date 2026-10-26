@@ -32,6 +32,10 @@ object FidelityManager {
 
     private val trackFidelities = ConcurrentHashMap<String, AudioFidelity>()
 
+    /** The media item whose decoded stream is allowed to drive the badge. */
+    @Volatile
+    private var activeMediaId: String? = null
+
     data class TrackMetadata(
         val title: String,
         val artist: String,
@@ -74,7 +78,10 @@ object FidelityManager {
             trackFidelities[norm] = fidelity
             trackFidelities["ytmusic:track:$norm"] = fidelity
         }
-        _activeFidelity.value = fidelity
+        // Recording a result is deliberately not activation. Resolver work for
+        // the next item happens while the current item is audible; changing the
+        // process-wide state here made the Lossless badge appear on the wrong
+        // song, sometimes minutes after it started.
         Log.i(TAG, "Recorded fidelity: $fidelity for mediaId=$mediaId (norm=$norm)")
     }
 
@@ -105,25 +112,40 @@ object FidelityManager {
         preferredQuality: PreferencesStore.YouTubeQuality? = null,
     ) {
         if (mediaId.isNullOrBlank()) {
+            activeMediaId = null
             _activeFidelity.value = AudioFidelity.STANDARD
             return
         }
-        val norm = normalizeId(mediaId)
-        val knownFidelity = trackFidelities[mediaId]
-            ?: trackFidelities[norm]
-            ?: trackFidelities["ytmusic:track:$norm"]
+        activeMediaId = mediaId
+        // A previous resolution is not proof that this playback instance has
+        // decoded the same stream. The decoder confirmation below is the only
+        // path that can turn the badge on.
+        _activeFidelity.value = AudioFidelity.STANDARD
+        Log.i(TAG, "onTrackTransition mediaId=$mediaId -> waiting for decoded format")
+    }
 
-        val targetFidelity = knownFidelity ?: AudioFidelity.STANDARD
-
-        _activeFidelity.value = targetFidelity
-        Log.i(TAG, "onTrackTransition mediaId=$mediaId -> activeFidelity=$targetFidelity (known=$knownFidelity)")
+    /**
+     * Activates a fidelity only after the decoder reports the stream format.
+     * This is intentionally media-bound so a prefetched next item cannot affect
+     * the track currently shown by the player.
+     */
+    fun confirmDecoded(mediaId: String?, fidelity: AudioFidelity) {
+        if (mediaId.isNullOrBlank()) return
+        val expected = activeMediaId ?: return
+        if (normalizeId(expected) != normalizeId(mediaId)) return
+        recordTrackFidelity(mediaId, fidelity)
+        _activeFidelity.value = fidelity
+        Log.i(TAG, "Activated decoded fidelity: $fidelity for mediaId=$mediaId")
     }
 
     fun setFidelity(fidelity: AudioFidelity) {
+        // Kept for callers outside the YouTube resolver. YouTube playback uses
+        // confirmDecoded(), never this unbound setter.
         _activeFidelity.value = fidelity
     }
 
     fun reset() {
+        activeMediaId = null
         _activeFidelity.value = AudioFidelity.STANDARD
         trackFidelities.clear()
     }

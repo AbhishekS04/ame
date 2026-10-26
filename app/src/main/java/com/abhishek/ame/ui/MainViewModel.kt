@@ -29,6 +29,7 @@ import com.abhishek.ame.data.CatalogTrack
 import com.abhishek.ame.data.ContextCacheStore
 import com.abhishek.ame.data.GatewayPage
 import com.abhishek.ame.data.LocalLibrary
+import com.abhishek.ame.data.PreferencesStore
 import com.abhishek.ame.data.SearchItem
 import com.abhishek.ame.data.TransferRequestDto
 import com.abhishek.ame.data.SearchResults
@@ -5968,8 +5969,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      *
      * Fails quietly and cancels freely: nothing on screen depends on it.
      */
-    fun prefetchArt(title: String, album: String, artist: String, nextArtworkUrl: String? = null) {
-        if (artist.isBlank() || com.abhishek.ame.playback.OfflineMode.active.value) return
+    fun prefetchArt(
+        title: String,
+        album: String,
+        artist: String,
+        nextArtworkUrl: String? = null,
+        source: PreferencesStore.CoverSource,
+    ) {
+        if (!source.usesAppleArtwork || artist.isBlank() || com.abhishek.ame.playback.OfflineMode.active.value) return
         prefetchArtJob?.cancel()
         prefetchArtJob = viewModelScope.launch {
             val context = getApplication<AmeApplication>()
@@ -6096,11 +6103,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Called when the track changes; cached and cheap on a repeat. */
-    fun loadNowPlayingArt(uri: String?, title: String, album: String, artist: String) {
+    fun loadNowPlayingArt(
+        uri: String?,
+        title: String,
+        album: String,
+        artist: String,
+        source: PreferencesStore.CoverSource,
+    ) {
         nowPlayingArtJob?.cancel()
         _nowPlayingArtUri.value = uri
         _nowPlayingArt.value = null
-        if (artist.isBlank()) {
+        if (!source.usesAppleArtwork || artist.isBlank()) {
             _nowPlayingArtPending.value = false
             return
         }
@@ -6132,13 +6145,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     if (record.isNotBlank()) break
                 }
                 android.util.Log.i(TAG, "art: record for $uri ${if (record.isBlank()) "not found" else "is '$record'"}")
-            }
-
-            val coverSource = container.preferences.animatedCoverSource.value
-            if (coverSource == com.abhishek.ame.data.PreferencesStore.CoverSource.YOUTUBE) {
-                _nowPlayingArt.value = null
-                _nowPlayingArtPending.value = false
-                return@launch
             }
 
             val found = com.abhishek.ame.data.AppleCatalog.album(record, artist)
@@ -7147,7 +7153,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         /** How many track lists to keep resolved; see contextCache. */
         const val CONTEXT_CACHE_SIZE = 8
 
-        const val SEARCH_DEBOUNCE_MS = 350L
+        // Search endpoints already debounce server-side; waiting 350ms made a
+        // short query feel like it had not been received. Cancellation still
+        // prevents prefix requests from landing over the current query.
+        const val SEARCH_DEBOUNCE_MS = 180L
 
         /** How many of each kind a page of results holds; see Gateway. */
         const val SEARCH_PAGE = 20

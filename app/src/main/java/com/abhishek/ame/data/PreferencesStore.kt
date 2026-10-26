@@ -196,7 +196,22 @@ class PreferencesStore(context: Context) {
     }
 
     /** Where artwork and covers come from; see [animatedCoverSource]. */
-    enum class CoverSource { PREMIUM, APPLE_MUSIC, SPOTIFY, YOUTUBE }
+    enum class CoverSource {
+        PREMIUM,
+        APPLE_MUSIC,
+        SPOTIFY,
+        YOUTUBE,
+
+        /** Apple Music is the authoritative still-art source for these modes. */
+        ;
+
+        val usesAppleArtwork: Boolean
+            get() = this == PREMIUM || this == APPLE_MUSIC
+
+        /** Apple-only mode must never display a provider-mismatched thumbnail. */
+        val allowsQueueArtworkFallback: Boolean
+            get() = this != APPLE_MUSIC
+    }
 
     private val _animatedCoverSource = MutableStateFlow(
         CoverSource.entries.firstOrNull { it.name == prefs.getString(KEY_COVER_SOURCE, null) } ?: CoverSource.PREMIUM,

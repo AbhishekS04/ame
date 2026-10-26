@@ -10,7 +10,12 @@ import kotlinx.coroutines.withContext
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.abhishek.ame.backend.PlaybackHost
@@ -47,18 +52,29 @@ object YouTubePlayerFactory {
         val mainSlot = MixerSlot()
         val tailSlot = MixerSlot(follows = mainSlot, initialFade = 0f).apply { held = true }
 
+        val httpDataSource = DefaultHttpDataSource.Factory()
+            .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .setDefaultRequestProperties(
+                com.abhishek.ame.backend.fidelity.FidelityResolver.externalStreamRequestProperties,
+            )
+            // A broken external FLAC must fail quickly enough for the player
+            // listener to switch to YouTube instead of spinning for minutes.
+            .setConnectTimeoutMs(5000)
+            .setReadTimeoutMs(5000)
+            .setAllowCrossProtocolRedirects(true)
+
+        val upstream = DefaultDataSource.Factory(host.context, httpDataSource)
+        val mediaCache = YouTubeMediaCache.forContext(host.context.applicationContext)
+        val cachedDataSource = CacheDataSource.Factory()
+            .setCache(mediaCache)
+            .setUpstreamDataSourceFactory(upstream)
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+
         val dataSources = ResolvingDataSource.Factory(
             // Files as well as the network: a kept song resolves to one on the
             // phone, which an HTTP source cannot open.
             ChunkedDataSource.Factory(
-                androidx.media3.datasource.DefaultDataSource.Factory(
-                    host.context,
-                    DefaultHttpDataSource.Factory()
-                        .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-                        .setConnectTimeoutMs(15000)
-                        .setReadTimeoutMs(15000)
-                        .setAllowCrossProtocolRedirects(true),
-                ),
+                cachedDataSource,
             ),
             YouTubeStreamResolver(host.context.applicationContext),
         )
@@ -81,8 +97,39 @@ object YouTubePlayerFactory {
             .setLooper(host.looper)
             .build()
 
-        return buildPlayer(true, mainSlot).let { exo ->
+            return buildPlayer(true, mainSlot).let { exo ->
                 exo.addAnalyticsListener(Diagnostics)
+                // A resolver result is only a candidate. The decoder's input
+                // format is the first trustworthy proof of what is actually
+                // being played, and it is tied to the media item that produced
+                // the event so prebuffering cannot light the current track's
+                // Lossless badge.
+                exo.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+                    override fun onAudioInputFormatChanged(
+                        eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                        format: androidx.media3.common.Format,
+                        decoderReuseEvaluation: androidx.media3.exoplayer.DecoderReuseEvaluation?,
+                    ) {
+                        val mediaId = eventTime.timeline
+                            .takeIf { !it.isEmpty && eventTime.windowIndex in 0 until it.windowCount }
+                            ?.getWindow(eventTime.windowIndex, androidx.media3.common.Timeline.Window())
+                            ?.mediaItem?.mediaId
+                            ?: exo.currentMediaItem?.mediaId
+                        val fidelity = if (format.sampleMimeType == androidx.media3.common.MimeTypes.AUDIO_FLAC) {
+                            com.abhishek.ame.backend.fidelity.AudioFidelity.LOSSLESS
+                        } else {
+                            com.abhishek.ame.backend.fidelity.AudioFidelity.STANDARD
+                        }
+                        android.util.Log.i(
+                            "AmeFidelity",
+                            "Decoded input format: mediaId=$mediaId mime=${format.sampleMimeType ?: "unknown"} " +
+                                "sampleRate=${format.sampleRate}Hz channels=${format.channelCount} " +
+                                "pcmEncoding=${format.pcmEncoding} bitrate=${format.bitrate} " +
+                                "averageBitrate=${format.averageBitrate}",
+                        )
+                        com.abhishek.ame.backend.fidelity.FidelityManager.confirmDecoded(mediaId, fidelity)
+                    }
+                })
                 // A song YouTube plays only to an account, with none signed in:
                 // said, and passed over, rather than left at --:-- with no word
                 // of why. See SignedInStreams.
@@ -118,6 +165,7 @@ object YouTubePlayerFactory {
                 // Video for a video, sound for a song, as the queue moves.
                 exo.addListener(object : Player.Listener {
                     override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                        recovering = null
                         YouTubeVideoMode.onItem(mediaItem?.mediaId)
                         val prefQuality = (host.context.applicationContext as? com.abhishek.ame.AmeApplication)
                             ?.preferences?.youtubeQuality?.value
@@ -143,7 +191,7 @@ object YouTubePlayerFactory {
                         if (next >= 0) {
                             exo.getMediaItemAt(next).mediaId
                                 .takeIf { it.startsWith(YouTubeBackend.URI_SCHEME) }
-                                ?.let(YouTubeStreams::prefetch)
+                                ?.let { uri -> YouTubeStreams.prefetch(uri, host.context.applicationContext) }
                         }
                     }
                 })
@@ -193,13 +241,17 @@ object YouTubePlayerFactory {
         val id = item.mediaId
         if (!exo.playWhenReady) return
 
-        // If an external high-fidelity stream failed, blacklist it so recovery instantly falls back to YouTube High
+        // If an external high-fidelity stream failed, blacklist it so recovery instantly falls back to YouTube High.
+        // The caller may immediately prepare after this method; the delayed
+        // retry remains for ordinary YouTube/network failures.
         val causes = generateSequence<Throwable>(error) { it.cause }.toList()
+        var externalFailed = false
         for (cause in causes) {
             if (cause is androidx.media3.datasource.HttpDataSource.HttpDataSourceException) {
                 val failedUri = cause.dataSpec.uri.toString()
                 if (!failedUri.contains("googlevideo.com")) {
                     YouTubeStreamResolver.failedLosslessUrls.add(failedUri)
+                    externalFailed = true
                     android.util.Log.w("AmeYT", "Blacklisted failed external stream: $failedUri")
                 }
             }
@@ -213,6 +265,7 @@ object YouTubePlayerFactory {
         val at = exo.currentPosition
         val index = exo.currentMediaItemIndex
         android.util.Log.w("AmeYT", "playback failed (${error.errorCodeName}), try $attempt at ${at}ms")
+        val delay = if (externalFailed) 0L else RETRY_DELAY_MS * attempt
         android.os.Handler(exo.applicationLooper).postDelayed({
             // Moved on in the meantime: nothing of this to pick up.
             if (exo.currentMediaItem?.mediaId != id || exo.playerError == null) return@postDelayed
@@ -223,7 +276,7 @@ object YouTubePlayerFactory {
             }
             exo.prepare()
             exo.play()
-        }, RETRY_DELAY_MS * attempt)
+        }, delay)
     }
 
     private const val RETRIES = 3
@@ -431,6 +484,27 @@ object YouTubePlayerFactory {
 }
 
 /**
+ * Keeps the bytes of stable external track URLs across repeated plays and
+ * back/forward navigation. Signed YouTube URLs naturally miss this cache when
+ * they rotate; the stable Monochrome track URL is the useful case here.
+ */
+@UnstableApi
+private object YouTubeMediaCache {
+    private const val MAX_CACHE_BYTES = 256L * 1024L * 1024L
+
+    @Volatile
+    private var cache: SimpleCache? = null
+
+    @Synchronized
+    fun forContext(context: android.content.Context): SimpleCache =
+        cache ?: SimpleCache(
+            context.cacheDir.resolve("youtube-media-cache").apply { mkdirs() },
+            LeastRecentlyUsedCacheEvictor(MAX_CACHE_BYTES),
+            StandaloneDatabaseProvider(context),
+        ).also { cache = it }
+}
+
+/**
  * Turns a `ytmusic:track:` URI into the URL the audio really lives at.
  *
  * Resolved at load time rather than when the queue is built, and this is the
@@ -503,7 +577,7 @@ private class YouTubeStreamResolver(
         // at construction: without this the first resolve dies on "downloader is
         // null". Done here rather than at startup so a session that never plays
         // a YouTube track never builds one.
-        YouTubeStreams.ensureNewPipe()
+        YouTubeStreams.ensureNewPipe(context)
 
         val songId = YouTubeBackend.videoIdOfUri(base)
         // A song watched rather than heard is its official video, sound and
@@ -573,7 +647,6 @@ private class YouTubeStreamResolver(
             qualityPref == com.abhishek.ame.data.PreferencesStore.YouTubeQuality.LOW
         ) {
             com.abhishek.ame.backend.fidelity.FidelityManager.recordTrackFidelity(base, com.abhishek.ame.backend.fidelity.AudioFidelity.STANDARD)
-            com.abhishek.ame.backend.fidelity.FidelityManager.setFidelity(com.abhishek.ame.backend.fidelity.AudioFidelity.STANDARD)
             return dataSpec.withUri(android.net.Uri.parse(youtubeStreamUrl))
         }
 
@@ -651,7 +724,6 @@ private class YouTubeStreamResolver(
         }
 
         com.abhishek.ame.backend.fidelity.FidelityManager.recordTrackFidelity(base, chosenFidelity)
-        com.abhishek.ame.backend.fidelity.FidelityManager.setFidelity(chosenFidelity)
 
         return dataSpec.withUri(android.net.Uri.parse(finalUrl))
     }
@@ -766,19 +838,46 @@ object YouTubeStreams {
         chosen
     }
 
-    private val prefetcher = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+    // One worker can leave the current item waiting behind a next-item
+    // prefetch. Two workers keep the tap and queue warm-up independent while
+    // the per-video locks still prevent duplicate extractor requests.
+    private val prefetcher = java.util.concurrent.Executors.newFixedThreadPool(2) { r ->
         Thread(r, "AmeYTPrefetch").apply { isDaemon = true }
     }
 
     /** Asks ahead for what [uri] will need, so the next item starts at once. */
-    fun prefetch(uri: String) {
+    fun prefetch(uri: String, context: android.content.Context? = null) {
         val id = YouTubeBackend.videoIdOfUri(uri)
         prefetcher.execute {
             runCatching {
-                if (uri.startsWith(YouTubeBackend.TRACK_PREFIX) && YouTubeVideoMode.wantsVideo(uri)) {
+                context?.let { ensureNewPipe(it) }
+                val watched = uri.startsWith(YouTubeBackend.TRACK_PREFIX) && YouTubeVideoMode.wantsVideo(uri)
+                val (_, info) = if (watched) {
                     watchSource(id)
                 } else {
-                    info(id)
+                    id to info(id)
+                }
+                if (context != null && !watched) {
+                    val application = context.applicationContext as? com.abhishek.ame.AmeApplication
+                    val quality = application?.preferences?.youtubeQuality?.value
+                    val external = quality == com.abhishek.ame.data.PreferencesStore.YouTubeQuality.LOSSLESS ||
+                        quality == com.abhishek.ame.data.PreferencesStore.YouTubeQuality.PREMIUM ||
+                        quality == com.abhishek.ame.data.PreferencesStore.YouTubeQuality.VERY_HIGH ||
+                        (quality == com.abhishek.ame.data.PreferencesStore.YouTubeQuality.AUTO &&
+                            context.getSystemService(android.net.ConnectivityManager::class.java)?.isActiveNetworkMetered != true)
+                    if (external) {
+                        val registered = com.abhishek.ame.backend.fidelity.FidelityManager.getTrackMetadata(uri)
+                        val title = registered?.title?.takeIf { it.isNotBlank() } ?: info.name.orEmpty()
+                        val artist = registered?.artist?.takeIf { it.isNotBlank() } ?: info.uploaderName.orEmpty()
+                        val duration = registered?.durationSec?.takeIf { it > 0 } ?: info.duration
+                        val bitrate = if (quality == com.abhishek.ame.data.PreferencesStore.YouTubeQuality.LOSSLESS) 1411 else 320
+                        com.abhishek.ame.backend.fidelity.FidelityResolver.prefetchHiFiStream(
+                            title,
+                            artist,
+                            duration,
+                            bitrate,
+                        )
+                    }
                 }
             }
         }
@@ -797,9 +896,11 @@ object YouTubeStreams {
 
     /** Idempotent: several tracks resolve on the same thread pool. */
     @Synchronized
-    fun ensureNewPipe() {
+    fun ensureNewPipe(context: android.content.Context? = null) {
         if (initialised) return
-        NewPipe.init(NewPipeDownloader.create(), Localization.DEFAULT)
+        val appContext = context?.applicationContext
+        val shared = (appContext as? com.abhishek.ame.AmeApplication)?.sharedHttpClient
+        NewPipe.init(NewPipeDownloader.create(shared), Localization.DEFAULT)
         initialised = true
     }
 }

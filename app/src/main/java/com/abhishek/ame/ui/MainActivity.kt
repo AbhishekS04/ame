@@ -406,6 +406,17 @@ class MainActivity : ComponentActivity() {
         val wanted = tracks.getOrNull(index)?.uri
         val start = playable.indexOfFirst { it.uri == wanted }.coerceAtLeast(0)
 
+        // Start YouTube extraction before ExoPlayer prepares the item. The
+        // extractor and the player then race on the same per-video cache; on a
+        // warm connection this removes the metadata round trip from the tap,
+        // and on a cold connection it never adds a second request.
+        wanted
+            ?.takeIf {
+                it.startsWith(com.abhishek.ame.backend.youtube.YouTubeBackend.TRACK_PREFIX) ||
+                    it.startsWith(com.abhishek.ame.backend.youtube.YouTubeBackend.VIDEO_PREFIX)
+            }
+            ?.let { com.abhishek.ame.backend.youtube.YouTubeStreams.prefetch(it, applicationContext) }
+
         player.setMediaItems(
             // The phone's files out of a Spotify playlist are not that
             // playlist to the engine, which would load the context from
@@ -430,6 +441,11 @@ class MainActivity : ComponentActivity() {
     private fun enqueue(track: CatalogTrack) {
         val player = controller ?: return
         val wasEmpty = player.mediaItemCount == 0
+        if (track.uri.startsWith(com.abhishek.ame.backend.youtube.YouTubeBackend.TRACK_PREFIX) ||
+            track.uri.startsWith(com.abhishek.ame.backend.youtube.YouTubeBackend.VIDEO_PREFIX)
+        ) {
+            com.abhishek.ame.backend.youtube.YouTubeStreams.prefetch(track.uri, applicationContext)
+        }
         // The index is a formality: the item asks to play next and the queue in
         // the service picks the place, because only it knows where the run of
         // already-queued tracks ends.

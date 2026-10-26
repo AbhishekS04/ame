@@ -65,12 +65,17 @@ class NewPipeDownloader(private val http: OkHttpClient) : Downloader() {
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
-        fun create(): NewPipeDownloader = NewPipeDownloader(
-            OkHttpClient.Builder()
+        fun create(shared: OkHttpClient? = null): NewPipeDownloader = NewPipeDownloader(
+            (shared?.newBuilder() ?: OkHttpClient.Builder())
+                // Stream extraction is on the critical playback path. A dead
+                // YouTube edge must fail to the signed-in fallback rather than
+                // occupy the loading thread for the default 30 seconds.
+                .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .build(),
         )
 
-        private const val READ_TIMEOUT_SECONDS = 30L
+        private const val CONNECT_TIMEOUT_SECONDS = 5L
+        private const val READ_TIMEOUT_SECONDS = 15L
     }
 }

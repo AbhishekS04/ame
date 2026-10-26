@@ -129,10 +129,11 @@ fun SearchScreen(
     val query = state.query
     remember(query) { kind = Kind.ALL }
 
+    // Profile search is a separate filter. Running it for every music query
+    // added a second remote request to every keystroke and competed with the
+    // catalogue request for the same radio/CPU budget.
     LaunchedEffect(query, kind) {
-        if (kind == Kind.PROFILES || query.isNotBlank()) {
-            onSearchSocialProfiles(query)
-        }
+        if (kind == Kind.PROFILES) onSearchSocialProfiles(query)
     }
 
     val listState = rememberLazyListState()

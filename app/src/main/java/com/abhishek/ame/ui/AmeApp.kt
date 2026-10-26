@@ -506,6 +506,9 @@ fun AmeApp(
     val playlist by viewModel.playlist.collectAsStateWithLifecycle()
     val takenOut by viewModel.takenOut.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val preferences = remember(context) {
+        (context.applicationContext as com.abhishek.ame.AmeApplication).preferences
+    }
 
     // The session as it was left, so the player has something to draw before
     // the media controller connects. Read once, off the saved queue.
@@ -671,7 +674,12 @@ fun AmeApp(
     val nowPlayingArt by viewModel.nowPlayingArt.collectAsStateWithLifecycle()
     val nowPlayingArtPending by viewModel.nowPlayingArtPending.collectAsStateWithLifecycle()
     val nowPlayingArtUri by viewModel.nowPlayingArtUri.collectAsStateWithLifecycle()
-    val currentTrackArt = nowPlayingArt.takeIf { nowPlayingArtUri == playback.mediaId }
+    val canvasEnabled by preferences.canvasEnabled.collectAsStateWithLifecycle()
+    val coverSource by preferences.animatedCoverSource.collectAsStateWithLifecycle()
+    val currentTrackArt = nowPlayingArt.takeIf {
+        nowPlayingArtUri == playback.mediaId && coverSource.usesAppleArtwork
+    }
+    val appleArtPending = nowPlayingArtPending && nowPlayingArtUri == playback.mediaId
 
     // The app's one accent, taken from the same picture the pages are tinted
     // by.
@@ -684,7 +692,9 @@ fun AmeApp(
     // a photograph, which is the same reason a record's own page uses it.
     val playingArt = currentTrackArt?.heroUrl
         ?: currentTrackArt?.coverUrl
-        ?: playback.artworkUrl?.atSize(1200)
+        ?: playback.artworkUrl?.atSize(1200).takeIf {
+            coverSource.allowsQueueArtworkFallback && !appleArtPending
+        }
     val playingAccent by rememberArtworkColor(playingArt)
     val accent = currentTrackArt?.bgColor
         ?.let { hex ->
@@ -764,12 +774,13 @@ fun AmeApp(
         Color(android.graphics.Color.HSVToColor(hsv))
     }
 
-    LaunchedEffect(playback.mediaId, playback.title, playback.album, playback.artist) {
+    LaunchedEffect(playback.mediaId, playback.title, playback.album, playback.artist, coverSource) {
         viewModel.loadNowPlayingArt(
             uri = playback.mediaId,
             title = playback.title,
             album = playback.album,
             artist = playback.artist,
+            source = coverSource,
         )
 
         // And the one after it, while there is time to spare. Read off the
@@ -787,6 +798,7 @@ fun AmeApp(
                 album = next.albumTitle?.toString().orEmpty(),
                 artist = next.artist?.toString().orEmpty(),
                 nextArtworkUrl = next.artworkUri?.toString(),
+                source = coverSource,
             )
         }
     }
@@ -1038,10 +1050,6 @@ fun AmeApp(
     // position makes the first frame the player itself; waiting for the media
     // controller to connect and *then* animating is what showed the home page
     // for a moment first.
-    val preferences = remember(context) {
-        (context.applicationContext as com.abhishek.ame.AmeApplication).preferences
-    }
-
     /** False only until the source has been picked once; see BackendChoiceScreen. */
     val backendChosen by preferences.backendChosen.collectAsStateWithLifecycle()
     val backend by preferences.backend.collectAsStateWithLifecycle()
@@ -1219,9 +1227,6 @@ fun AmeApp(
     // there is nobody to ask.
     // Turned off, no clip is ever asked for — which is the point of the switch:
     // it saves the video as well as hiding it.
-    val canvasEnabled by preferences.canvasEnabled.collectAsStateWithLifecycle()
-    val coverSource by preferences.animatedCoverSource.collectAsStateWithLifecycle()
-
     LaunchedEffect(playback.mediaId, backend, canvasEnabled, coverSource, offlineNow) {
         val uri = playback.mediaId
         canvas = null
@@ -3501,11 +3506,12 @@ fun AmeApp(
                                             coverSource == com.abhishek.ame.data.PreferencesStore.CoverSource.PREMIUM)
                                 },
                                 coverSquareUrl = currentTrackArt?.coverUrl,
+                                allowQueueArtworkFallback = coverSource.allowsQueueArtworkFallback && !appleArtPending,
                                 // Spotify's cover is the fallback, not the
                                 // first draft: while the catalogue is still
                                 // being asked, the player shows colour rather
                                 // than a picture it is about to replace.
-                                coverPending = nowPlayingArtPending && nowPlayingArtUri == playback.mediaId,
+                                coverPending = appleArtPending,
                                 devices = devices,
                                 onAnotherDevice = remote != null,
                                 // Or playing from one of the listener's own

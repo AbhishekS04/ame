@@ -3,8 +3,17 @@ package com.abhishek.ame.backend.fidelity
 import android.util.Base64
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.selects.select
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -24,8 +33,24 @@ import kotlin.math.abs
 object FidelityResolver {
 
     private const val TAG = "AmeFidelity"
-    private const val RESOLVE_TIMEOUT_MS = 5000L
+    // This runs behind ExoPlayer's synchronous DataSource resolver. It must be
+    // short enough that a dead provider never turns a tap into a spinner.
+    // Hi-fi is an upgrade, never a reason to hold the base YouTube stream for
+    // several seconds. Both mirrors are raced below; one fast answer is useful,
+    // while a slow provider should fall back before the user notices a stall.
+    private const val RESOLVE_TIMEOUT_MS = 1600L
+    private const val CACHE_TTL_MS = 6 * 60 * 60 * 1000L
+    private const val NEGATIVE_CACHE_TTL_MS = 30 * 1000L
+    private const val MAX_RESPONSE_BYTES = 512 * 1024L
+    private const val MAX_PROVIDER_ATTEMPTS = 1
     private const val JIOSAAVN_DES_KEY = "38346591"
+
+    /** Headers required by the public Monochrome CDN for range/audio requests. */
+    val externalStreamRequestProperties: Map<String, String> = mapOf(
+        "Origin" to "https://monochrome.st",
+        "Referer" to "https://monochrome.st/",
+        "Accept" to "*/*",
+    )
 
     private val IPV4_FIRST_DNS = object : okhttp3.Dns {
         override fun lookup(hostname: String): List<java.net.InetAddress> {
@@ -37,12 +62,30 @@ object FidelityResolver {
     private val httpClient = OkHttpClient.Builder()
         .dns(IPV4_FIRST_DNS)
         .fastFallback(true)
-        .connectTimeout(3800, TimeUnit.MILLISECONDS)
-        .readTimeout(3800, TimeUnit.MILLISECONDS)
+        .callTimeout(1500, TimeUnit.MILLISECONDS)
+        .connectTimeout(900, TimeUnit.MILLISECONDS)
+        .readTimeout(1300, TimeUnit.MILLISECONDS)
         .followRedirects(true)
         .build()
 
-    private val streamCache = ConcurrentHashMap<String, ResolvedStream>()
+    private data class CachedStream(
+        val stream: ResolvedStream,
+        val expiresAt: Long,
+    )
+
+    private val streamCache = ConcurrentHashMap<String, CachedStream>()
+    private val negativeCache = ConcurrentHashMap<String, Long>()
+    private val inFlight = ConcurrentHashMap<String, Deferred<ResolvedStream?>>()
+    private val resolverScope = kotlinx.coroutines.CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var persistentCache: android.content.SharedPreferences? = null
+
+    /** Attaches a process-safe cache without retaining the application Context. */
+    fun attach(context: android.content.Context) {
+        persistentCache = context.applicationContext.getSharedPreferences(
+            "fidelity-resolver-v1",
+            android.content.Context.MODE_PRIVATE,
+        )
+    }
 
     // Title & artist cleaning regex patterns
     private val TITLE_CLEAN_REGEX = Regex(
@@ -230,6 +273,24 @@ object FidelityResolver {
         val studioArtworkUrl: String? = null,
     )
 
+    enum class ResolutionFailure {
+        NONE,
+        INVALID_INPUT,
+        TIMEOUT,
+        NO_VERIFIED_MATCH,
+        PROVIDER_ERROR,
+    }
+
+    data class ResolutionReport(
+        val failure: ResolutionFailure,
+        val provider: String? = null,
+        val attempts: Int = 0,
+    )
+
+    @Volatile
+    var lastResolutionReport: ResolutionReport = ResolutionReport(ResolutionFailure.NONE)
+        private set
+
     /**
      * Resolves official studio album cover (500x500) from JioSaavn.
      */
@@ -259,6 +320,8 @@ object FidelityResolver {
                     }
                 }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.d(TAG, "JioSaavn artwork lookup error: ${e.message}")
         }
@@ -276,30 +339,93 @@ object FidelityResolver {
         targetBitrate: Int = 320,
     ): ResolvedStream? = withContext(Dispatchers.IO) {
         val (cleanedTitle, cleanedArtist) = parseTitleAndArtist(songTitle, artistName)
-        if (cleanedTitle.isBlank()) return@withContext null
-
-        val cacheKey = "${cleanedTitle.lowercase()}::${cleanedArtist.lowercase()}::$targetBitrate"
-        streamCache[cacheKey]?.let { cached ->
-            Log.d(TAG, "Cache hit for $cacheKey: ${cached.streamUrl}")
-            return@withContext cached
+        if (cleanedTitle.isBlank()) {
+            lastResolutionReport = ResolutionReport(ResolutionFailure.INVALID_INPUT)
+            return@withContext null
         }
 
-        withTimeoutOrNull(RESOLVE_TIMEOUT_MS) {
-            try {
-                // If user requests Lossless (1411+ kbps FLAC), strictly resolve from Monochrome lossless sources
-                val resolved = if (targetBitrate >= 1000) {
-                    resolveFromMonochrome(cleanedTitle, cleanedArtist, targetDurationSec)
-                } else {
-                    resolveFromJioSaavn(cleanedTitle, cleanedArtist, targetDurationSec, targetBitrate)
-                }
+        val cacheKey = "${cleanedTitle.lowercase()}::${cleanedArtist.lowercase()}::$targetBitrate"
+        val now = System.currentTimeMillis()
+        streamCache[cacheKey]?.takeIf { it.expiresAt > now }?.let { cached ->
+            lastResolutionReport = ResolutionReport(ResolutionFailure.NONE, "memory-cache")
+            Log.d(TAG, "Cache hit for $cacheKey: ${cached.stream.streamUrl}")
+            return@withContext cached.stream
+        }
+        readPersistent(cacheKey, now)?.let { cached ->
+            streamCache[cacheKey] = CachedStream(cached, now + CACHE_TTL_MS)
+            lastResolutionReport = ResolutionReport(ResolutionFailure.NONE, "disk-cache")
+            return@withContext cached
+        }
+        if (negativeCache[cacheKey]?.let { now - it < NEGATIVE_CACHE_TTL_MS } == true) {
+            lastResolutionReport = ResolutionReport(ResolutionFailure.NO_VERIFIED_MATCH)
+            return@withContext null
+        }
 
-                if (resolved != null) {
-                    streamCache[cacheKey] = resolved
+        val newDeferred = resolverScope.async(start = CoroutineStart.LAZY) {
+            try {
+                withTimeout(RESOLVE_TIMEOUT_MS) {
+                    try {
+                        // Lossless is never substituted with a lossy provider. It must come
+                        // from a verified Monochrome FLAC result or fall back at the caller.
+                        if (targetBitrate >= 1000) {
+                            resolveFromMonochrome(cleanedTitle, cleanedArtist, targetDurationSec)
+                        } else {
+                            resolveFromJioSaavn(cleanedTitle, cleanedArtist, targetDurationSec, targetBitrate)
+                        }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        Log.w(TAG, "Hi-Fi provider failed: ${failure.message}")
+                        lastResolutionReport = ResolutionReport(ResolutionFailure.PROVIDER_ERROR)
+                        null
+                    }
                 }
-                resolved
-            } catch (e: Exception) {
-                Log.d(TAG, "Hi-Fi resolve skipped: ${e.message}")
+            } catch (timeout: TimeoutCancellationException) {
+                lastResolutionReport = ResolutionReport(ResolutionFailure.TIMEOUT)
                 null
+            } finally {
+                inFlight.remove(cacheKey)
+            }
+        }
+        val existing = inFlight.putIfAbsent(cacheKey, newDeferred)
+        val deferred = if (existing != null) {
+            newDeferred.cancel()
+            existing
+        } else {
+            newDeferred.also { it.start() }
+        }
+        return@withContext try {
+            val resolved = deferred.await()
+            if (resolved != null) {
+                streamCache[cacheKey] = CachedStream(resolved, now + CACHE_TTL_MS)
+                if (resolved.isLosslessFlac) writePersistent(cacheKey, resolved, now)
+                lastResolutionReport = ResolutionReport(ResolutionFailure.NONE, "monochrome")
+            } else {
+                negativeCache[cacheKey] = System.currentTimeMillis()
+                if (lastResolutionReport.failure == ResolutionFailure.NONE) {
+                    lastResolutionReport = ResolutionReport(ResolutionFailure.NO_VERIFIED_MATCH)
+                }
+            }
+            resolved
+        } finally {
+            if (deferred.isCompleted) inFlight.remove(cacheKey, deferred)
+        }
+    }
+
+    /** Warms the same deduplicated resolver used by playback without blocking it. */
+    fun prefetchHiFiStream(
+        songTitle: String,
+        artistName: String,
+        targetDurationSec: Long,
+        targetBitrate: Int,
+    ) {
+        resolverScope.launch {
+            runCatching {
+                resolveHiFiStream(songTitle, artistName, targetDurationSec, targetBitrate)
+            }.onFailure { failure ->
+                if (failure !is CancellationException) {
+                    Log.d(TAG, "Hi-Fi prefetch skipped: ${failure.message}")
+                }
             }
         }
     }
@@ -307,7 +433,7 @@ object FidelityResolver {
     /**
      * Resolves genuine bit-perfect FLAC stream from Monochrome API network.
      */
-    private fun resolveFromMonochrome(
+    private suspend fun resolveFromMonochrome(
         title: String,
         artist: String,
         targetDurationSec: Long,
@@ -325,90 +451,129 @@ object FidelityResolver {
 
         Log.i(TAG, "Querying Monochrome Lossless FLAC for '$title' by '$artist' [query='$query', targetDur=${targetDurationSec}s]")
 
-        for (endpoint in endpoints) {
-            val request = Request.Builder()
-                .url(endpoint)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-                .header("Accept", "application/json")
-                .header("Origin", "https://monochrome.st")
-                .header("Referer", "https://monochrome.st/")
-                .build()
-
+        return coroutineScope {
+            val jobs = endpoints.map { endpoint ->
+                async(Dispatchers.IO) { queryMonochromeEndpoint(endpoint, title, artist, targetDurationSec) }
+            }.toMutableList()
             try {
-                httpClient.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        Log.w(TAG, "Monochrome query HTTP error (${response.code}) on $endpoint")
-                        return@use
+                repeat(endpoints.size) {
+                    val completed = select<Pair<Int, ResolvedStream?>> {
+                        jobs.forEachIndexed { index, job ->
+                            job.onAwait { index to it }
+                        }
                     }
-                    val body = response.body?.string() ?: return@use
-                    if (!body.startsWith("{")) return@use
-
-                    val json = JSONObject(body)
-                    val tracks = json.optJSONArray("tracks")
-                        ?: json.optJSONArray("topResults")
-                        ?: return@use
-
-                    for (i in 0 until tracks.length()) {
-                        val item = tracks.optJSONObject(i) ?: continue
-                        val id = item.optString("id")
-                        if (id.isBlank() || id.length < 10) continue
-
-                        val itemTitle = item.optString("title")
-                        val rawDuration = item.optDouble("duration", 0.0)
-                        val durationSec = if (rawDuration > 1000.0) {
-                            (rawDuration / 1000.0 + 0.5).toLong()
-                        } else {
-                            rawDuration.toLong()
-                        }
-
-                        // Collect candidate artists from Monochrome tracks / topResults / bitchord
-                        val candidateArtists = mutableListOf<String>()
-                        val artistNamesArr = item.optJSONArray("artistNames")
-                        if (artistNamesArr != null) {
-                            for (a in 0 until artistNamesArr.length()) {
-                                val name = artistNamesArr.optString(a)
-                                if (name.isNotBlank()) candidateArtists.add(name)
-                            }
-                        }
-                        val singleArtist = item.optString("artist")
-                        if (singleArtist.isNotBlank()) {
-                            candidateArtists.addAll(
-                                singleArtist.split(",", "&", "/", "ft.", "feat.")
-                                    .map { it.trim() }
-                                    .filter { it.isNotBlank() }
-                            )
-                        }
-
-                        // Verify candidate strictly matches requested song title and artist
-                        if (!isStrictCandidateMatch(
-                                targetTitle = title,
-                                targetArtist = artist,
-                                targetDurationSec = targetDurationSec,
-                                candidateTitle = itemTitle,
-                                candidateArtists = candidateArtists,
-                                candidateDurationSec = durationSec,
-                            )
-                        ) {
-                            continue
-                        }
-
-                        val streamUrl = "https://tracks.monochrome.st/track/$id"
-                        Log.i(TAG, "Resolved true 24-bit Lossless FLAC stream for '$title' by '$artist': $streamUrl (id=$id, dur=${durationSec}s)")
-
-                        return ResolvedStream(
-                            streamUrl = streamUrl,
-                            isDolby = false,
-                            bitrateKbps = 1411,
-                            isLosslessFlac = true,
-                            studioArtworkUrl = null,
-                        )
+                    jobs.removeAt(completed.first)
+                    completed.second?.let {
+                        jobs.forEach { it.cancel() }
+                        return@coroutineScope it
                     }
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Monochrome query failed on $endpoint: ${e.message}")
+                null
+            } finally {
+                jobs.forEach { it.cancel() }
+            }
+        }
+    }
+
+    private suspend fun queryMonochromeEndpoint(
+        endpoint: String,
+        title: String,
+        artist: String,
+        targetDurationSec: Long,
+    ): ResolvedStream? {
+        repeat(MAX_PROVIDER_ATTEMPTS) { attempt ->
+            try {
+                val request = Request.Builder()
+                    .url(endpoint)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                    .header("Accept", "application/json")
+                    .header("Origin", "https://monochrome.st")
+                    .header("Referer", "https://monochrome.st/")
+                    .build()
+
+                httpClient.newCall(request).execute().use { response ->
+                    val retryable = response.code == 408 || response.code == 429 || response.code >= 500
+                    if (!response.isSuccessful) {
+                        Log.w(TAG, "Monochrome query HTTP ${response.code} on $endpoint")
+                        if (!retryable) return null
+                    } else {
+                        val body = response.body?.takeIf { body ->
+                            // Chunked HTTP responses legitimately report -1. The
+                            // bounded read below still protects providers that
+                            // advertise an unexpectedly large response.
+                            body.contentLength() == -1L || body.contentLength() in 0..MAX_RESPONSE_BYTES
+                        }?.string() ?: return null
+                        if (!body.trimStart().startsWith("{")) return null
+                        return parseMonochromeResponse(body, title, artist, targetDurationSec)
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                Log.w(TAG, "Monochrome query failed on $endpoint: ${failure.message}")
+                if (attempt == MAX_PROVIDER_ATTEMPTS - 1) return null
             }
         }
         return null
+    }
+
+    private fun parseMonochromeResponse(
+        body: String,
+        title: String,
+        artist: String,
+        targetDurationSec: Long,
+    ): ResolvedStream? {
+        val json = JSONObject(body)
+        val tracks = json.optJSONArray("tracks") ?: json.optJSONArray("topResults") ?: return null
+        for (i in 0 until tracks.length()) {
+            val item = tracks.optJSONObject(i) ?: continue
+            val id = item.optString("id")
+            if (id.isBlank() || id.length < 10) continue
+
+            val rawDuration = item.optDouble("duration", 0.0)
+            val durationSec = if (rawDuration > 1000.0) {
+                (rawDuration / 1000.0 + 0.5).toLong()
+            } else {
+                rawDuration.toLong()
+            }
+            val candidateArtists = mutableListOf<String>()
+            item.optJSONArray("artistNames")?.let { names ->
+                for (a in 0 until names.length()) names.optString(a).takeIf { it.isNotBlank() }?.let(candidateArtists::add)
+            }
+            item.optString("artist").takeIf { it.isNotBlank() }?.let { singleArtist ->
+                candidateArtists.addAll(
+                    singleArtist.split(",", "&", "/", "ft.", "feat.")
+                        .map(String::trim)
+                        .filter(String::isNotBlank),
+                )
+            }
+            if (!isStrictCandidateMatch(title, artist, targetDurationSec, item.optString("title"), candidateArtists, durationSec)) continue
+
+            val streamUrl = "https://tracks.monochrome.st/track/$id"
+            Log.i(TAG, "Resolved verified FLAC for '$title' by '$artist' (id=$id, dur=${durationSec}s)")
+            return ResolvedStream(streamUrl, isDolby = false, bitrateKbps = 1411, isLosslessFlac = true)
+        }
+        return null
+    }
+
+    private fun readPersistent(key: String, now: Long): ResolvedStream? {
+        val raw = persistentCache?.getString("stream:$key", null) ?: return null
+        val json = runCatching { JSONObject(raw) }.getOrNull() ?: return null
+        if (now - json.optLong("writtenAt", 0L) > CACHE_TTL_MS) {
+            persistentCache?.edit()?.remove("stream:$key")?.apply()
+            return null
+        }
+        val url = json.optString("url")
+        if (!url.startsWith("https://tracks.monochrome.st/track/")) return null
+        return ResolvedStream(url, isDolby = false, bitrateKbps = 1411, isLosslessFlac = true)
+    }
+
+    private fun writePersistent(key: String, stream: ResolvedStream, now: Long) {
+        if (!stream.isLosslessFlac) return
+        persistentCache?.edit()?.putString(
+            "stream:$key",
+            JSONObject().put("writtenAt", now).put("url", stream.streamUrl).toString(),
+        )?.apply()
     }
 
     /**
