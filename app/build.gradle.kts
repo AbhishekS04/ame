@@ -34,8 +34,8 @@ val rustTargets = mapOf(
  * Kept in `keystore.properties` beside the project and never committed: a
  * keystore in a repository is a keystore anyone can sign as you with. When the
  * file is absent — a fresh clone, or anyone building this who is not its
- * author — the release build falls back to the debug key, which is fine for
- * running it and useless for distributing it.
+ * author — production release tasks fail instead of falling back to the
+ * well-known debug key. The local dev build may still use that key for testing.
  */
 val keystoreProperties = Properties().apply {
     val file = rootProject.file("keystore.properties")
@@ -46,6 +46,9 @@ val localProperties = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.exists()) file.inputStream().use(::load)
 }
+val requiredSigningProperties = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+val releaseSigningReady = requiredSigningProperties.all { !keystoreProperties.getProperty(it).isNullOrBlank() } &&
+    rootProject.file(keystoreProperties.getProperty("storeFile").orEmpty()).isFile
 val supabaseUrl = localProperties.getProperty("supabase.url")
     ?: "https://kasxrvmzbvdtiubcufch.supabase.co"
 val supabaseAnonKey = localProperties.getProperty("supabase.anon.key")
@@ -89,7 +92,7 @@ android {
     }
 
     signingConfigs {
-        if (keystoreProperties.isNotEmpty()) {
+        if (releaseSigningReady) {
             create("release") {
                 storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
                 storePassword = keystoreProperties.getProperty("storePassword")
@@ -111,12 +114,9 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // The real key when there is one, the debug key otherwise — see
-            // keystoreProperties above. A build signed with the debug key runs
-            // and can be measured; it must never be the one handed to anyone,
-            // because every machine's debug key is the same well-known one.
+            // Release builds are guarded by verifyReleaseSigning below and must
+            // never silently fall back to the well-known debug certificate.
             signingConfig = signingConfigs.findByName("release")
-                ?: signingConfigs.getByName("debug")
         }
 
         /**
@@ -200,6 +200,25 @@ android {
         // dependencies ship, without the Rust core: installable on an x86
         // device, and closing at once there.
         jniLibs.excludes += listOf("lib/x86/**", "lib/x86_64/**")
+    }
+}
+
+/**
+ * Prevents a production release from being built with a missing or incomplete
+ * signing setup. The dev build intentionally keeps its debug fallback for
+ * local development; only release-shaped distribution tasks are guarded.
+ */
+val verifyReleaseSigning = tasks.register("verifyReleaseSigning") {
+    doLast {
+        check(releaseSigningReady) {
+            "Production release signing is unavailable. Configure keystore.properties and the referenced keystore before building a release."
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name != verifyReleaseSigning.name && name.contains("Release")) {
+        dependsOn(verifyReleaseSigning)
     }
 }
 

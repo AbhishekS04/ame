@@ -22,6 +22,10 @@ jobs:
   apk:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      # Public certificate identity of ame-release.jks. This is not a secret;
+      # it prevents CI from publishing an APK signed by an unexpected key.
+      EXPECTED_SIGNING_CERT_SHA256: '00:28:86:69:86:EB:5B:AA:58:54:BF:0C:E0:42:BE:8F:51:C5:C1:D2:46:77:26:4D:A3:85:68:C0:0D:43:EE:DF'
     steps:
       - uses: actions/checkout@v7
 
@@ -59,14 +63,15 @@ jobs:
             echo "keyAlias=$KEY_ALIAS"
             echo "keyPassword=$KEY_PASSWORD"
           } > keystore.properties
+          chmod 600 "$RUNNER_TEMP/ame-release.jks" keystore.properties
 
       - name: Build
         run: ./gradlew :app:assembleRelease --stacktrace
 
       # Without the right key an update does not install over the app people
-      # already have, and the build would not say so: a missing keystore falls
-      # back to the debug key. So the certificate is checked against the one
-      # every release so far has carried.
+      # already have. The build now fails when the production key is missing,
+      # and this step checks the certificate against the established release
+      # certificate rather than merely checking that some signature exists.
       #
       # The apksigner is the one from the build-tools the setup installs, not
       # whichever is newest on the runner, and what it prints is shown: a
@@ -85,6 +90,12 @@ jobs:
             digest=$(echo "$certs" | sed -n 's/^Signer.*certificate SHA-256 digest: //p' | head -n 1)
             if [ -z "$digest" ]; then
               echo "::error::$abi is not signed"
+              exit 1
+            fi
+            actual=$(echo "$digest" | tr -d ':' | tr '[:lower:]' '[:upper:]')
+            expected=$(echo "$EXPECTED_SIGNING_CERT_SHA256" | tr -d ':' | tr '[:lower:]' '[:upper:]')
+            if [ "$actual" != "$expected" ]; then
+              echo "::error::$abi is signed by an unexpected certificate"
               exit 1
             fi
             cp "$apk" "ame-${{ steps.version.outputs.name }}-$abi.apk"
