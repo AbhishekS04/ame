@@ -17,7 +17,7 @@
     - Integrated comprehensive Mermaid system topology diagram (`flowchart TD`) mapping UI, State Coordination, Audio Resolution Engine, Media3/ExoPlayer DSP, and Hardware AudioTrack.
     - Documented end-to-end playback lifecycle: clean metadata registration (`FidelityManager`), Media3 `ResolvingDataSource` dynamic interception, 4-tier resolution ladder with Monochrome Lossless CDN + Singapore proxy failover, and strict Zero-Mismatch Matcher algorithm (`isStrictCandidateMatch`).
     - Documented native DSP pipeline (FFmpeg extension decoders, Bungee C++ vocoder, center vocal remover, unified sample rate mixing) and Apple Music motion visual architecture.
-    - Added 11-dimension comparison matrix detailing engineering advancements over the original Square open-source fork.
+    - Added 11-dimension core engineering matrix detailing custom systems, architectural enhancements, and specialized pipelines built into Ame without comparative framing.
 
 - **Zero-Mismatch Strict Track & Singer Matcher Engine (`FidelityResolver.kt`, `AudioFidelity.kt`, `YouTubePlayerFactory.kt`, `MainActivity.kt`, `PlaybackService.kt`, `YouTubeBackend.kt`)**:
   - **Eliminated Song Swapping & False Substitution Bug**:

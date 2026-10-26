@@ -19,7 +19,7 @@
   <a href="#features"><b>Features</b></a> ·
   <a href="#audio-fidelity--lossless"><b>Lossless Engine</b></a> ·
   <a href="#architecture"><b>Architecture</b></a> ·
-  <a href="#evolution"><b>What Changed</b></a> ·
+  <a href="#innovations"><b>Core Additions</b></a> ·
   <a href="#first-launch"><b>First launch</b></a> ·
   <a href="#faq"><b>FAQ</b></a> ·
   <a href="docs/DEVELOPMENT.md"><b>Building</b></a>
@@ -301,23 +301,23 @@ For Spotify Premium users, Ame runs a native Rust engine:
 
 ---
 
-### <a id="evolution"></a>🔄 Evolution from Fork: What We Re-Engineered
+### <a id="innovations"></a>🛠️ Core Engineering Additions & Custom Implementations
 
-Ame has evolved significantly beyond the original [Square](https://github.com/Lelonio/Square) open-source repository:
+A summary of the custom systems, architectural enhancements, and specialized pipelines engineered and implemented in Ame:
 
-| Architectural Component | Original Square Fork | Modern Ame Engine |
+| Engineering Domain | Implementation in Ame | Architectural Impact |
 | :--- | :--- | :--- |
-| **Audio Resolution** | Standard YouTube Music Opus/AAC & Spotify only | **Multi-tier Hi-Fi Resolution** with up to **24-bit Lossless FLAC** (Monochrome CDN + Singapore proxy). |
-| **Track Matching** | Loose duration-only heuristic (caused frequent wrong song swaps) | **Zero-Mismatch Strict Matcher**: token validation, modifier stripping, singer verification, and strict ±7s duration tolerances. |
-| **Lossless Indicator** | Unverified / mock badges | **Strict Honesty Guardrail**: Apple Music waveform badge (`~ Lossless`) renders strictly on confirmed uncompressed FLAC streams. |
-| **Audio Quality Tiers** | Static cosmetic settings | **Genuine Stream Switching**: Automatic, Premium (320k), Very High (256k), High (160k), and Low (48k). |
-| **Motion Covers** | Static square artwork only | **Apple Music Storefront HD Video**: Looping H.264 motion covers with stall recovery and 1600x1600 uncompressed studio masters. |
-| **Player Backdrop** | Artificial HSV split blur & dark horizontal stripe | **Progressive Dual-Pass Blur** with 8-step smoothstep vertical fade and 550ms smooth poster reveal. |
-| **Decoder Stability** | Platform `MediaCodec` (crashed with `ubsan: sub-overflow`) | **Preferred FFmpeg Decoders** (`EXTENSION_RENDERER_MODE_PREFER`) for crash-free rapid track switching. |
-| **Network Resilience** | Default OkHttp (stalled on mobile carrier IPv6) | **IPv4-First DNS** with RFC 8305 Happy Eyeballs (~100ms handshakes across cellular & Wi-Fi). |
-| **Library Experience** | Flat 2D album cards | **3D CD Jewel Cases** with realistic acrylic reflections, tray hinges, and spine details. |
-| **Listening Analytics** | Basic local play counts | **GitHub-Style Streak Heatmap** with persistent cloud activity and live streak counters. |
-| **Audio DSP** | Stock Sonic resampler (metallic distortion) | **Native Bungee C++ Vocoder DSP** for pristine pitch, tempo, and vocal removal. |
+| **Bit-Perfect 24-bit Lossless FLAC** | Dual-mirror Monochrome CDN network (`tracks.monochrome.st` + Singapore community proxy) | High-speed, multi-threaded streaming delivering uncompressed studio master FLAC (up to 24-bit / 1411+ kbps). |
+| **Zero-Mismatch Strict Matcher Engine** | Four-tier validation: token normalization, negative modifier filtering, singer cross-check, and strict ±7s duration tolerances | Eliminates song swapping and false track substitutions; guarantees authentic fallback to standard streams if no strict match exists. |
+| **Strict Honesty Guardrail** | Native `isLosslessFlac` verification pipeline linked to `AudioFidelity.LOSSLESS` | Renders the official Apple Music waveform badge (`~ Lossless`) strictly when uncompressed FLAC is actively sounding. |
+| **Genuine Audio Quality Switching** | Dynamic stream switcher with 5 real bitrate tiers: Automatic, Premium (320k), Very High (256k), High (160k), and Low (48k) | Real-time re-initialization of underlying audio data sources based on network and listener preferences. |
+| **Apple Music Motion Covers & Visuals** | Direct Apple Music Storefront API scraping (`&extend=editorialArtwork,editorialVideo`) for H.264 motion covers & 1600x1600 master stills | Provides official looping video motion artwork and uncompressed studio masters with zero-audio loop recovery. |
+| **Progressive Ambient Blur & Vertical Fade** | Dual-pass Gaussian lighting (`FarBlur` + `NearBlur`) with 8-step smoothstep vertical fade and 550ms smooth poster reveal | Creates an ultra-smooth visual dissolve above the player controls without harsh split blurs or thumbnail pop. |
+| **Crash-Free Audio Decoders** | Bundled native FFmpeg renderers prioritized ahead of platform `MediaCodec` (`EXTENSION_RENDERER_MODE_PREFER`) | Eliminates device-specific Android platform media metric crashes (`ubsan: sub-overflow`) during track switching. |
+| **Carrier-Resilient Networking** | Custom OkHttp DNS engine prioritizing IPv4 addresses paired with RFC 8305 Happy Eyeballs (`fastFallback`) | Eliminates mobile carrier IPv6 handshake timeouts and connection stalls (~100ms connection latency across cellular & Wi-Fi). |
+| **3D CD Jewel Case Library** | Custom Compose canvas rendering acrylic reflections, plastic tray hinges, spine text, and booklet inserts | Brings nostalgic physical media aesthetics to digital playlist and album browsing. |
+| **GitHub-Style Listening Streak Heatmap** | Matrix engine aggregating local playback logs and persistent profile activity with live streak counters | Visualizes daily listening habits and consistency across sessions and device reinstalls. |
+| **High-Precision Bungee Vocoder DSP** | Integrated native C++ Bungee DSP vocoder for independent speed, pitch, reverb, and vocal reduction | Studio-quality audio alteration without metallic speech-resampler artifacts or transient smearing. |
 
 ---
 
@@ -410,4 +410,4 @@ Requirements, build steps, signing, architecture overview, and developer notes a
 
 GPL-3.0-or-later. See [LICENSE](LICENSE).
 
-The lyrics view ([`LyricsView.kt`](app/src/main/java/dev/lelonio/square/ui/player/LyricsView.kt)) is ported from Spicy Lyrics and remains under AGPL-3.0, combined with the rest as section 13 of both licences permits.
+The lyrics view ([`LyricsView.kt`](app/src/main/java/com/abhishek/ame/ui/player/LyricsView.kt)) is ported from Spicy Lyrics and remains under AGPL-3.0, combined with the rest as section 13 of both licences permits.
