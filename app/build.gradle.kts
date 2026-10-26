@@ -289,19 +289,34 @@ val fetchBungee by tasks.registering {
 
     doLast {
         if (marker.exists()) return@doLast
-        target.deleteRecursively()
-        target.parentFile.mkdirs()
 
-        val process = ProcessBuilder(
-            "git", "clone",
-            "--depth", "1",
-            "--branch", tag,
-            "--recurse-submodules", "--shallow-submodules",
-            "https://github.com/bungee-audio-stretch/bungee.git",
-            target.absolutePath,
-        ).inheritIO().start()
+        var success = false
+        var lastExit = -1
+        var lastOutput = ""
+        for (attempt in 1..3) {
+            target.deleteRecursively()
+            target.parentFile.mkdirs()
 
-        check(process.waitFor() == 0) { "could not clone Bungee $tag into $target" }
+            val process = ProcessBuilder(
+                "git", "clone",
+                "--depth", "1",
+                "--branch", tag,
+                "--recurse-submodules", "--shallow-submodules",
+                "https://github.com/bungee-audio-stretch/bungee.git",
+                target.absolutePath,
+            ).redirectErrorStream(true).start()
+
+            lastOutput = process.inputStream.bufferedReader().readText()
+            lastExit = process.waitFor()
+            if (lastExit == 0 && marker.exists()) {
+                success = true
+                break
+            }
+            logger.warn("Bungee clone attempt $attempt failed (exit $lastExit): $lastOutput")
+            Thread.sleep(3000L * attempt)
+        }
+
+        check(success) { "could not clone Bungee $tag into $target (exit $lastExit): $lastOutput" }
     }
 }
 
