@@ -372,6 +372,7 @@ class AmeApplication : Application(), ImageLoaderFactory {
     val activeBackend: com.abhishek.ame.backend.MusicBackend
         get() = when (preferences.backend.value) {
             com.abhishek.ame.backend.BackendId.SPOTIFY -> spotifyBackend
-            com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC -> youtubeBackend
+            com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC,
+            com.abhishek.ame.backend.BackendId.HYBRID -> youtubeBackend
         }
 }

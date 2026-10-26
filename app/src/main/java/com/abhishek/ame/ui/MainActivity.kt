@@ -469,8 +469,14 @@ class MainActivity : ComponentActivity() {
         asContext: Boolean = false,
         contextLabel: String = "",
         playNext: Boolean = false,
-    ): MediaItem =
-        MediaItem.Builder()
+    ): MediaItem {
+        com.abhishek.ame.backend.fidelity.FidelityManager.registerTrack(
+            uri = track.uri,
+            title = track.name,
+            artist = track.artist,
+            durationSec = if (track.durationMs > 0) track.durationMs / 1000 else 0L
+        )
+        return MediaItem.Builder()
             // The media id carries the track's URI; PlayQueue refuses anything else.
             .setMediaId(track.uri)
             // The same URI again, as the thing to play. The librespot player
@@ -540,6 +546,7 @@ class MainActivity : ComponentActivity() {
                     .build(),
             )
             .build()
+    }
 }
 
 /** A `spotify:` URI the app was opened with, and which opening it was. */

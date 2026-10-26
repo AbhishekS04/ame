@@ -2,9 +2,11 @@ package com.abhishek.ame.backend.youtube
 
 import androidx.media3.common.Player
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.android.asCoroutineDispatcher
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -51,7 +53,11 @@ object YouTubePlayerFactory {
             ChunkedDataSource.Factory(
                 androidx.media3.datasource.DefaultDataSource.Factory(
                     host.context,
-                    DefaultHttpDataSource.Factory(),
+                    DefaultHttpDataSource.Factory()
+                        .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                        .setConnectTimeoutMs(15000)
+                        .setReadTimeoutMs(15000)
+                        .setAllowCrossProtocolRedirects(true),
                 ),
             ),
             YouTubeStreamResolver(host.context.applicationContext),
@@ -113,11 +119,25 @@ object YouTubePlayerFactory {
                 exo.addListener(object : Player.Listener {
                     override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
                         YouTubeVideoMode.onItem(mediaItem?.mediaId)
+                        val prefQuality = (host.context.applicationContext as? com.abhishek.ame.AmeApplication)
+                            ?.preferences?.youtubeQuality?.value
+                        com.abhishek.ame.backend.fidelity.FidelityManager.onTrackTransition(mediaItem?.mediaId, prefQuality)
                         // A video whose song is already known says so at once.
                         mediaItem?.mediaId?.takeIf { it.startsWith(YouTubeBackend.TRACK_PREFIX) }
                             ?.let(YouTubeBackend::videoIdOfUri)
                             ?.takeIf(SongCounterparts::wanted)
                             ?.let { video -> SongCounterparts.known(video)?.let { retitle(exo, video, it) } }
+
+                        // Upgrade playing item artwork to official Apple Studio Master cover
+                        mediaItem?.mediaMetadata?.let { meta ->
+                            val title = meta.title?.toString().orEmpty()
+                            val artist = meta.artist?.toString().orEmpty()
+                            val album = meta.albumTitle?.toString().orEmpty()
+                            val id = mediaItem.mediaId
+                            if (title.isNotBlank() && artist.isNotBlank() && id.isNotBlank()) {
+                                upgradeArtwork(exo, title, artist, album, id)
+                            }
+                        }
                         // The next one asked for now, while this one plays.
                         val next = exo.nextMediaItemIndex
                         if (next >= 0) {
@@ -172,6 +192,19 @@ object YouTubePlayerFactory {
         val item = exo.currentMediaItem ?: return
         val id = item.mediaId
         if (!exo.playWhenReady) return
+
+        // If an external high-fidelity stream failed, blacklist it so recovery instantly falls back to YouTube High
+        val causes = generateSequence<Throwable>(error) { it.cause }.toList()
+        for (cause in causes) {
+            if (cause is androidx.media3.datasource.HttpDataSource.HttpDataSourceException) {
+                val failedUri = cause.dataSpec.uri.toString()
+                if (!failedUri.contains("googlevideo.com")) {
+                    YouTubeStreamResolver.failedLosslessUrls.add(failedUri)
+                    android.util.Log.w("AmeYT", "Blacklisted failed external stream: $failedUri")
+                }
+            }
+        }
+
         val now = android.os.SystemClock.elapsedRealtime()
         val last = recovering?.takeIf { it.first == id && now - it.second < RETRY_WINDOW_MS }
         val attempt = (last?.third ?: 0) + 1
@@ -198,6 +231,20 @@ object YouTubePlayerFactory {
     private const val RETRY_WINDOW_MS = 60_000L
 
     private fun retitle(player: ExoPlayer, video: String, song: com.metrolist.innertube.models.SongItem) {
+        val artistsStr = song.artists.joinToString(", ") { it.name }
+        com.abhishek.ame.backend.fidelity.FidelityManager.registerTrack(
+            uri = "${YouTubeBackend.TRACK_PREFIX}${song.id}",
+            title = song.title,
+            artist = artistsStr,
+            durationSec = song.duration?.toLong() ?: 0L
+        )
+        com.abhishek.ame.backend.fidelity.FidelityManager.registerTrack(
+            uri = "${YouTubeBackend.TRACK_PREFIX}$video",
+            title = song.title,
+            artist = artistsStr,
+            durationSec = song.duration?.toLong() ?: 0L
+        )
+        com.abhishek.ame.backend.fidelity.FidelityManager.linkAliases(video, song.id)
         val listed = "${YouTubeBackend.TRACK_PREFIX}$video"
         for (index in 0 until player.mediaItemCount) {
             val item = player.getMediaItemAt(index)
@@ -215,6 +262,38 @@ object YouTubePlayerFactory {
                     .setMediaMetadata(metadata)
                     .build(),
             )
+        }
+        upgradeArtwork(
+            player,
+            song.title,
+            song.artists.joinToString(", ") { it.name },
+            song.album?.name.orEmpty(),
+            "${YouTubeBackend.TRACK_PREFIX}${song.id}",
+        )
+    }
+
+    private fun upgradeArtwork(player: ExoPlayer, title: String, artist: String, album: String, targetMediaId: String) {
+        if (title.isBlank() || artist.isBlank()) return
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            val studioArt = com.abhishek.ame.data.AppleCatalog.song(title, artist, album) ?: return@launch
+            withContext(android.os.Handler(player.applicationLooper).asCoroutineDispatcher()) {
+                for (index in 0 until player.mediaItemCount) {
+                    val item = player.getMediaItemAt(index)
+                    if (item.mediaId == targetMediaId) {
+                        val currentArt = item.mediaMetadata.artworkUri?.toString()
+                        if (currentArt != studioArt) {
+                            val updatedMeta = item.mediaMetadata.buildUpon()
+                                .setArtworkUri(android.net.Uri.parse(studioArt))
+                                .build()
+                            player.replaceMediaItem(
+                                index,
+                                item.buildUpon().setMediaMetadata(updatedMeta).build(),
+                            )
+                        }
+                        break
+                    }
+                }
+            }
         }
     }
 
@@ -367,6 +446,10 @@ private class YouTubeStreamResolver(
     private val context: android.content.Context,
 ) : ResolvingDataSource.Resolver {
 
+    companion object {
+        val failedLosslessUrls: MutableSet<String> = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap())
+    }
+
     /**
      * Asked without an account, and again as the account where YouTube will
      * only play the song to one; see SignedInStreams.
@@ -460,35 +543,117 @@ private class YouTubeStreamResolver(
         // only ones carrying picture and sound in a single file, and a single
         // file is what a progressive source can play. They top out at 720p,
         // which is the price of not building a DASH manifest here.
-        val url = if (video && part == null) {
+        // Standard YouTube stream resolution (always resolved as a rock-solid base)
+        val youtubeStreamUrl = (if (video && part == null) {
             info.videoStreams
                 .filter { !it.content.isNullOrEmpty() }
                 .maxByOrNull { it.height }
                 ?.content
         } else {
             null
-        }
-        // Audio-only otherwise, best bitrate: a muxed stream would carry a video
-        // track nobody is going to look at, over a connection that is often the
-        // scarce resource. Also the fallback when a track has no muxed stream.
-            // AAC before Opus, even at a lower rate: the app decodes AAC itself
-            // (FFmpeg, see renderers), while Opus goes to the platform decoder,
-            // whose release aborts the app on this hardware.
-            //
-            // At the rate the listener asked for: the highest, the lowest, or
-            // the highest on Wi-Fi and the lowest on a metered connection.
-            ?: info.audioStreams
-                .filter { !it.content.isNullOrEmpty() }
-                .sortedWith(
-                    compareByDescending<org.schabi.newpipe.extractor.stream.AudioStream> {
-                        it.format == org.schabi.newpipe.extractor.MediaFormat.M4A
-                    }.thenBy { if (wantsLowRate()) it.averageBitrate else -it.averageBitrate },
-                )
-                .firstOrNull()
-                ?.content
+        }) ?: info.audioStreams
+            .filter { !it.content.isNullOrEmpty() }
+            .sortedWith(
+                compareByDescending<org.schabi.newpipe.extractor.stream.AudioStream> {
+                    it.format == org.schabi.newpipe.extractor.MediaFormat.M4A
+                }.thenBy { if (wantsLowRate()) it.averageBitrate else -it.averageBitrate },
+            )
+            .firstOrNull()
+            ?.content
             ?: error("nessuna traccia audio per $videoId")
 
-        return dataSpec.withUri(android.net.Uri.parse(url))
+        // Quality and fidelity preferences
+        val qualityPref = (context.applicationContext as? com.abhishek.ame.AmeApplication)
+            ?.preferences?.youtubeQuality?.value ?: com.abhishek.ame.data.PreferencesStore.YouTubeQuality.AUTO
+        android.util.Log.i("AmeFidelity", "resolveAnonymously: base=$base, qualityPref=$qualityPref, name='${info.name}', uploader='${info.uploaderName}', duration=${info.duration}")
+
+        // User explicit choices:
+        // HIGH or LOW: always return standard YouTube stream immediately without any external network delay
+        if (qualityPref == com.abhishek.ame.data.PreferencesStore.YouTubeQuality.HIGH ||
+            qualityPref == com.abhishek.ame.data.PreferencesStore.YouTubeQuality.LOW
+        ) {
+            com.abhishek.ame.backend.fidelity.FidelityManager.recordTrackFidelity(base, com.abhishek.ame.backend.fidelity.AudioFidelity.STANDARD)
+            com.abhishek.ame.backend.fidelity.FidelityManager.setFidelity(com.abhishek.ame.backend.fidelity.AudioFidelity.STANDARD)
+            return dataSpec.withUri(android.net.Uri.parse(youtubeStreamUrl))
+        }
+
+        // LOSSLESS, PREMIUM, VERY_HIGH or AUTO: attempt high-bitrate stream resolution
+        var resolvedStreamUrl: String? = null
+        var resolvedResult: com.abhishek.ame.backend.fidelity.FidelityResolver.ResolvedStream? = null
+        val isMetered = context.getSystemService(android.net.ConnectivityManager::class.java)?.isActiveNetworkMetered == true
+        // LOSSLESS, PREMIUM, and VERY_HIGH play on both Wi-Fi and mobile cellular data without restriction
+        val allowExternalHiFi = (qualityPref == com.abhishek.ame.data.PreferencesStore.YouTubeQuality.LOSSLESS ||
+            qualityPref == com.abhishek.ame.data.PreferencesStore.YouTubeQuality.PREMIUM ||
+            qualityPref == com.abhishek.ame.data.PreferencesStore.YouTubeQuality.VERY_HIGH ||
+            (qualityPref == com.abhishek.ame.data.PreferencesStore.YouTubeQuality.AUTO && !isMetered)) &&
+            !video && part != PART_VIDEO
+
+        if (allowExternalHiFi) {
+            val targetBitrate = when (qualityPref) {
+                com.abhishek.ame.data.PreferencesStore.YouTubeQuality.LOSSLESS -> 1411
+                com.abhishek.ame.data.PreferencesStore.YouTubeQuality.VERY_HIGH -> 256
+                else -> 320
+            }
+
+            // Retrieve clean metadata from FidelityManager or SongCounterparts if available
+            val counterpart = SongCounterparts.known(songId) ?: SongCounterparts.known(videoId)
+            val registered = com.abhishek.ame.backend.fidelity.FidelityManager.getTrackMetadata(base)
+                ?: com.abhishek.ame.backend.fidelity.FidelityManager.getTrackMetadata(songId)
+                ?: com.abhishek.ame.backend.fidelity.FidelityManager.getTrackMetadata(videoId)
+
+            val cleanTitle = counterpart?.title
+                ?: registered?.title?.takeIf { it.isNotBlank() }
+                ?: info.name.orEmpty()
+
+            val cleanArtist = counterpart?.artists?.joinToString(", ") { it.name }
+                ?: registered?.artist?.takeIf { it.isNotBlank() }
+                ?: info.uploaderName.orEmpty()
+
+            val cleanDuration = counterpart?.duration?.toLong()
+                ?: registered?.durationSec?.takeIf { it > 0 }
+                ?: info.duration
+
+            android.util.Log.i("AmeFidelity", "resolveAnonymously target: '$cleanTitle' by '$cleanArtist' (${cleanDuration}s)")
+
+            val resolved = runCatching {
+                kotlinx.coroutines.runBlocking {
+                    com.abhishek.ame.backend.fidelity.FidelityResolver.resolveHiFiStream(
+                        songTitle = cleanTitle,
+                        artistName = cleanArtist,
+                        targetDurationSec = cleanDuration,
+                        targetBitrate = targetBitrate,
+                    )
+                }
+            }.getOrNull()
+
+            if (resolved != null && !failedLosslessUrls.contains(resolved.streamUrl)) {
+                resolvedStreamUrl = resolved.streamUrl
+                resolvedResult = resolved
+            }
+        }
+
+        val finalUrl: String
+        val chosenFidelity: com.abhishek.ame.backend.fidelity.AudioFidelity
+
+        if (!resolvedStreamUrl.isNullOrBlank()) {
+            finalUrl = resolvedStreamUrl
+            // Strictly assign LOSSLESS only if stream is bit-perfect FLAC from lossless CDN
+            chosenFidelity = if (resolvedResult?.isLosslessFlac == true) {
+                com.abhishek.ame.backend.fidelity.AudioFidelity.LOSSLESS
+            } else {
+                com.abhishek.ame.backend.fidelity.AudioFidelity.STANDARD
+            }
+            android.util.Log.i("AmeFidelity", "Using stream: $finalUrl (chosenFidelity=$chosenFidelity, isLosslessFlac=${resolvedResult?.isLosslessFlac})")
+        } else {
+            // Standard fallback (High 160 kbps direct from YouTube)
+            finalUrl = youtubeStreamUrl
+            chosenFidelity = com.abhishek.ame.backend.fidelity.AudioFidelity.STANDARD
+        }
+
+        com.abhishek.ame.backend.fidelity.FidelityManager.recordTrackFidelity(base, chosenFidelity)
+        com.abhishek.ame.backend.fidelity.FidelityManager.setFidelity(chosenFidelity)
+
+        return dataSpec.withUri(android.net.Uri.parse(finalUrl))
     }
 
     /** Whether the lower rate is wanted now; see PreferencesStore.youtubeQuality. */
@@ -497,7 +662,10 @@ private class YouTubeStreamResolver(
             ?.preferences?.youtubeQuality?.value
         return when (chosen) {
             com.abhishek.ame.data.PreferencesStore.YouTubeQuality.LOW -> true
-            com.abhishek.ame.data.PreferencesStore.YouTubeQuality.HIGH -> false
+            com.abhishek.ame.data.PreferencesStore.YouTubeQuality.HIGH,
+            com.abhishek.ame.data.PreferencesStore.YouTubeQuality.LOSSLESS,
+            com.abhishek.ame.data.PreferencesStore.YouTubeQuality.PREMIUM,
+            com.abhishek.ame.data.PreferencesStore.YouTubeQuality.VERY_HIGH -> false
             else -> context.getSystemService(android.net.ConnectivityManager::class.java)
                 ?.isActiveNetworkMetered == true
         }

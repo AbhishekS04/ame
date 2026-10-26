@@ -206,25 +206,13 @@ fun AmbientArtworkBackground(
         }
 
         // Wait for the new picture before starting to leave the old one.
-        //
-        // Without this the fade ran on the clock and the image ran on the
-        // network: the old copy was already half gone when the new one had
-        // nothing to draw, so what showed through the middle of the change was
-        // the bare tone — a flash of flat colour between two covers. Waiting
-        // costs nothing visible, because what is on screen in the meantime is
-        // the picture that was already there.
-        //
-        // Timed out rather than awaited for ever: a cover that never arrives
-        // must not leave the player on the wrong record's colours.
+        // Without this the old copy leaves while the new one is not cached,
+        // resulting in a flash of flat tone between songs.
         holding = true
         withTimeoutOrNull(READY_MS.toLong()) {
             coroutineScope {
-                // Exactly the requests the copies below will make, so what this
-                // waits for is what they will find already in the cache.
                 launch { warm(context, artworkModel, FAR_PX, FarBlur) }
                 launch { warm(context, artworkModel, NEAR_PX, NearBlur) }
-                // And the colour read off the same picture, so it cannot arrive
-                // on its own afterwards.
                 launch { (artworkModel as? String)?.let { warmArtworkColor(context, it) } }
             }
         }
@@ -670,16 +658,12 @@ private const val NEAR_TRAVEL = 0.014f
 private const val DRIFT_MS = 12_000
 
 /** How long the room takes to become a different room. */
-private const val SWAP_MS = 720
+private const val SWAP_MS = 600
 
 /**
  * How long the change will wait for the new picture before going without it.
- *
- * Long enough for a cover to come off the network on a poor connection, short
- * enough that a cover which is not coming at all does not hold the screen on
- * the last record for longer than the song took to change.
  */
-private const val READY_MS = 1_800
+private const val READY_MS = 750
 
 /** And the colour under it, which is slower still. */
 private const val TONE_MS = 900
@@ -726,9 +710,9 @@ private fun List<Color>.spread(passes: Int, radius: Int): List<Color> {
 private const val LEAVE_SWELL = 0.05f
 private const val ARRIVE_SWELL = 0.06f
 
-/** Blurred at decode, once per cover, and kept by Coil. */
-private val FarBlur = BlurTransformation(radius = 16, passes = 3)
-private val NearBlur = BlurTransformation(radius = 10, passes = 2)
+/** Blurred at decode, once per cover, and kept by Coil. Soft and clean without excessive heavy blur. */
+private val FarBlur = BlurTransformation(radius = 14, passes = 2)
+private val NearBlur = BlurTransformation(radius = 8, passes = 2)
 
 /** How small each copy is decoded before it is blurred and stretched. */
 private const val FAR_PX = 96

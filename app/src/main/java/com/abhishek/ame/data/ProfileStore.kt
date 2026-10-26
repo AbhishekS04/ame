@@ -90,6 +90,19 @@ class ProfileStore(context: Context) {
     private val _publicPlaylists = MutableStateFlow<List<CatalogPlaylist>>(loadPublicPlaylists())
     val publicPlaylists: StateFlow<List<CatalogPlaylist>> = _publicPlaylists.asStateFlow()
 
+    private val _streakDays = MutableStateFlow(prefs.getInt(KEY_STREAK_DAYS, 0))
+    val streakDays: StateFlow<Int> = _streakDays.asStateFlow()
+
+    private val _listeningActivity = MutableStateFlow(loadListeningActivity())
+    val listeningActivity: StateFlow<Map<String, Int>> = _listeningActivity.asStateFlow()
+
+    private fun loadListeningActivity(): Map<String, Int> {
+        val raw = prefs.getString(KEY_LISTENING_ACTIVITY, null) ?: return emptyMap()
+        return runCatching {
+            json.decodeFromString<Map<String, Int>>(raw)
+        }.getOrDefault(emptyMap())
+    }
+
     private val _hasCreatedProfile = MutableStateFlow(
         !_customDisplayName.value.isNullOrBlank() && !_customUsername.value.isNullOrBlank()
     )
@@ -134,6 +147,12 @@ class ProfileStore(context: Context) {
         if (_avatarCloudUrl.value != profile.avatarUrl) _avatarCloudUrl.value = profile.avatarUrl
         if (_bannerCloudUrl.value != profile.bannerUrl) _bannerCloudUrl.value = profile.bannerUrl
 
+        _streakDays.value = profile.streakDays
+        if (profile.listeningActivity.isNotEmpty()) {
+            _listeningActivity.value = profile.listeningActivity
+            prefs.edit().putString(KEY_LISTENING_ACTIVITY, json.encodeToString(profile.listeningActivity)).apply()
+        }
+
         userId = profile.id
         prefs.edit()
             .putString(KEY_USER_ID, profile.id)
@@ -144,6 +163,7 @@ class ProfileStore(context: Context) {
             .putBoolean(KEY_IS_PRIVATE, profile.isPrivate)
             .putInt(KEY_FOLLOWERS, profile.followersCount)
             .putInt(KEY_FOLLOWING, profile.followingCount)
+            .putInt(KEY_STREAK_DAYS, profile.streakDays)
             .putString(KEY_AVATAR_CLOUD_URL, profile.avatarUrl)
             .putString(KEY_BANNER_CLOUD_URL, profile.bannerUrl)
             .apply()
@@ -382,9 +402,16 @@ class ProfileStore(context: Context) {
 
         updateFollowCounts(realFollowers, realFollowing)
 
-        val streak = streakDays ?: prefs.getInt(KEY_STREAK_DAYS, 0)
+        val streak = streakDays ?: _streakDays.value
         if (streakDays != null) {
+            _streakDays.value = streakDays
             prefs.edit().putInt(KEY_STREAK_DAYS, streakDays).apply()
+        }
+
+        val activity = listeningActivity ?: _listeningActivity.value
+        if (listeningActivity != null) {
+            _listeningActivity.value = listeningActivity
+            prefs.edit().putString(KEY_LISTENING_ACTIVITY, json.encodeToString(listeningActivity)).apply()
         }
 
         val profile = SocialProfile(
@@ -398,7 +425,7 @@ class ProfileStore(context: Context) {
             followersCount = realFollowers,
             followingCount = realFollowing,
             streakDays = streak,
-            listeningActivity = listeningActivity ?: emptyMap(),
+            listeningActivity = activity,
         )
         runCatching {
             AmeSupabaseClient.client.from("profiles").upsert(profile) {
@@ -589,6 +616,12 @@ class ProfileStore(context: Context) {
         if (_avatarCloudUrl.value != profile.avatarUrl) _avatarCloudUrl.value = profile.avatarUrl
         if (_bannerCloudUrl.value != profile.bannerUrl) _bannerCloudUrl.value = profile.bannerUrl
 
+        _streakDays.value = profile.streakDays
+        if (profile.listeningActivity.isNotEmpty()) {
+            _listeningActivity.value = profile.listeningActivity
+            prefs.edit().putString(KEY_LISTENING_ACTIVITY, json.encodeToString(profile.listeningActivity)).apply()
+        }
+
         userId = profile.id
         prefs.edit()
             .putString(KEY_USER_ID, profile.id)
@@ -599,6 +632,7 @@ class ProfileStore(context: Context) {
             .putBoolean(KEY_IS_PRIVATE, profile.isPrivate)
             .putInt(KEY_FOLLOWERS, profile.followersCount)
             .putInt(KEY_FOLLOWING, profile.followingCount)
+            .putInt(KEY_STREAK_DAYS, profile.streakDays)
             .putString(KEY_AVATAR_CLOUD_URL, profile.avatarUrl)
             .putString(KEY_BANNER_CLOUD_URL, profile.bannerUrl)
             .putString(KEY_PASSWORD_HASH, expectedHash)
@@ -866,6 +900,7 @@ class ProfileStore(context: Context) {
         private const val KEY_FOLLOWERS = "custom_followers"
         private const val KEY_FOLLOWING = "custom_following"
         private const val KEY_STREAK_DAYS = "custom_streak_days"
+        private const val KEY_LISTENING_ACTIVITY = "custom_listening_activity"
         private const val KEY_PASSWORD_HASH = "custom_password_hash"
 
         private val RESERVED_USERNAMES = setOf(

@@ -455,17 +455,26 @@ class YouTubeBackend(private val account: YouTubeAccount) : MusicBackend {
         )
     }
 
-    private fun toCatalogTrack(item: EpisodeItem) = CatalogTrack(
-        uri = "$TRACK_PREFIX${item.id}",
-        name = item.title,
-        artist = item.author?.name.orEmpty(),
-        album = item.podcast?.name.orEmpty(),
-        durationMs = item.duration?.takeIf { it > 0 }?.times(1000L) ?: 0L,
-        explicit = item.explicit,
-        artworkUrl = item.thumbnail,
-        // Marks it as an episode; YouTube gives the day only as words.
-        releasedAt = "",
-    )
+    private fun toCatalogTrack(item: EpisodeItem): CatalogTrack {
+        val uri = "$TRACK_PREFIX${item.id}"
+        val durationSec = item.duration?.toLong() ?: 0L
+        com.abhishek.ame.backend.fidelity.FidelityManager.registerTrack(
+            uri = uri,
+            title = item.title,
+            artist = item.author?.name.orEmpty(),
+            durationSec = durationSec
+        )
+        return CatalogTrack(
+            uri = uri,
+            name = item.title,
+            artist = item.author?.name.orEmpty(),
+            album = item.podcast?.name.orEmpty(),
+            durationMs = item.duration?.takeIf { it > 0 }?.times(1000L) ?: 0L,
+            explicit = item.explicit,
+            artworkUrl = item.thumbnail,
+            releasedAt = "",
+        )
+    }
 
     /**
      * The account's YouTube Music history: sections, newest first, each with
@@ -505,10 +514,24 @@ class YouTubeBackend(private val account: YouTubeAccount) : MusicBackend {
                 uri = artist.id?.takeIf { it.isNotBlank() }?.let { "$ARTIST_PREFIX$it" },
             )
         }
+        val artistsString = named.joinToString(", ") { it.name.trim() }
+        val durationSec = item.duration?.toLong() ?: 0L
+        com.abhishek.ame.backend.fidelity.FidelityManager.registerTrack(
+            uri = "$TRACK_PREFIX${item.id}",
+            title = item.title,
+            artist = artistsString,
+            durationSec = durationSec
+        )
+        com.abhishek.ame.backend.fidelity.FidelityManager.registerTrack(
+            uri = "$VIDEO_PREFIX${item.id}",
+            title = item.title,
+            artist = artistsString,
+            durationSec = durationSec
+        )
         return CatalogTrack(
             uri = "$TRACK_PREFIX${item.id}",
             name = item.title,
-            artist = named.joinToString(", ") { it.name.trim() },
+            artist = artistsString,
             artistUri = credited.firstNotNullOfOrNull { it.uri },
             artists = credited,
             album = item.album?.name.orEmpty(),

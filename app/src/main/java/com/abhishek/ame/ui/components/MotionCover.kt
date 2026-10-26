@@ -86,6 +86,21 @@ fun MotionCover(
             override fun onRenderedFirstFrame() {
                 firstFrame = true
             }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                // Video-only looping safeguard: when codec hits EOF without audio, loop back seamlessly
+                if (playbackState == Player.STATE_ENDED) {
+                    player.seekTo(0)
+                    if (wanted.value) player.play()
+                }
+            }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                android.util.Log.w("MotionCover", "Motion cover playback stalled: ${error.message}, recovering...")
+                player.seekTo(0)
+                player.prepare()
+                if (wanted.value) player.play()
+            }
         }
         player.addListener(listener)
         onDispose { player.removeListener(listener) }
@@ -102,6 +117,7 @@ fun MotionCover(
             when (event) {
                 Lifecycle.Event.ON_STOP -> player.pause()
                 Lifecycle.Event.ON_START -> if (wanted.value) player.play()
+                Lifecycle.Event.ON_RESUME -> if (wanted.value) player.play()
                 else -> Unit
             }
         }
@@ -118,9 +134,12 @@ fun MotionCover(
             // Nothing is read before the first frame: until then the surface
             // holds nothing, and a blank copy would put the blur back to black.
             val rendered = CompletableDeferred<Unit>()
+            if (firstFrame || player.playbackState == Player.STATE_READY) {
+                rendered.complete(Unit)
+            }
             val listener = object : Player.Listener {
                 override fun onRenderedFirstFrame() {
-                    rendered.complete(Unit)
+                    if (!rendered.isCompleted) rendered.complete(Unit)
                 }
             }
             player.addListener(listener)

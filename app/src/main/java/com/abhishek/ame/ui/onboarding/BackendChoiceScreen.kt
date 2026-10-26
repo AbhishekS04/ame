@@ -31,6 +31,7 @@ import com.adamglin.PhosphorIcons
 import com.adamglin.phosphoricons.Fill
 import com.adamglin.phosphoricons.Regular
 import com.adamglin.phosphoricons.fill.SpotifyLogo
+import com.adamglin.phosphoricons.fill.Waveform
 import com.adamglin.phosphoricons.fill.YoutubeLogo
 import com.adamglin.phosphoricons.regular.CaretRight
 import com.abhishek.ame.R

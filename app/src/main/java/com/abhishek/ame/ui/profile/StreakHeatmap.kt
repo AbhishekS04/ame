@@ -121,7 +121,57 @@ fun StreakHeatmap(
             }
         }
 
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(10.dp))
+
+        // Real Stats Metric Counters
+        val currentStreak = remember(dailyListening) { StreakEngine.calculateCurrentStreak(dailyListening) }
+        val bestStreak = remember(dailyListening) { StreakEngine.calculateBestStreak(dailyListening) }
+        val totalPlays = remember(dailyListening) { dailyListening.values.sum() }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column {
+                Text(
+                    text = "$currentStreak ${if (currentStreak == 1) "Day" else "Days"}",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = Ink,
+                )
+                Text(
+                    text = "Current Streak",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
+                    color = InkDim,
+                )
+            }
+            Column {
+                Text(
+                    text = "$bestStreak ${if (bestStreak == 1) "Day" else "Days"}",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = Ink,
+                )
+                Text(
+                    text = "Best Streak",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
+                    color = InkDim,
+                )
+            }
+            Column {
+                Text(
+                    text = "$totalPlays",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = Ink,
+                )
+                Text(
+                    text = "Total Plays",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.5.sp),
+                    color = InkDim,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
 
         // Scrollable Heatmap Grid Container with Left & Right Gradient Horizon Fades
         Box(

@@ -213,6 +213,12 @@ class PlaybackService : MediaLibraryService() {
                     val fresh = more.filter { it.uri !in queued }
                     com.abhishek.ame.backend.spotify.SpotifyDj.prepare(this@PlaybackService, fresh)
                     val items = fresh.map { track ->
+                        com.abhishek.ame.backend.fidelity.FidelityManager.registerTrack(
+                            uri = track.uri,
+                            title = track.name,
+                            artist = track.artist,
+                            durationSec = if (track.durationMs > 0) track.durationMs / 1000 else 0L
+                        )
                         androidx.media3.common.MediaItem.Builder()
                             .setMediaId(track.uri)
                             .setUri(track.uri)
@@ -275,6 +281,12 @@ class PlaybackService : MediaLibraryService() {
                     val newTracks = catalogTracks.filter { it.uri !in currentUris }.take(toAdd)
                     if (newTracks.isNotEmpty()) {
                         val items = newTracks.map { track ->
+                            com.abhishek.ame.backend.fidelity.FidelityManager.registerTrack(
+                                uri = track.uri,
+                                title = track.name,
+                                artist = track.artist,
+                                durationSec = if (track.durationMs > 0) track.durationMs / 1000 else 0L
+                            )
                             androidx.media3.common.MediaItem.Builder()
                                 .setMediaId(track.uri)
                                 .setUri(track.uri)
@@ -763,7 +775,8 @@ class PlaybackService : MediaLibraryService() {
      */
     private fun kindFor(backendId: com.abhishek.ame.backend.BackendId) = when (backendId) {
         com.abhishek.ame.backend.BackendId.SPOTIFY -> PlayerKind.SPOTIFY
-        com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC -> PlayerKind.YOUTUBE
+        com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC,
+        com.abhishek.ame.backend.BackendId.HYBRID -> PlayerKind.YOUTUBE
     }
 
     /**
@@ -961,7 +974,8 @@ class PlaybackService : MediaLibraryService() {
             built
         }
 
-        com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC -> {
+        com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC,
+        com.abhishek.ame.backend.BackendId.HYBRID -> {
             librespot = null
             container.youtubeBackend.createPlayer(playbackHost).also { built ->
                 built.playbackParameters = androidx.media3.common.PlaybackParameters(
@@ -1737,7 +1751,8 @@ class PlaybackService : MediaLibraryService() {
                     // account, or YouTube Music's history on this phone.
                     val source = when (container.preferences.backend.value) {
                         com.abhishek.ame.backend.BackendId.SPOTIFY -> com.abhishek.ame.data.ListeningStore.Source.SPOTIFY
-                        com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC -> com.abhishek.ame.data.ListeningStore.Source.YOUTUBE_MUSIC
+                        com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC,
+                        com.abhishek.ame.backend.BackendId.HYBRID -> com.abhishek.ame.data.ListeningStore.Source.YOUTUBE_MUSIC
                     }
                     val account = container.listeningStore.ownerOf(source)
                     if (account != owner) { sampler.reset(); owner = account }
@@ -1888,7 +1903,8 @@ class PlaybackService : MediaLibraryService() {
         } else {
             val backend = when (backendId) {
                 com.abhishek.ame.backend.BackendId.SPOTIFY -> container.spotifyBackend
-                com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC -> container.youtubeBackend
+                com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC,
+                com.abhishek.ame.backend.BackendId.HYBRID -> container.youtubeBackend
             }
             if (saved.tracks.none { backend.owns(it.uri) }) return
         }

@@ -140,8 +140,8 @@ class PreferencesStore(context: Context) {
         prefs.edit().putString(KEY_LYRICS_STYLE, value.name).apply()
     }
 
-    /** How YouTube Music's sound is chosen; see [youtubeQuality]. */
-    enum class YouTubeQuality { AUTO, HIGH, LOW }
+    /** How YouTube Music / Multi-Source sound is chosen; see [youtubeQuality]. */
+    enum class YouTubeQuality { AUTO, LOSSLESS, PREMIUM, VERY_HIGH, HIGH, LOW }
 
     private val _youtubeQuality = MutableStateFlow(
         YouTubeQuality.entries.firstOrNull { it.name == prefs.getString(KEY_YOUTUBE_QUALITY, null) } ?: YouTubeQuality.AUTO,
@@ -195,11 +195,11 @@ class PreferencesStore(context: Context) {
         prefs.edit().putString(KEY_THEME_MODE, value.name).apply()
     }
 
-    /** Where the moving covers come from; see [animatedCoverSource]. */
-    enum class CoverSource { SPOTIFY, APPLE_MUSIC }
+    /** Where artwork and covers come from; see [animatedCoverSource]. */
+    enum class CoverSource { PREMIUM, APPLE_MUSIC, SPOTIFY, YOUTUBE }
 
     private val _animatedCoverSource = MutableStateFlow(
-        CoverSource.entries.firstOrNull { it.name == prefs.getString(KEY_COVER_SOURCE, null) } ?: CoverSource.SPOTIFY,
+        CoverSource.entries.firstOrNull { it.name == prefs.getString(KEY_COVER_SOURCE, null) } ?: CoverSource.PREMIUM,
     )
 
     /**

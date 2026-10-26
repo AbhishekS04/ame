@@ -48,6 +48,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.text.KeyboardOptions
@@ -204,14 +205,19 @@ fun ProfileScreen(
     }
 
     val context = LocalContext.current
+    val profileStore = remember(context) { (context.applicationContext as com.abhishek.ame.AmeApplication).profileStore }
+    val localListeningActivity by profileStore.listeningActivity.collectAsStateWithLifecycle()
 
-    val dailyListening = remember(isVisiting, visitedProfile, listeningEvents) {
+    val dailyListening = remember(isVisiting, visitedProfile, listeningEvents, localListeningActivity) {
         if (isVisiting) {
             visitedProfile?.let {
                 StreakEngine.parseFromCloud(it.listeningActivity)
             } ?: emptyMap()
         } else {
-            StreakEngine.computeDailyListening(listeningEvents)
+            StreakEngine.computeDailyListening(
+                events = listeningEvents,
+                savedActivity = localListeningActivity,
+            )
         }
     }
 

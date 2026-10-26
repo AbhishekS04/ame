@@ -1273,13 +1273,14 @@ private fun BackendSection() {
     val chosen by store.backend.collectAsStateWithLifecycle()
 
     Section(stringResource(R.string.backend)) {
-        BackendId.entries.forEachIndexed { index, backend ->
+        listOf(BackendId.SPOTIFY, BackendId.YOUTUBE_MUSIC).forEachIndexed { index, backend ->
             if (index > 0) RowDivider()
             ChoiceRow(
                 label = stringResource(
                     when (backend) {
                         BackendId.SPOTIFY -> R.string.backend_spotify
                         BackendId.YOUTUBE_MUSIC -> R.string.backend_youtube
+                        else -> R.string.backend_youtube
                     },
                 ),
                 selected = backend == chosen,
@@ -1304,7 +1305,7 @@ private fun YouTubeAccountSection(onSignIn: () -> Unit, onChannelChange: () -> U
         context.applicationContext as com.abhishek.ame.AmeApplication
     }
     val backend by app.preferences.backend.collectAsStateWithLifecycle()
-    if (backend != BackendId.YOUTUBE_MUSIC) return
+    if (backend == BackendId.SPOTIFY) return
 
     val account = remember(app) { app.youtubeAccount }
     val name by account.accountName.collectAsStateWithLifecycle()
@@ -1432,8 +1433,10 @@ private fun CanvasSection(backdrop: Backdrop) {
                 ChoiceRow(
                     label = stringResource(
                         when (choice) {
-                            com.abhishek.ame.data.PreferencesStore.CoverSource.SPOTIFY -> R.string.animated_cover_spotify
+                            com.abhishek.ame.data.PreferencesStore.CoverSource.PREMIUM -> R.string.animated_cover_premium
                             com.abhishek.ame.data.PreferencesStore.CoverSource.APPLE_MUSIC -> R.string.animated_cover_apple
+                            com.abhishek.ame.data.PreferencesStore.CoverSource.SPOTIFY -> R.string.animated_cover_spotify
+                            com.abhishek.ame.data.PreferencesStore.CoverSource.YOUTUBE -> R.string.animated_cover_youtube
                         },
                     ),
                     selected = choice == source,
@@ -1716,6 +1719,9 @@ private fun YouTubeQualitySection() {
                 label = stringResource(
                     when (quality) {
                         com.abhishek.ame.data.PreferencesStore.YouTubeQuality.AUTO -> R.string.youtube_quality_auto
+                        com.abhishek.ame.data.PreferencesStore.YouTubeQuality.LOSSLESS -> R.string.youtube_quality_lossless
+                        com.abhishek.ame.data.PreferencesStore.YouTubeQuality.PREMIUM -> R.string.youtube_quality_premium
+                        com.abhishek.ame.data.PreferencesStore.YouTubeQuality.VERY_HIGH -> R.string.youtube_quality_very_high
                         com.abhishek.ame.data.PreferencesStore.YouTubeQuality.HIGH -> R.string.youtube_quality_high
                         com.abhishek.ame.data.PreferencesStore.YouTubeQuality.LOW -> R.string.youtube_quality_low
                     },

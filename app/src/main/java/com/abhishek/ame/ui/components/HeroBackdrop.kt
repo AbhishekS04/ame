@@ -4,7 +4,11 @@ import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -137,6 +141,8 @@ fun HeroBackdrop(
      * same one.
      */
     zoom: Float = 1f,
+    trackKey: String? = null,
+    thumbnailUrl: String? = null,
 ) {
     // Black over a dark page and white over a light one; see scrimColor.
     val scrim = com.abhishek.ame.ui.theme.scrimColor()
@@ -157,31 +163,23 @@ fun HeroBackdrop(
             )
         }
     }
-    // Every copy of the picture this draws, loaded together and swapped
-    // together. Each used to load on its own, and the small ones arrived
-    // first: on a change of song the extension and the blur were already the
-    // next cover's colours under the previous cover, which had not finished
-    // loading at full size.
+    // Loaded with smooth blurred placeholder fallback to eliminate empty flashes,
+    // gracefully transitioning to master artwork once decoded.
     val context = LocalContext.current
     val extended = extendPicture && !fadeToPage
-    val art by produceState<ArtSet?>(null, artworkUrl, zoom, extended) {
-        if (artworkUrl == null) {
-            value = null
-            return@produceState
+    val activeKey = trackKey ?: artworkUrl
+    var art by remember(activeKey) { mutableStateOf<ArtSet?>(null) }
+
+    LaunchedEffect(artworkUrl, thumbnailUrl, activeKey, zoom, extended) {
+        val target = artworkUrl ?: thumbnailUrl
+        if (target == null) {
+            art = null
+            return@LaunchedEffect
         }
-        value = coroutineScope {
-            // The largest print there is, since this one fills the screen;
-            // the url as given when there is no larger one, and offline, where
-            // only the copy kept on the phone may be drawn.
-            val cover = async {
-                val large = spotifyLargeUrl(artworkUrl)
-                val sharper = large != artworkUrl && !com.abhishek.ame.playback.OfflineMode.active.value
-                (if (sharper) loadArt(context, large, COVER_PX) else null)
-                    ?: loadArt(context, artworkUrl, COVER_PX)
-            }
-            val edge = async { if (extended) loadArt(context, artworkUrl, EXTENSION_PX) else null }
-            val blur = async { loadArt(context, artworkUrl, HERO_BLUR_PX, blurred = true) }
-            cover.await()?.let { ArtSet(it, edge.await(), blur.await(), zoom) }
+
+        val loaded = loadArtSet(context, target, extended, zoom)
+        if (loaded != null) {
+            art = loaded
         }
     }
     Box(modifier) {
@@ -237,11 +235,7 @@ fun HeroBackdrop(
                                 drawContent()
                                 drawRect(
                                     brush = Brush.verticalGradient(
-                                        *if (extendPicture) {
-                                            fading(1f - SLOT_FADE, 1f)
-                                        } else {
-                                            fading(softenFrom, softenTo)
-                                        },
+                                        *slotGradient(extendPicture, softenFrom, softenTo),
                                     ),
                                     blendMode = BlendMode.DstIn,
                                 )
@@ -249,7 +243,9 @@ fun HeroBackdrop(
                     },
                 ),
         ) {
-        CoverFill(art = art, modifier = Modifier.fillMaxSize())
+        key(activeKey) {
+            CoverFill(art = art, modifier = Modifier.fillMaxSize())
+        }
 
         // The moving cover over the still one, which stays underneath as what is
         // shown until the first frame arrives.
@@ -269,7 +265,7 @@ fun HeroBackdrop(
             )
         }
 
-        if (artworkUrl != null) {
+        if (artworkUrl != null && fadeToPage) {
             Crossfade(
                 targetState = art,
                 animationSpec = tween(SWAP_MS),
@@ -473,7 +469,7 @@ private fun softening(
 private const val COLOUR_LAG = 0.22f
 
 /** How long a better copy of the same picture takes to arrive. */
-private const val SWAP_MS = 450
+private const val SWAP_MS = 500
 
 /** Decode size for the soft copy, in pixels. */
 private const val HERO_BLUR_PX = 240
@@ -498,17 +494,23 @@ private val HeroBlur = BlurTransformation(radius = 10, passes = 2)
  * does not fit, which cannot end anywhere but the slot's own foot.
  *
  * Cross-faded on a change of song, so a new cover arrives the way it did.
+ * Displays a blurred placeholder while the sharp cover is loading to avoid empty flashes.
  */
 @Composable
 private fun CoverFill(art: ArtSet?, modifier: Modifier = Modifier) {
-    Crossfade(
-        targetState = art,
-        animationSpec = tween(SWAP_MS),
-        label = "cover",
-        modifier = modifier,
-    ) { shown ->
-        if (shown == null) return@Crossfade
-        Box(Modifier.fillMaxSize().drawBehind { drawCropped(shown.cover, shown.zoom) })
+    val alpha by animateFloatAsState(
+        targetValue = if (art != null) 1f else 0f,
+        animationSpec = tween(durationMillis = 550, easing = FastOutSlowInEasing),
+        label = "coverReveal",
+    )
+    val currentArt = art
+    if (currentArt != null && alpha > 0.005f) {
+        Box(
+            modifier
+                .fillMaxSize()
+                .graphicsLayer { this.alpha = alpha }
+                .drawBehind { drawCropped(currentArt.cover, currentArt.zoom) },
+        )
     }
 }
 
@@ -518,6 +520,7 @@ private fun CoverFill(art: ArtSet?, modifier: Modifier = Modifier) {
  * picture and a square scan are not enlarged alike.
  */
 private class ArtSet(
+    val url: String,
     val cover: ImageBitmap,
     /** A tiny copy for the extension, where there is one. */
     val edge: ImageBitmap?,
@@ -525,19 +528,35 @@ private class ArtSet(
     val zoom: Float,
 )
 
+private suspend fun loadArtSet(
+    context: android.content.Context,
+    url: String,
+    extended: Boolean,
+    zoom: Float,
+): ArtSet? = coroutineScope {
+    val large = spotifyLargeUrl(url)
+    val sharper = large != url && !com.abhishek.ame.playback.OfflineMode.active.value
+    val targetUrl = if (sharper) large else url
+
+    val cover = loadArt(context, targetUrl, COVER_PX, allowHardware = true) ?: return@coroutineScope null
+    val edge = if (extended) loadArt(context, targetUrl, EXTENSION_PX, allowHardware = false) ?: cover else null
+    val blur = if (extended) loadArt(context, targetUrl, HERO_BLUR_PX, blurred = true, allowHardware = false) ?: cover else cover
+
+    ArtSet(url = url, cover = cover, edge = edge, blur = blur, zoom = zoom)
+}
+
 private suspend fun loadArt(
     context: android.content.Context,
     url: String,
     px: Int,
     blurred: Boolean = false,
+    allowHardware: Boolean = true,
 ): ImageBitmap? {
     val request = ImageRequest.Builder(context)
         // Offline, the file on the disk rather than the url.
         .data(artSource(url))
         .size(px)
-        // Read back pixel by pixel: by the blur, and by the extension when
-        // drawn stretched.
-        .allowHardware(false)
+        .allowHardware(allowHardware)
         .apply { if (blurred) transformations(HeroBlur) }
         .build()
     val result = runCatching { context.imageLoader.execute(request) }.getOrNull()
@@ -546,12 +565,9 @@ private suspend fun loadArt(
 
 /**
  * How large the cover is decoded, in pixels on its longest side.
- *
- * Wider than any phone is, since it is drawn across the screen and then some:
- * the slot is a third taller than a square sleeve, so the middle of it is
- * enlarged by that much before it is seen.
+ * Set to 1080 to match device screen width, saving memory and eliminating CPU decode lag.
  */
-private const val COVER_PX = 1600
+private const val COVER_PX = 1080
 
 
 /**
@@ -1200,9 +1216,9 @@ private fun Modifier.pictureSlot(aspect: Float): Modifier =
  * shape on every song, so every cover fades at the same height whatever shape
  * it arrived in.
  */
-private const val SLOT_FADE = 0.10f
-private const val SLOT_BLUR_LEAD = 0.03f
-private const val SLOT_BLUR_TAIL = 0.05f
+private const val SLOT_FADE = 0.06f
+private const val SLOT_BLUR_LEAD = 0.02f
+private const val SLOT_BLUR_TAIL = 0.03f
 
 /**
  * How far down the other catalogue's tall pictures stop being sharp, as a
@@ -1217,6 +1233,25 @@ private const val TALL_ART_SOFT_FROM = 0.70f
  */
 const val TALL_ART_ZOOM = (1f - SLOT_FADE - SLOT_BLUR_LEAD) / TALL_ART_SOFT_FROM
 
+
+private fun slotGradient(
+    extend: Boolean,
+    softenFrom: Float,
+    softenTo: Float,
+): Array<Pair<Float, Color>> {
+    val from = if (extend) 1f - SLOT_FADE else softenFrom
+    val to = if (extend) 1f else softenTo
+    val steps = 8
+    val bottomStops = Array(steps + 1) { index ->
+        val t = index.toFloat() / steps
+        val eased = t * t * (3f - 2f * t)
+        (from + (to - from) * t) to Color.Black.copy(alpha = 1f - eased)
+    }
+    return arrayOf(
+        0f to Color.Black,
+        *bottomStops,
+    )
+}
 
 private fun fading(from: Float, to: Float): Array<Pair<Float, Color>> {
     val steps = 8

@@ -8,7 +8,7 @@ import com.abhishek.ame.data.SearchResults
 import kotlinx.coroutines.flow.StateFlow
 
 /** Which backend supplies catalogue and playback. */
-enum class BackendId { SPOTIFY, YOUTUBE_MUSIC }
+enum class BackendId { SPOTIFY, YOUTUBE_MUSIC, HYBRID }
 
 /** Where a [MusicBackend] stands with its own account/session. */
 sealed interface BackendAuthState {

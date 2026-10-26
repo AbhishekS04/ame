@@ -123,19 +123,6 @@ object AppleCatalog {
      */
     private fun mayAsk(): Boolean {
         if (com.abhishek.ame.playback.OfflineMode.active.value) return false
-        // Check metered status via the connectivity service.
-        val connectivity = connectivityRef?.get()
-        if (connectivity != null) {
-            val caps = connectivity.activeNetwork
-                ?.let(connectivity::getNetworkCapabilities)
-            // If we cannot determine the connection type, err on the side of
-            // caution and allow the request (same behaviour as before this check).
-            if (caps != null &&
-                !caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
-            ) {
-                return false
-            }
-        }
         return true
     }
 
@@ -354,46 +341,173 @@ object AppleCatalog {
         album: String,
         storefront: String,
     ): String? {
-        // Searched without the decorations. A title as the queue carries it is
-        // often "BUONANOTTE ❈ (con NOYZ NARCOS, FRANCO126 & SIDE BABY)", and
-        // the catalogue files the same song with the guests in a field of its
-        // own — so the full string matches nothing while the song is right
-        // there.
+        // Priority 1: High-res official studio cover via iTunes Search API (1200x1200bb.jpg, no tokens, rock-solid)
+        val itunesCover = lookUpSongViaItunes(name, artist, album, storefront)
+        if (itunesCover != null) return itunesCover
+
+        // Priority 2: amp-api search
         val plain = plain(name)
         val credited = credited(artist)
-        val results = search("${lead(artist)} $plain", "songs", storefront) ?: return null
+        val results = search("${lead(artist)} $plain", "songs", storefront)
+        if (results != null) {
+            val matches = results.mapNotNull { it.jsonObject["attributes"]?.jsonObject }
+                .filter {
+                    val filed = it["name"]?.jsonPrimitive?.content.orEmpty()
+                    filed.equals(name, ignoreCase = true) ||
+                        plain(filed).equals(plain, ignoreCase = true)
+                }
+                .filter { row ->
+                    val filed = row["artistName"]?.jsonPrimitive?.content.orEmpty()
+                    filed.equals(artist, ignoreCase = true) ||
+                        credited.any { filed.contains(it, ignoreCase = true) } ||
+                        credited.any { it.contains(filed, ignoreCase = true) }
+                }
 
-        val matches = results.mapNotNull { it.jsonObject["attributes"]?.jsonObject }
-            .filter {
-                val filed = it["name"]?.jsonPrimitive?.content.orEmpty()
-                filed.equals(name, ignoreCase = true) ||
-                    plain(filed).equals(plain, ignoreCase = true)
-            }
-            .filter { row ->
-                val filed = row["artistName"]?.jsonPrimitive?.content.orEmpty()
-                filed.equals(artist, ignoreCase = true) ||
-                    credited.any { filed.contains(it, ignoreCase = true) } ||
-                    credited.any { it.contains(filed, ignoreCase = true) }
-            }
-
-        // The row from the record the song is actually on, where the search
-        // returned it. Otherwise the first match, which is what this always
-        // did — and is still right for a song whose record is not in the
-        // catalogue under the name Spotify files it under.
-        val match = matches.firstOrNull { row ->
-            val filed = row["albumName"]?.jsonPrimitive?.content.orEmpty()
-            album.isNotBlank() && sameTitle(filed, album)
-        }
-        // Failing that, a row whose record is not simply this song again: a
-        // song row carries the sleeve of the release it was found on, and the
-        // release named after the song is the single.
-            ?: matches.firstOrNull { row ->
+            val match = matches.firstOrNull { row ->
+                val filed = row["albumName"]?.jsonPrimitive?.content.orEmpty()
+                album.isNotBlank() && sameTitle(filed, album)
+            } ?: matches.firstOrNull { row ->
                 val filed = row["albumName"]?.jsonPrimitive?.content.orEmpty()
                 filed.isNotBlank() && !sameTitle(filed, name)
-            }
-            ?: matches.firstOrNull() ?: return null
+            } ?: matches.firstOrNull()
 
-        return match["artwork"]?.jsonObject?.template()?.let { size(it, COVER_PX, COVER_PX) }
+            val ampCover = match?.get("artwork")?.jsonObject?.template()?.let { size(it, COVER_PX, COVER_PX) }
+            if (ampCover != null) return ampCover
+        }
+
+        // Return null if Apple Music has no verified high-res artwork,
+        // allowing clean fallback to YouTube Music's high-res thumbnail.
+        return null
+    }
+
+    private suspend fun lookUpSongViaItunes(
+        name: String,
+        artist: String,
+        album: String,
+        storefront: String = storefront(),
+    ): String? = withContext(Dispatchers.IO) {
+        val plainTitle = plain(name)
+        val leadArtist = lead(artist)
+
+        val queries = mutableListOf<String>()
+        if (leadArtist.isNotBlank() && plainTitle.isNotBlank()) {
+            queries.add("$leadArtist $plainTitle")
+        }
+        if (album.isNotBlank() && plainTitle.isNotBlank()) {
+            queries.add("$plainTitle $album")
+        }
+        if (plainTitle.isNotBlank()) {
+            queries.add(plainTitle)
+        }
+        if (name != plainTitle && name.isNotBlank()) {
+            queries.add(name)
+        }
+
+        for (query in queries) {
+            val encoded = java.net.URLEncoder.encode(query, "UTF-8")
+            val urls = listOf(
+                "https://itunes.apple.com/search?term=$encoded&entity=song&limit=5&country=$storefront",
+                "https://itunes.apple.com/search?term=$encoded&entity=song&limit=5",
+            )
+            for (url in urls) {
+                try {
+                    val request = Request.Builder()
+                        .url(url)
+                        .header("User-Agent", "iTunes/12.12.0 (Windows; Microsoft Windows 10 x64)")
+                        .header("Accept", "application/json")
+                        .build()
+                    client.newCall(request).execute().use { res ->
+                        if (!res.isSuccessful) return@use
+                        val body = res.body?.string() ?: return@use
+                        if (!body.startsWith("{")) return@use
+                        val json = org.json.JSONObject(body)
+                        val results = json.optJSONArray("results") ?: return@use
+                        if (results.length() == 0) return@use
+
+                        for (i in 0 until results.length()) {
+                            val item = results.optJSONObject(i) ?: continue
+                            val trackName = item.optString("trackName")
+                            val collectionName = item.optString("collectionName")
+                            val artistName = item.optString("artistName")
+                            val art100 = item.optString("artworkUrl100")
+                            if (art100.isBlank()) continue
+
+                            val titleMatches = sameTitle(trackName, name) || sameTitle(trackName, plainTitle)
+                            val albumMatches = album.isNotBlank() && sameTitle(collectionName, album)
+                            val artistMatches = artist.isNotBlank() && (
+                                sameTitle(artistName, artist) ||
+                                sameTitle(artistName, leadArtist) ||
+                                artistName.contains(leadArtist, ignoreCase = true) ||
+                                leadArtist.contains(artistName, ignoreCase = true)
+                            )
+
+                            if (titleMatches || albumMatches || artistMatches) {
+                                val highResCover = art100
+                                    .replace(Regex("""/\d+x\d+bb\.(jpg|png)"""), "/1200x1200bb.$1")
+                                    .replace("100x100bb.jpg", "1200x1200bb.jpg")
+                                    .replace("100x100.jpg", "1200x1200.jpg")
+                                android.util.Log.i(TAG, "iTunes matched 1200x1200 studio cover for '$name': $highResCover")
+                                return@withContext highResCover
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.d(TAG, "iTunes query error for '$query': ${e.message}")
+                }
+            }
+        }
+        null
+    }
+
+    private suspend fun lookUpAlbumViaItunes(
+        name: String,
+        artist: String,
+        storefront: String = storefront(),
+    ): Album? = withContext(Dispatchers.IO) {
+        val plainAlbum = plain(name)
+        val leadArtist = lead(artist)
+        val query = if (leadArtist.isNotBlank()) "$leadArtist $plainAlbum" else plainAlbum
+        val encoded = java.net.URLEncoder.encode(query, "UTF-8")
+        val urls = listOf(
+            "https://itunes.apple.com/search?term=$encoded&entity=album&limit=5&country=$storefront",
+            "https://itunes.apple.com/search?term=$encoded&entity=album&limit=5",
+        )
+        for (url in urls) {
+            try {
+                val request = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "iTunes/12.12.0 (Windows; Microsoft Windows 10 x64)")
+                    .header("Accept", "application/json")
+                    .build()
+                client.newCall(request).execute().use { res ->
+                    if (!res.isSuccessful) return@use
+                    val body = res.body?.string() ?: return@use
+                    if (!body.startsWith("{")) return@use
+                    val json = org.json.JSONObject(body)
+                    val results = json.optJSONArray("results") ?: return@use
+                    for (i in 0 until results.length()) {
+                        val item = results.optJSONObject(i) ?: continue
+                        val collectionName = item.optString("collectionName")
+                        val art100 = item.optString("artworkUrl100")
+                        if (art100.isBlank()) continue
+                        if (sameTitle(collectionName, name) || sameTitle(collectionName, plainAlbum)) {
+                            val highResCover = art100
+                                .replace(Regex("""/\d+x\d+bb\.(jpg|png)"""), "/1200x1200bb.$1")
+                                .replace("100x100bb.jpg", "1200x1200bb.jpg")
+                                .replace("100x100.jpg", "1200x1200.jpg")
+                            android.util.Log.i(TAG, "iTunes matched 1200x1200 album cover for '$name': $highResCover")
+                            return@withContext Album(
+                                heroUrl = null,
+                                coverUrl = highResCover,
+                            )
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.d(TAG, "iTunes album search error: ${e.message}")
+            }
+        }
+        null
     }
 
     /** Every name on a track's artist line, which is one string with commas. */
@@ -521,104 +635,68 @@ object AppleCatalog {
     }
 
     private suspend fun lookUpAlbum(name: String, artist: String, storefront: String): Album? {
-        val results = search("${lead(artist)} $name", "albums", storefront) ?: return null
+        val query = "${lead(artist)} ${plain(name)}".trim().ifBlank { name }
+        val results = search(query, "albums", storefront)
+            ?: search("${lead(artist)} $name".trim(), "albums", storefront)
 
-        // The name has to match; the artist only has to be one of the people
-        // credited. A track's artist line is every name on it run together —
-        // "K-Pro, M&n Pro" — while the record is filed under one of them, so an
-        // exact comparison threw away the right album on anything with a guest
-        // on it.
-        val credited = credited(artist)
+        if (results != null) {
+            val credited = credited(artist)
+            val candidates = results.mapNotNull { it.jsonObject["attributes"]?.jsonObject }
+                .filter { sameTitle(it["name"]?.jsonPrimitive?.content.orEmpty(), name) }
+                .filter { row ->
+                    val filed = row["artistName"]?.jsonPrimitive?.content.orEmpty()
+                    filed.equals(artist, ignoreCase = true) ||
+                        credited.any { filed.contains(it, ignoreCase = true) } ||
+                        credited.any { it.contains(filed, ignoreCase = true) }
+                }
 
-        val candidates = results.mapNotNull { it.jsonObject["attributes"]?.jsonObject }
-            .filter { sameTitle(it["name"]?.jsonPrimitive?.content.orEmpty(), name) }
-            .filter { row ->
-                val filed = row["artistName"]?.jsonPrimitive?.content.orEmpty()
-                filed.equals(artist, ignoreCase = true) ||
-                    credited.any { filed.contains(it, ignoreCase = true) } ||
-                    credited.any { it.contains(filed, ignoreCase = true) }
+            fun single(row: kotlinx.serialization.json.JsonObject): Boolean =
+                row["isSingle"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() == true ||
+                    row["trackCount"]?.jsonPrimitive?.content?.toIntOrNull() == 1
+
+            fun exact(row: kotlinx.serialization.json.JsonObject): Boolean =
+                row["name"]?.jsonPrimitive?.content.orEmpty()
+                    .substringBefore(" - ")
+                    .trim()
+                    .equals(name.substringBefore(" - ").trim(), ignoreCase = true)
+
+            val match = candidates.maxByOrNull { row ->
+                (if (row.tall() != null || row.motion() != null) 4 else 0) +
+                    (if (exact(row)) 2 else 0) +
+                    (if (single(row)) 0 else 1)
             }
+            if (match != null) {
+                val tall = match.tall()
+                val cover = match["artwork"]?.jsonObject?.template()
+                val motion = match.motion()
+                val motionUrl = motion?.get("video")?.jsonPrimitive?.content
+                val motionStill = motion?.get("previewFrame")?.jsonObject?.template()
+                val notes = match["editorialNotes"]?.jsonObject
+                    ?.let { it["standard"] ?: it["short"] }
+                    ?.jsonPrimitive?.content
 
-        // The record, and not the single of the same name.
-        //
-        // A song released on its own before the album lands in the catalogue
-        // twice under one title: the single, whose one track is this song, and
-        // the record it later appeared on. Both match the name and the artist,
-        // and the single is very often the one the search returns first — so
-        // the album page and the player opened on the single's sleeve while the
-        // queue was playing the album's.
-        //
-        // The catalogue says which is which, so this asks: a single, or one
-        // track, is the last resort rather than the first answer.
-        fun single(row: kotlinx.serialization.json.JsonObject): Boolean =
-            row["isSingle"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() == true ||
-                row["trackCount"]?.jsonPrimitive?.content?.toIntOrNull() == 1
+                val pageArt = match["editorialArtwork"]?.jsonObject
+                    ?.get("staticDetailTall")?.jsonObject
+                    ?: match["artwork"]?.jsonObject
 
-        // And within each of those two groups: the same record is in the
-        // catalogue several times — the plain edition, the deluxe, the one with
-        // the videos — and only some of those rows carry the tall picture. They
-        // are the same record to a listener, so the one that has a picture
-        // answers for all of them: without this, whether a page opens as a
-        // photograph depends on which edition Spotify's copy happens to be
-        // named after.
-        // Narrowed before it is ranked: the loose comparison above drops
-        // whatever is in brackets, so "Espresso (Working Late Remixes)" answers
-        // to "Espresso" as readily as the record itself does. This keeps the
-        // rows that are the asked-for name and nothing more — the edition
-        // marker Apple appends, " - Single" or " - EP", is not an addition.
-        // Scored rather than filtered, because the three things wanted here
-        // pull against each other and none of them can be a veto.
-        //
-        // A picture outranks everything: a record with no tall photograph opens
-        // as its sleeve, and an edition of the same record that has one is the
-        // same record to a listener. Then the name exactly as asked, which is
-        // what separates "GUTS" from "GUTS (spilled)" — the loose comparison
-        // above drops whatever is in brackets, so both answer to the same
-        // question. Then not a single, which is what separates a record from
-        // the song that came out ahead of it under the same name.
-        fun exact(row: kotlinx.serialization.json.JsonObject): Boolean =
-            row["name"]?.jsonPrimitive?.content.orEmpty()
-                .substringBefore(" - ")
-                .trim()
-                .equals(name.substringBefore(" - ").trim(), ignoreCase = true)
-
-        // A moving cover counts as a picture: some records have a portrait
-        // only as a video, and ranking by the still one alone chose an
-        // edition without either, so the player showed the square sleeve.
-        val match = candidates.maxByOrNull { row ->
-            (if (row.tall() != null || row.motion() != null) 4 else 0) +
-                (if (exact(row)) 2 else 0) +
-                (if (single(row)) 0 else 1)
+                if (tall != null || cover != null) {
+                    val highResCover = cover?.let { size(it, COVER_PX, COVER_PX) }
+                    android.util.Log.i(TAG, "Apple Music Storefront matched album '$name' (motion=${motionUrl != null}): cover=$highResCover")
+                    return Album(
+                        heroUrl = (tall ?: motionStill)?.let { size(it, DETAIL_W, DETAIL_H) },
+                        motionUrl = motionUrl,
+                        bgColor = pageArt?.get("bgColor")?.jsonPrimitive?.content,
+                        textHex = pageArt?.get("textColor1")?.jsonPrimitive?.content,
+                        inkPalette = inkPaletteOf(pageArt),
+                        coverUrl = highResCover,
+                        notes = notes,
+                    )
+                }
+            }
         }
-        val attributes = match ?: return null
-        val tall = attributes.tall()
-        val cover = attributes["artwork"]?.jsonObject?.template()
 
-        val motion = attributes.motion()
-        val motionUrl = motion?.get("video")?.jsonPrimitive?.content
-        // A record with a moving cover has a still frame from it filed beside
-        // the video. It is the right picture to hold while the video loads —
-        // and the right one to keep on a page that never plays it.
-        val motionStill = motion?.get("previewFrame")?.jsonObject?.template()
-        val notes = attributes["editorialNotes"]?.jsonObject
-            ?.let { it["standard"] ?: it["short"] }
-            ?.jsonPrimitive?.content
-
-        // One row for the colour and the ink, the way the artist's is read.
-        val pageArt = attributes["editorialArtwork"]?.jsonObject
-            ?.get("staticDetailTall")?.jsonObject
-            ?: attributes["artwork"]?.jsonObject
-
-        if (tall == null && cover == null) return null
-        return Album(
-            heroUrl = (tall ?: motionStill)?.let { size(it, DETAIL_W, DETAIL_H) },
-            motionUrl = motionUrl,
-            bgColor = pageArt?.get("bgColor")?.jsonPrimitive?.content,
-            textHex = pageArt?.get("textColor1")?.jsonPrimitive?.content,
-            inkPalette = inkPaletteOf(pageArt),
-            coverUrl = cover?.let { size(it, COVER_PX, COVER_PX) },
-            notes = notes,
-        )
+        // Fallback to iTunes Search API (1200x1200bb studio art)
+        return lookUpAlbumViaItunes(name, artist, storefront)
     }
 
     /** An artwork row's own proportions, width over height. */

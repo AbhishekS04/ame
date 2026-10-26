@@ -18,11 +18,18 @@ object StreakEngine {
      */
     fun computeDailyListening(
         events: List<ListeningEvent>,
+        savedActivity: Map<String, Int> = emptyMap(),
         zoneId: ZoneId = ZoneId.systemDefault(),
     ): Map<LocalDate, Int> {
         val dailyMap = mutableMapOf<LocalDate, Int>()
+        // 1. Seed with previously saved/cloud activity
+        for ((dateStr, count) in savedActivity) {
+            val date = runCatching { LocalDate.parse(dateStr) }.getOrNull() ?: continue
+            dailyMap[date] = maxOf(dailyMap[date] ?: 0, count)
+        }
+        // 2. Add local events from listening history
         for (event in events) {
-            if (event.qualified || event.listenedMs >= 5_000L || event.endedAt > event.startedAt) {
+            if (event.qualified || event.listenedMs >= 5_000L || event.endedAt >= event.startedAt) {
                 val date = Instant.ofEpochMilli(event.startedAt)
                     .atZone(zoneId)
                     .toLocalDate()

@@ -1,5 +1,6 @@
 package com.abhishek.ame.ui
 
+import com.abhishek.ame.backend.youtube.atSize
 import coil.imageLoader
 import android.app.Application
 import androidx.annotation.StringRes
@@ -827,7 +828,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun loadYouTubeHome(force: Boolean = false) {
         val backend = container.activeBackend
-        if (backend.id != BackendId.YOUTUBE_MUSIC) return
+        if (backend.id != BackendId.YOUTUBE_MUSIC && backend.id != BackendId.HYBRID) return
         if (youtubeHomeJob?.isActive == true) return
         if (!force && _youtubeHome.value.rows.isNotEmpty()) return
 
@@ -2394,7 +2395,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 container.listeningStore.show(
                     when (backend) {
                         BackendId.SPOTIFY -> com.abhishek.ame.data.ListeningStore.Source.SPOTIFY
-                        BackendId.YOUTUBE_MUSIC -> com.abhishek.ame.data.ListeningStore.Source.YOUTUBE_MUSIC
+                        BackendId.YOUTUBE_MUSIC,
+                        BackendId.HYBRID -> com.abhishek.ame.data.ListeningStore.Source.YOUTUBE_MUSIC
                     },
                 )
             }
@@ -2405,7 +2407,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun syncListeningHistory() {
         if (listeningSync?.isActive == true || System.currentTimeMillis() - lastListeningSync < 60_000) return
-        if (container.preferences.backend.value == com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC) {
+        if (container.preferences.backend.value != com.abhishek.ame.backend.BackendId.SPOTIFY) {
             syncYouTubeListening()
             return
         }
@@ -5156,7 +5158,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // The official SDK streams and keeps nothing; see WebSdkRecovery.inUse.
             BackendId.SPOTIFY -> it.startsWith("spotify:") && !LocalLibrary.isSpotifyLocal(it) &&
                 !com.abhishek.ame.playback.websdk.WebSdkRecovery.inUse.value
-            BackendId.YOUTUBE_MUSIC -> true
+            BackendId.YOUTUBE_MUSIC,
+            BackendId.HYBRID -> true
         }
     }
 
@@ -5933,6 +5936,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val nowPlayingArt: StateFlow<com.abhishek.ame.data.AppleCatalog.Album?> =
         _nowPlayingArt.asStateFlow()
 
+    private val _nowPlayingArtUri = MutableStateFlow<String?>(null)
+    val nowPlayingArtUri: StateFlow<String?> = _nowPlayingArtUri.asStateFlow()
+
     /**
      * Whether the other catalogue is still being asked about this track.
      *
@@ -5962,17 +5968,32 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      *
      * Fails quietly and cancels freely: nothing on screen depends on it.
      */
-    fun prefetchArt(title: String, album: String, artist: String) {
+    fun prefetchArt(title: String, album: String, artist: String, nextArtworkUrl: String? = null) {
         if (artist.isBlank() || com.abhishek.ame.playback.OfflineMode.active.value) return
         prefetchArtJob?.cancel()
         prefetchArtJob = viewModelScope.launch {
+            val context = getApplication<AmeApplication>()
+            if (nextArtworkUrl != null) {
+                runCatching {
+                    val sized = nextArtworkUrl.atSize(1200)
+                    context.imageLoader.enqueue(
+                        coil.request.ImageRequest.Builder(context)
+                            .data(sized)
+                            .build(),
+                    )
+                    context.imageLoader.enqueue(
+                        coil.request.ImageRequest.Builder(context)
+                            .data(nextArtworkUrl)
+                            .build(),
+                    )
+                }
+            }
             val found = com.abhishek.ame.data.AppleCatalog.album(album, artist)
                 .takeIf { album.isNotBlank() }
             val cover = found?.coverUrl
                 ?: com.abhishek.ame.data.AppleCatalog.song(title, artist, album)
             // The bytes and the decode as well as the answer: Coil keeps what it
             // has already read, and this is the half that takes the longest.
-            val context = getApplication<AmeApplication>()
             // At the size the player will ask for, not at the picture's own.
             // Coil files what it has decoded under the size it decoded it at, so
             // a copy read at sixteen hundred across is not the copy the screen
@@ -6077,6 +6098,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Called when the track changes; cached and cheap on a repeat. */
     fun loadNowPlayingArt(uri: String?, title: String, album: String, artist: String) {
         nowPlayingArtJob?.cancel()
+        _nowPlayingArtUri.value = uri
         _nowPlayingArt.value = null
         if (artist.isBlank()) {
             _nowPlayingArtPending.value = false
@@ -6094,40 +6116,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // audio, which is the whole point of keeping it: offline there is
             // nobody to ask, and online this is the same answer without the
             // round trip.
-            //
-            // "Asked and there is nothing" counts as an answer here, and ends
-            // the wait just as an answer does. Otherwise every downloaded song
-            // the other catalogue does not have would hold its own cover back
-            // for the length of a lookup that was made days ago.
             keptArt(uri)?.let {
                 _nowPlayingArt.value = it.album
                 _nowPlayingArtPending.value = false
                 return@launch
             }
 
-            // The record's name is worth waiting a moment for.
-            //
-            // Metadata arrives in pieces: the id first, the title and artist
-            // next, the record's name sometimes after that. Asking with it
-            // missing does not fail — it falls through to searching for the
-            // song, which answers with whichever release the search puts first,
-            // and that is as often a compilation or a single as the record. Two
-            // different answers for one song, each filed under its own key, is
-            // why the cover could change between one opening of the app and the
-            // next.
-            //
-            // Nothing is polled: the caller re-runs this the moment the name
-            // lands, which cancels this job where it stands. The wait is only
-            // for the songs that never get one — a local file, a stream — and
-            // those go on to the search below as they did before.
-            // Asked for, where the catalogue can say. A queue put back after a
-            // restart can carry a song with no record's name, and waiting for
-            // one to arrive meant the moving cover came several seconds late, or
-            // not at all to whoever looked before it did.
-            //
-            // Asked more than once: right after a restart the session is still
-            // coming up, the first answer is a failure, and the record's name
-            // never arrived by any other way for the song that was put back.
             var record = album
             if (record.isBlank() && uri != null) {
                 for (wait in ALBUM_ASK_MS) {
@@ -6139,7 +6133,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 android.util.Log.i(TAG, "art: record for $uri ${if (record.isBlank()) "not found" else "is '$record'"}")
             }
-            if (record.isBlank()) delay(ALBUM_WAIT_MS)
+
+            val coverSource = container.preferences.animatedCoverSource.value
+            if (coverSource == com.abhishek.ame.data.PreferencesStore.CoverSource.YOUTUBE) {
+                _nowPlayingArt.value = null
+                _nowPlayingArtPending.value = false
+                return@launch
+            }
 
             val found = com.abhishek.ame.data.AppleCatalog.album(record, artist)
                 .takeIf { record.isNotBlank() }

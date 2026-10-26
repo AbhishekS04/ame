@@ -1,5 +1,6 @@
 package com.abhishek.ame.ui.player
 
+import com.abhishek.ame.backend.youtube.atSize
 import com.abhishek.ame.ui.components.copyFrame
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
@@ -113,6 +114,10 @@ import com.abhishek.ame.ui.glass.backdrop.backdrops.layerBackdrop
 import com.abhishek.ame.ui.glass.backdrop.backdrops.rememberCombinedBackdrop
 import com.abhishek.ame.ui.glass.backdrop.backdrops.rememberLayerBackdrop
 import com.abhishek.ame.R
+import androidx.compose.ui.res.painterResource
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.abhishek.ame.backend.fidelity.FidelityManager
+import com.abhishek.ame.backend.fidelity.AudioFidelity
 import com.abhishek.ame.ui.MainViewModel
 import com.abhishek.ame.ui.components.Artwork
 import com.abhishek.ame.ui.glass.LiquidButton
@@ -656,8 +661,10 @@ fun PlayerScreen(
         if (canvas?.isVideo != true) clipReport.value(emptyList())
     }
 
+    val currentArtworkUrl = coverHeroUrl ?: coverSquareUrl ?: state.artworkUrl
+
     val readPalette by com.abhishek.ame.ui.theme.rememberArtworkPalette(
-        state.artworkUrl.takeIf { canvas == null },
+        currentArtworkUrl.takeIf { canvas == null },
     )
 
     // The catalogue's own colours for this artwork where it has them.
@@ -675,7 +682,7 @@ fun PlayerScreen(
     val auraColors = if (canvas == null && catalogAura.isNotEmpty()) catalogAura else readPalette
 
     // The tone the cover fades into, worked out the same way the pages do it.
-    val coverAccent by com.abhishek.ame.ui.theme.rememberArtworkColor(state.artworkUrl)
+    val coverAccent by com.abhishek.ame.ui.theme.rememberArtworkColor(currentArtworkUrl)
     val coverTone = com.abhishek.ame.ui.theme.pageColorFor(coverAccent)
 
     Box(
@@ -768,7 +775,9 @@ fun PlayerScreen(
                 com.abhishek.ame.ui.components.HeroBackdrop(
                     artworkUrl = coverHeroUrl
                         ?: coverSquareUrl
-                        ?: state.artworkUrl.takeIf { !coverPending },
+                        ?: state.artworkUrl?.atSize(1200),
+                    thumbnailUrl = state.artworkUrl,
+                    trackKey = state.mediaId ?: state.title,
                     // The moving cover only while the player is standing
                     // still. Otherwise its TextureView goes black for the
                     // length of the closing animation and is the last thing
@@ -807,14 +816,8 @@ fun PlayerScreen(
                     // barely there and the picture reads as sharp well past the
                     // point it starts giving way. See softening.
                     softenFrom = 0.82f,
-                    softenTo = 0.97f,
-                    // And, once the controls are laid out, where they begin
-                    // instead: the three by four only lands on the button on
-                    // some phones, and the blur ahead of the fade put the
-                    // picture's visible end well above it even there.
-                    // And carried on below that, in its own colours, rather
-                    // than giving way to the app's darkened field.
-                    extendPicture = true,
+                    softenTo = 0.98f,
+                    extendPicture = false,
                     // Three by four, whichever picture it is — the shape the
                     // extended covers are drawn in, and the shape that reaches
                     // down to the title with nothing empty in between.
@@ -2164,54 +2167,29 @@ private fun TopBar(
                 PlayerPanel.QUEUE -> stringResource(R.string.queued)
                 PlayerPanel.DEVICES -> stringResource(R.string.play_on)
                 PlayerPanel.ADD_TO_PLAYLIST -> stringResource(R.string.add_to_playlist)
-                // The source in place of the words "in riproduzione", which
-                // said nothing the screen was not already saying. What is worth
-                // knowing here is where the track came from — the playlist you
-                // opened, the album, the search — and this is the one line of
-                // the player not already spoken for.
-                PlayerPanel.NONE -> source.ifBlank { stringResource(R.string.now_playing) }
+                PlayerPanel.NONE -> ""
             },
             animationSpec = tween(220),
             label = "topBarTitle",
             modifier = Modifier.weight(1f),
         ) { title ->
-            // Only the source line is a way back, and only while it is the one
-            // being shown: the panel names above it are labels for what is on
-            // screen already.
-            val open = onOpenSource.takeIf { panel == PlayerPanel.NONE && source.isNotBlank() }
-            // Light, with a shadow, whichever way the phone is set.
-            //
-            // This line is the only text on the player with nothing behind it
-            // but the picture — the title and the transport sit on the field
-            // below the fade, and the buttons beside it have their own glass.
-            // Following the theme put black letters straight onto a Canvas in
-            // the light setting, and pausing made it worse, since the veil that
-            // dims a stopped clip was then darkening the very thing those
-            // letters needed to be lighter than. A photograph has no side to
-            // be on: what works over one is light type with a shadow under it.
-            if (dj && panel == PlayerPanel.NONE) {
-                // The DJ's queue: the mark alone says where the songs come
-                // from, and who is talking between them.
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    DjMark(color = Color.White, fontSize = 13.sp)
-                }
-            } else Text(
-                title,
-                style = MaterialTheme.typography.titleMedium.copy(
-                    shadow = Shadow(
-                        color = Color.Black.copy(alpha = 0.55f),
-                        offset = Offset(0f, 1f),
-                        blurRadius = 14f,
+            if (title.isNotBlank()) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        shadow = Shadow(
+                            color = Color.Black.copy(alpha = 0.55f),
+                            offset = Offset(0f, 1f),
+                            blurRadius = 14f,
+                        ),
                     ),
-                ),
-                color = Color.White,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(
-                        if (open != null) Modifier.plainClickable(open) else Modifier,
-                    ),
-            )
+                    color = Color.White,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                Spacer(Modifier.fillMaxWidth())
+            }
         }
         // Connect gets the permanent slot rather than hiding behind "more":
         // moving playback to another speaker is the thing you reach for while
@@ -2268,6 +2246,7 @@ private fun Cover(
     onPrevious: () -> Unit,
     sharedScope: androidx.compose.animation.SharedTransitionScope? = null,
     animatedScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
+    coverUrl: String? = null,
 ) {
     val coverFraction by animateFloatAsState(
         targetValue = if (panel == PlayerPanel.NONE) 0.82f else 0.44f,
@@ -2301,7 +2280,7 @@ private fun Cover(
             },
     ) {
         Crossfade(
-            targetState = state.artworkUrl to state.title,
+            targetState = (coverUrl ?: state.artworkUrl?.atSize(1200)) to state.title,
             animationSpec = tween(320),
             label = "art",
         ) { (url, title) ->
@@ -2465,16 +2444,46 @@ private fun Modifier.plainClickable(onClick: () -> Unit): Modifier {
 /** Isolated so the ticking position recomposes only these two labels. */
 @Composable
 internal fun TimeRow(positionMs: State<Long>, durationMs: Long) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+    val activeFidelity by FidelityManager.activeFidelity.collectAsStateWithLifecycle()
+    Box(
+        Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center,
+    ) {
         Text(
             formatDuration(positionMs.value),
             style = MaterialTheme.typography.bodySmall,
             color = GlassInkDim,
+            modifier = Modifier.align(Alignment.CenterStart),
         )
+
+        // Apple Music style Lossless badge: Waveform icon + "Lossless"
+        // Rendered strictly for genuine FLAC lossless bitstream playback only!
+        if (activeFidelity == AudioFidelity.LOSSLESS) {
+            Row(
+                modifier = Modifier.align(Alignment.Center),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_apple_lossless),
+                    contentDescription = "Lossless Audio",
+                    tint = GlassInkDim,
+                    modifier = Modifier.size(width = 14.dp, height = 9.dp),
+                )
+                Text(
+                    text = "Lossless",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                    color = GlassInkDim,
+                )
+            }
+        }
+
         Text(
             formatDuration(durationMs),
             style = MaterialTheme.typography.bodySmall,
             color = GlassInkDim,
+            modifier = Modifier.align(Alignment.CenterEnd),
         )
     }
 }

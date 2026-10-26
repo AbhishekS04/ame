@@ -237,7 +237,9 @@ class BungeeProcessorChain(
 
     private val equalizer = EqualizerAudioProcessor()
 
-    override fun getAudioProcessors(): Array<AudioProcessor> = arrayOf(vocals, bungee, equalizer, *after)
+    private val dolbySpatial = DolbySpatialAudioProcessor()
+
+    override fun getAudioProcessors(): Array<AudioProcessor> = arrayOf(vocals, bungee, equalizer, dolbySpatial, *after)
 
     override fun applyPlaybackParameters(
         playbackParameters: PlaybackParameters,

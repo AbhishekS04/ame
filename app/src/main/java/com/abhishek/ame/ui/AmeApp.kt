@@ -52,6 +52,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.setValue
 import com.abhishek.ame.ui.components.FriendsPanel
 import com.abhishek.ame.ui.components.SharedTrackCard
+import com.abhishek.ame.backend.youtube.atSize
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.pointerInput
@@ -68,6 +69,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import com.adamglin.phosphoricons.fill.User
 import com.adamglin.phosphoricons.fill.XCircle
+import com.adamglin.phosphoricons.regular.Waveform
 import com.abhishek.ame.ui.glass.floatingtabbar.FloatingTabBar
 import com.abhishek.ame.ui.glass.floatingtabbar.sharedSearchTab
 import com.abhishek.ame.ui.glass.floatingtabbar.FloatingTabBarDefaults
@@ -668,6 +670,8 @@ fun AmeApp(
     // The playing record's own artwork, asked for once per track and cached.
     val nowPlayingArt by viewModel.nowPlayingArt.collectAsStateWithLifecycle()
     val nowPlayingArtPending by viewModel.nowPlayingArtPending.collectAsStateWithLifecycle()
+    val nowPlayingArtUri by viewModel.nowPlayingArtUri.collectAsStateWithLifecycle()
+    val currentTrackArt = nowPlayingArt.takeIf { nowPlayingArtUri == playback.mediaId }
 
     // The app's one accent, taken from the same picture the pages are tinted
     // by.
@@ -678,11 +682,11 @@ fun AmeApp(
     // brown over a grey page. The catalogue's own colour for the record wins
     // where there is one: it was chosen for this page rather than measured off
     // a photograph, which is the same reason a record's own page uses it.
-    val playingArt = nowPlayingArt?.heroUrl
-        ?: nowPlayingArt?.coverUrl
-        ?: playback.artworkUrl
+    val playingArt = currentTrackArt?.heroUrl
+        ?: currentTrackArt?.coverUrl
+        ?: playback.artworkUrl?.atSize(1200)
     val playingAccent by rememberArtworkColor(playingArt)
-    val accent = nowPlayingArt?.bgColor
+    val accent = currentTrackArt?.bgColor
         ?.let { hex ->
             runCatching { Color(android.graphics.Color.parseColor("#$hex")) }.getOrNull()
         }
@@ -696,7 +700,7 @@ fun AmeApp(
     // always on screen is a capture and a GPU-to-CPU copy for ever. The colours
     // of the cover playing are already extracted for the aura and the accent,
     // and they answer the same question: is what is behind this light or dark.
-    val palette by com.abhishek.ame.ui.theme.rememberArtworkPalette(playback.artworkUrl)
+    val palette by com.abhishek.ame.ui.theme.rememberArtworkPalette(playingArt)
     val backdropLuminance by animateFloatAsState(
         targetValue = remember(palette) {
             if (palette.isEmpty()) 0f else palette.map { it.luminance() }.average().toFloat()
@@ -782,6 +786,7 @@ fun AmeApp(
                 title = next.title?.toString().orEmpty(),
                 album = next.albumTitle?.toString().orEmpty(),
                 artist = next.artist?.toString().orEmpty(),
+                nextArtworkUrl = next.artworkUri?.toString(),
             )
         }
     }
@@ -959,16 +964,17 @@ fun AmeApp(
     var clipColumns by remember { mutableStateOf<List<Color>>(emptyList()) }
 
     // What the player's field is made of, worked out once.
-    val ambientArt = nowPlayingArt?.heroUrl
-        ?: nowPlayingArt?.coverUrl
+    val ambientArt = currentTrackArt?.heroUrl
+        ?: currentTrackArt?.coverUrl
+        ?: playback.artworkUrl?.atSize(1200)
         ?: playback.artworkUrl
     val ambientFoot by rememberArtworkFootColor(ambientArt)
     val ambientAccent by rememberArtworkColor(
-        ambientArt.takeIf { nowPlayingArt?.bgColor == null },
+        ambientArt.takeIf { currentTrackArt?.bgColor == null },
     )
     val playerTone = when {
-        nowPlayingArt?.bgColor != null ->
-            pageColorForHex(nowPlayingArt?.bgColor, lift = false)
+        currentTrackArt?.bgColor != null ->
+            pageColorForHex(currentTrackArt.bgColor, lift = false)
         ambientFoot != null -> footToneFor(ambientFoot, lift = false)
         else -> pageColorFor(ambientAccent)
     }
@@ -1843,7 +1849,7 @@ fun AmeApp(
                                 },
                                 backdrop = artBackdrop,
                                 youtubeMode =
-                                    backend == com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC,
+                                    backend != com.abhishek.ame.backend.BackendId.SPOTIFY,
                                 onRetryOnline = viewModel::retryOnline,
                                 youtubeHome = youtubeHome,
                                 shelves = homeShelves,
@@ -1902,7 +1908,7 @@ fun AmeApp(
                                 customBanners = customBanners,
                                 savedPlaylists = savedPlaylists,
                                 onSavePlaylist = viewModel::savePublicPlaylist,
-                                accountName = customProfileDisplayName ?: if (backend == com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC) {
+                                accountName = customProfileDisplayName ?: if (backend != com.abhishek.ame.backend.BackendId.SPOTIFY) {
                                     youtubeAccountName
                                 } else {
                                     (state as? MainViewModel.UiState.Ready)?.displayName
@@ -2150,7 +2156,7 @@ fun AmeApp(
                                 albums = savedAlbums,
                                 podcasts = savedShows,
                                 onRetryOnline = viewModel::retryOnline,
-                                signInHint = backend == com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC &&
+                                signInHint = backend != com.abhishek.ame.backend.BackendId.SPOTIFY &&
                                     youtubeAccountName == null,
                                 onSignIn = { showYouTubeLogin = true },
                                 onUseYouTube = {
@@ -2222,7 +2228,7 @@ fun AmeApp(
                                 },
                                 fetchFollowers = { userId -> viewModel.getFollowers(userId) },
                                 fetchFollowing = { userId -> viewModel.getFollowing(userId) },
-                                accountName = if (backend == com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC) {
+                                accountName = if (backend != com.abhishek.ame.backend.BackendId.SPOTIFY) {
                                     youtubeAccountName
                                 } else {
                                     readyState?.displayName
@@ -3236,9 +3242,9 @@ fun AmeApp(
                             // rule every page in the app follows.
                             com.abhishek.ame.ui.components.AmbientArtworkBackground(
                                 artworkModel = ambientArt,
-                                // The shape the cover above is drawn at, so
-                                // this lies exactly under it; see PlayerScreen.
-                                coverAspect = 3f / 4f,
+                                // Null coverAspect covers the entire screen uniformly with the thick ambient blur,
+                                // eliminating split-blur seams between the upper and lower portions of the player.
+                                coverAspect = null,
                                 // The catalogue's colour first, and used the
                                 // way it was filed rather than taken towards
                                 // the theme's paper: it was picked for this
@@ -3259,8 +3265,8 @@ fun AmeApp(
                                 // the thing that made ours stop looking like the
                                 // record. What is left is enough to keep the
                                 // controls legible.
-                                toneFloor = 0.08f,
-                                scrimFloor = 0.22f,
+                                toneFloor = 0.06f,
+                                scrimFloor = 0.18f,
                                 // Still, always. This layer is what every pane
                                 // of glass on the player refracts, so a drift
                                 // here redrew all of them on every frame,
@@ -3484,21 +3490,22 @@ fun AmeApp(
                                 // cover it always had.
                                 // The colours filed with this artwork, for the
                                 // light that moves behind it; see CoverAura.
-                                catalogPalette = nowPlayingArt?.inkPalette.orEmpty(),
+                                catalogPalette = currentTrackArt?.inkPalette.orEmpty(),
                                 onClipColumns = { clipColumns = it },
-                                coverHeroUrl = nowPlayingArt?.heroUrl,
+                                coverHeroUrl = currentTrackArt?.heroUrl,
                                 // Apple's moving cover only when that is the
                                 // source chosen, and moving covers are on.
-                                coverMotionUrl = nowPlayingArt?.motionUrl.takeIf {
+                                coverMotionUrl = currentTrackArt?.motionUrl.takeIf {
                                     canvasEnabled &&
-                                        coverSource == com.abhishek.ame.data.PreferencesStore.CoverSource.APPLE_MUSIC
+                                        (coverSource == com.abhishek.ame.data.PreferencesStore.CoverSource.APPLE_MUSIC ||
+                                            coverSource == com.abhishek.ame.data.PreferencesStore.CoverSource.PREMIUM)
                                 },
-                                coverSquareUrl = nowPlayingArt?.coverUrl,
+                                coverSquareUrl = currentTrackArt?.coverUrl,
                                 // Spotify's cover is the fallback, not the
                                 // first draft: while the catalogue is still
                                 // being asked, the player shows colour rather
                                 // than a picture it is about to replace.
-                                coverPending = nowPlayingArtPending,
+                                coverPending = nowPlayingArtPending && nowPlayingArtUri == playback.mediaId,
                                 devices = devices,
                                 onAnotherDevice = remote != null,
                                 // Or playing from one of the listener's own
@@ -3749,7 +3756,7 @@ fun AmeApp(
                         // The whole playlist in one link. yt-dlp and the apps
                         // built on it expand a playlist URL themselves, so this
                         // is the entire "download an album" feature.
-                        if (backend == com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC) {
+                        if (backend != com.abhishek.ame.backend.BackendId.SPOTIFY) {
                             val label = if (downloaderInstalled(context)) {
                                 stringResource(R.string.download_with)
                             } else {
@@ -4061,7 +4068,7 @@ fun AmeApp(
                         // YouTube only. A Spotify link handed to a downloader
                         // is a link it cannot do anything with, so offering the
                         // action there would be offering a failure.
-                        if (backend == com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC) {
+                        if (backend != com.abhishek.ame.backend.BackendId.SPOTIFY) {
                             // Says which app it will open, and says the other
                             // thing when there is no app to open: a row that
                             // promised a download and delivered a web page
@@ -4183,6 +4190,8 @@ fun AmeApp(
                                             PhosphorIcons.Regular.SpotifyLogo
                                         com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC ->
                                             PhosphorIcons.Regular.YoutubeLogo
+                                        com.abhishek.ame.backend.BackendId.HYBRID ->
+                                            PhosphorIcons.Regular.Waveform
                                     },
                                     contentDescription = null,
                                     tint = Ink,
@@ -4195,6 +4204,8 @@ fun AmeApp(
                                                 R.string.backend_spotify
                                             com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC ->
                                                 R.string.backend_youtube
+                                            com.abhishek.ame.backend.BackendId.HYBRID ->
+                                                R.string.backend_hybrid
                                         },
                                     ),
                                     style = MaterialTheme.typography.titleMedium,
