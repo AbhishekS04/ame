@@ -2,11 +2,6 @@ package com.abhishek.ame.ui.home
 
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -238,82 +233,6 @@ private fun HomeTopNavbar(
     }
 }
 
-/**
- * Animated dynamic equalizer badge with 4 bouncing bars.
- */
-@Composable
-fun AnimatedEqualizerBadge(
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    val transition = rememberInfiniteTransition(label = "equalizerTransition")
-    val h1 by transition.animateFloat(
-        initialValue = 0.25f,
-        targetValue = 0.95f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(420, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "bar1",
-    )
-    val h2 by transition.animateFloat(
-        initialValue = 0.90f,
-        targetValue = 0.20f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(340, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "bar2",
-    )
-    val h3 by transition.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(480, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "bar3",
-    )
-    val h4 by transition.animateFloat(
-        initialValue = 0.75f,
-        targetValue = 0.30f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(390, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "bar4",
-    )
-
-    Box(
-        modifier = modifier
-            .size(26.dp)
-            .clip(CircleShape)
-            .background(Color(0xFF101010).copy(alpha = 0.85f))
-            .border(0.6.dp, Color.White.copy(alpha = 0.25f), CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        Canvas(modifier = Modifier.size(14.dp)) {
-            val barCount = 4
-            val spacing = 2.dp.toPx()
-            val totalSpacing = spacing * (barCount - 1)
-            val barWidth = ((size.width - totalSpacing) / barCount).coerceAtLeast(1.5f)
-            val maxHeight = size.height * 0.85f
-            val heights = listOf(h1, h2, h3, h4)
-
-            heights.forEachIndexed { i, frac ->
-                val barH = (maxHeight * frac).coerceAtLeast(2.5f)
-                val left = i * (barWidth + spacing)
-                val top = (size.height - barH) / 2f
-                drawRoundRect(
-                    color = color,
-                    topLeft = Offset(left, top),
-                    size = Size(barWidth, barH),
-                    cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f),
-                )
-            }
-        }
-    }
-}
 
 /**
  * Filter Chips row matching YouTube Music categories with 'All' at the front.
@@ -453,19 +372,6 @@ private fun QuickPickRow(
                 corner = 10.dp,
                 decodeSize = 52.dp,
             )
-            androidx.compose.animation.AnimatedVisibility(
-                visible = isPlayingThis,
-                enter = fadeIn(tween(200)),
-                exit = fadeOut(tween(200)),
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(3.dp),
-            ) {
-                AnimatedEqualizerBadge(
-                    color = playingColor,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
         }
         Column(Modifier.padding(start = 12.dp)) {
             Text(
@@ -514,17 +420,6 @@ private fun PlaylistTile(
                     .softShadow(RoundedCornerShape(corner), elevation = 18.dp),
                 corner = corner,
             )
-
-            androidx.compose.animation.AnimatedVisibility(
-                visible = isPlayingThis,
-                enter = fadeIn() + scaleIn(initialScale = 0.6f),
-                exit = fadeOut() + scaleOut(targetScale = 0.6f),
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(8.dp),
-            ) {
-                AnimatedEqualizerBadge(color = playingColor)
-            }
 
             if (onSave != null && !playlist.isArtist) {
                 val bookmarkShape = CircleShape
@@ -596,16 +491,6 @@ private fun TrackTile(
                     .softShadow(RoundedCornerShape(18.dp), elevation = 16.dp),
                 corner = 18.dp,
             )
-            androidx.compose.animation.AnimatedVisibility(
-                visible = isPlayingThis,
-                enter = fadeIn() + scaleIn(initialScale = 0.6f),
-                exit = fadeOut() + scaleOut(targetScale = 0.6f),
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(6.dp),
-            ) {
-                AnimatedEqualizerBadge(color = playingColor)
-            }
         }
         Text(
             track.name,

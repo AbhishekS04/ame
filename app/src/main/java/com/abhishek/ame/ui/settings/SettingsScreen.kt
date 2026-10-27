@@ -1056,6 +1056,7 @@ private fun SettingsIndex(
         val preferences = app.preferences
         val updaterState by updater.state.collectAsStateWithLifecycle()
         val updateChannel by preferences.updateChannel.collectAsStateWithLifecycle()
+        val updateAccentColor = if (updateChannel == PreferencesStore.UpdateChannel.BETA) Color(0xFFDC2626) else Color(0xFF2563EB)
         val hasUpdate = updaterState is Updater.State.Available
         val available = updaterState as? Updater.State.Available
         val isChecking = updaterState is Updater.State.Checking
@@ -1066,7 +1067,7 @@ private fun SettingsIndex(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(32.dp))
                 .background(
-                    if (hasUpdate) Color(0xFFF59E0B).copy(alpha = 0.16f)
+                    if (hasUpdate) updateAccentColor.copy(alpha = 0.16f)
                     else Ink.copy(alpha = 0.07f)
                 )
                 .clickable { onOpen(SettingsPage.Updates) }
@@ -1079,7 +1080,7 @@ private fun SettingsIndex(
                     .size(40.dp)
                     .clip(CircleShape)
                     .background(
-                        if (hasUpdate) Color(0xFFF59E0B).copy(alpha = 0.28f)
+                        if (hasUpdate) updateAccentColor.copy(alpha = 0.28f)
                         else Ink.copy(alpha = 0.08f)
                     ),
                 contentAlignment = Alignment.Center,
@@ -1087,7 +1088,7 @@ private fun SettingsIndex(
                 Icon(
                     PhosphorIcons.Regular.ArrowClockwise,
                     contentDescription = null,
-                    tint = if (hasUpdate) Color(0xFFF59E0B) else Ink,
+                    tint = if (hasUpdate) updateAccentColor else Ink,
                     modifier = Modifier.size(20.dp),
                 )
             }
@@ -1100,20 +1101,20 @@ private fun SettingsIndex(
                         stringResource(R.string.page_updates),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
-                        color = if (hasUpdate) Color(0xFFF59E0B) else Ink,
+                        color = if (hasUpdate) updateAccentColor else Ink,
                     )
                     if (hasUpdate) {
                         Box(
                             Modifier
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(Color(0xFFF59E0B))
+                                .background(updateAccentColor)
                                 .padding(horizontal = 6.dp, vertical = 2.dp),
                         ) {
                             Text(
                                 "UPDATE",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.Black,
+                                color = Color.White,
                             )
                         }
                     }
@@ -1126,7 +1127,7 @@ private fun SettingsIndex(
                         else -> "v${BuildConfig.VERSION_NAME} • ${if (updateChannel == PreferencesStore.UpdateChannel.BETA) "Beta" else "Stable"}"
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (hasUpdate) Color(0xFFF59E0B) else InkDim,
+                    color = if (hasUpdate) updateAccentColor else InkDim,
                     fontWeight = if (hasUpdate) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -1135,7 +1136,7 @@ private fun SettingsIndex(
             Icon(
                 PhosphorIcons.Regular.CaretRight,
                 contentDescription = null,
-                tint = if (hasUpdate) Color(0xFFF59E0B) else InkDim,
+                tint = if (hasUpdate) updateAccentColor else InkDim,
                 modifier = Modifier.size(18.dp),
             )
         }
@@ -1877,6 +1878,8 @@ private fun UpdatesSection(
                 .padding(horizontal = 18.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            val channelAccentColor = if (channel == PreferencesStore.UpdateChannel.BETA) Color(0xFFDC2626) else Color(0xFF2563EB)
+
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1896,7 +1899,7 @@ private fun UpdatesSection(
                             else -> "Stable channel"
                         },
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (available != null) Color(0xFFF59E0B) else InkDim,
+                        color = if (available != null) channelAccentColor else InkDim,
                         fontWeight = if (available != null) FontWeight.Medium else FontWeight.Normal,
                     )
                 }
@@ -1919,14 +1922,14 @@ private fun UpdatesSection(
                         Icon(
                             PhosphorIcons.Regular.CaretRight,
                             contentDescription = null,
-                            tint = Color(0xFFF59E0B),
+                            tint = channelAccentColor,
                             modifier = Modifier.size(14.dp),
                         )
                         Text(
                             text = newNum,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFFF59E0B),
+                            color = channelAccentColor,
                         )
                     } else {
                         Text(
@@ -2186,7 +2189,7 @@ private fun UpdatesSection(
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 6.dp)
                 .clip(RoundedCornerShape(22.dp))
-                .background(Color(0xFFF59E0B).copy(alpha = 0.10f))
+                .background(Color(0xFFDC2626).copy(alpha = 0.10f))
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -2197,14 +2200,14 @@ private fun UpdatesSection(
                 Icon(
                     PhosphorIcons.Regular.ShieldCheck,
                     contentDescription = null,
-                    tint = Color(0xFFF59E0B),
+                    tint = Color(0xFFDC2626),
                     modifier = Modifier.size(20.dp),
                 )
                 Text(
                     text = "Beta Channel Advisory",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFFF59E0B),
+                    color = Color(0xFFDC2626),
                 )
             }
             Text(

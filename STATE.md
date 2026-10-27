@@ -1,18 +1,23 @@
 # Project State: Ame
 
-## Current Status: v1.1.0-beta.2 Released — Liquid Glass Scrub Thumb & Refined Updates Hub
+## Current Status: v1.1.0 Released — Liquid Glass Jiggly Scrub Thumb, Dynamic Update Accents & Clean Home Shelves
 
-- **Liquid Glass Dynamic Scrub Thumb (`GlassProgressBar.kt`, `PlayerScreen.kt`, `FullScreenVideo.kt`)**:
-  - **Minimal Normal State**: During normal playback, the scrub bar remains a clean, distraction-free capsule progress track with zero overlay elements or GPU shader overhead.
-  - **Authentic Liquid Glass Lens on Drag**: When touched or dragged with a finger (`dragProgress > 0`), a circular liquid glass orb thumb (`CircleShape`, 34dp) smoothly springs into view right at the touch point, tracking the finger with sub-pixel precision.
-  - **Multi-Backdrop Refraction & Dispersion**: Combines ambient player backdrop with recorded layer backdrop of the active/inactive playback track (`rememberLayerBackdrop()`), sampling both through the native Skia/AGSL runtime shader lens (`effects/Lens.kt`). The active playback bar is visibly magnified and optically refracted inside the droplet.
+- **Liquid Glass Dynamic "Giggly" Scrub Thumb (`GlassProgressBar.kt`, `PlayerScreen.kt`, `FullScreenVideo.kt`)**:
+  - **Minimal Normal State**: During normal playback, the scrub bar remains a clean, distraction-free capsule progress track with zero overlay elements, no resting white dot, and zero idle GPU shader overhead.
+  - **Authentic Liquid Glass Lens on Drag**: When touched or dragged with a finger (`dragProgress > 0`), a circular liquid glass orb thumb (`CircleShape`, 36dp) smoothly springs into view right at the touch point, tracking the finger with sub-pixel precision.
+  - **Fluid Inertia "Giggly" Squish & Stretch**: Integrated velocity tracking (`VelocityTracker` & `Animatable`) with underdamped spring physics (`dampingRatio = 0.38f`, `stiffness = 380f`). Fast dragging stretches the lens horizontally along the motion direction while compressing it vertically to preserve liquid volume (`stretchX = 1f + |v| * 0.42f`, `squishY = 1f / (1f + |v| * 0.32f)`), with a bouncy fluid wobble and tilt that jiggles smoothly before settling back into a round sphere.
+  - **Multi-Backdrop Refraction & Meniscus Curvature**: Combines ambient player backdrop with recorded layer backdrop of the playback track (`rememberLayerBackdrop()`). The track layer dynamically scales inside the lens (`lerp(0.72f, 1f, dragProgress)` on X, `lerp(0f, 1f, dragProgress)` on Y) through the Skia/AGSL runtime shader lens (`effects/Lens.kt`), producing an authentic liquid meniscus where the active bar terminates inside the glass droplet.
   - **Caustic Rim & Chromatic Aberration**: Features chromatic dispersion along the perimeter with spectral rainbow fringe (`chromaticAberration = true`), subtle ambient specular reflection, outer sweep gradient glass rim, and inner shadow.
   - **Zero-Delay Tactile Gestures**: Built with `awaitEachGesture` and `awaitFirstDown` on a 36dp touch target, reacting instantly without `touchSlop` drag delay.
   - **Live Scrubbing Counter**: Connects scrubbing fraction to `TimeRow`, updating the elapsed time counter smoothly while dragging and committing the seek position on release without buffering jump-backs.
 
-- **Refined Updates Hub Header & Channel Card (`SettingsScreen.kt`)**:
-  - **Clean Brand & Channel Anchoring**: Left side displays lowercase `ame` in bold title typography with the active channel (`Beta channel` or `Stable channel`) directly underneath, illuminating in amber `#F59E0B` when an update is available.
-  - **Clean Version Numbers & Strikethrough Cut**: Right side displays purely the numeric version (e.g. `1.1.0`, stripping all `-beta.X` tags). When an update is available, cuts the current version with a grayscale strikethrough line (`~~1.1.0~~  →  1.1.0`) pointing to the new release without squished badges or awkward wrapping.
+- **Dynamic Release Channel Colors (`SettingsScreen.kt`)**:
+  - **Stable Channel Update**: When an update is available on the Stable channel, the version number, Caret icon, "UPDATE" badge, and update accent text/icon light up in vibrant Electric Blue (`Color(0xFF2563EB)`).
+  - **Beta Channel Update**: When an update is available on the Beta channel, the version number, Caret icon, "UPDATE" badge, update accent text/icon, and Beta Advisory Card light up in rich Deep Red / Maroon (`Color(0xFFDC2626)`).
+  - **Strikethrough Version Cut**: The Updates hub header neatly shows `ame` and the channel on the left, and the old version crossed out with grayscale strikethrough pointing to the new colored version on the right (`~~1.1.0~~  →  1.1.0`).
+
+- **Pristine Home Shelves & Artwork (`HomeScreen.kt`)**:
+  - Removed circular waving equalizer badges (`AnimatedEqualizerBadge`) across Quick Picks, Album cards, and Song shelves. Track artwork remains clean and visible, while the track title dynamically highlights in the playing accent color.
 
 - **Dedicated Updates Hub & Release Channels (`SettingsScreen.kt`, `PreferencesStore.kt`, `Updater.kt`, `AmeApp.kt`, `strings.xml`)**:
   - **Medicine Capsule Updates Card**: Positioned directly below the Account profile card on the Settings index with a sleek capsule layout (`RoundedCornerShape(32.dp)`). Displays current version and channel (`v1.0.8 • Stable`), dynamically illuminating with an amber `UPDATE` badge and yellow text (*"Update your application (vX.X.X)"*) whenever an update is available.
