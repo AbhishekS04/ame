@@ -280,6 +280,43 @@ object AppleCatalog {
     }
 
     /**
+     * Resolves the full Apple Music album (including tall hero banner and motion video)
+     * for a song, even when the queue did not provide an album title.
+     */
+    suspend fun albumForSong(
+        name: String,
+        artist: String,
+        album: String = "",
+        storefront: String = storefront(),
+    ): Album? {
+        if (name.isBlank()) return null
+        val leadArtist = lead(artist).lowercase()
+        val plainName = plain(name).lowercase()
+        val key = "songalbum $storefront/$leadArtist/$plainName"
+        synchronized(cache) { if (cache.containsKey(key)) return cache[key] as Album? }
+
+        remembered(key)?.let { row ->
+            val kept = runCatching { json.decodeFromString<Album>(row) }.getOrNull()
+            if (kept != null) {
+                synchronized(cache) { cache[key] = kept }
+                return kept
+            }
+        }
+
+        if (!mayAsk()) return null
+
+        val found = ask(name) {
+            withTimeoutOrNull(LOOKUP_TIMEOUT_MS) {
+                lookUpAlbumForSong(name, artist, album, storefront)
+            }
+        }
+
+        found?.let { runCatching { remember(key, json.encodeToString(it)) } }
+        found?.let { synchronized(cache) { cache[key] = it } }
+        return found
+    }
+
+    /**
      * One song's own cover, for when its record cannot be found.
      *
      * Spotify's largest cover is 640 across, which is soft the moment it fills a
@@ -339,6 +376,73 @@ object AppleCatalog {
             android.util.Log.w(TAG, "no artwork for $name: ${failure.message}")
             null
         }
+
+    private suspend fun lookUpAlbumForSong(
+        name: String,
+        artist: String,
+        album: String,
+        storefront: String,
+    ): Album? {
+        val plain = plain(name)
+        val credited = credited(artist)
+        val results = search("${lead(artist)} $plain", "songs", storefront)
+            ?: search("${lead(artist)} $name", "songs", storefront)
+        if (results != null) {
+            val matches = results.mapNotNull { it.jsonObject["attributes"]?.jsonObject }
+                .filter {
+                    val filed = it["name"]?.jsonPrimitive?.content.orEmpty()
+                    filed.equals(name, ignoreCase = true) ||
+                        plain(filed).equals(plain, ignoreCase = true)
+                }
+                .filter { row ->
+                    val filed = row["artistName"]?.jsonPrimitive?.content.orEmpty()
+                    filed.equals(artist, ignoreCase = true) ||
+                        credited.any { filed.contains(it, ignoreCase = true) } ||
+                        credited.any { it.contains(filed, ignoreCase = true) }
+                }
+
+            val match = matches.firstOrNull { row ->
+                val filed = row["albumName"]?.jsonPrimitive?.content.orEmpty()
+                album.isNotBlank() && sameTitle(filed, album)
+            } ?: matches.firstOrNull { row ->
+                val filed = row["albumName"]?.jsonPrimitive?.content.orEmpty()
+                filed.isNotBlank() && !sameTitle(filed, name)
+            } ?: matches.firstOrNull()
+
+            if (match != null) {
+                val ampCover = match["artwork"]?.jsonObject?.template()?.let { size(it, COVER_PX, COVER_PX) }
+                val albumName = match["albumName"]?.jsonPrimitive?.content.orEmpty()
+                val albumArtist = match["artistName"]?.jsonPrimitive?.content.orEmpty().ifBlank { artist }
+                if (albumName.isNotBlank()) {
+                    val fullAlbum = lookUpAlbum(albumName, albumArtist, storefront)
+                        ?: lookUpAlbum(albumName, lead(albumArtist), storefront)
+                    if (fullAlbum != null) {
+                        return fullAlbum.copy(coverUrl = fullAlbum.coverUrl ?: ampCover)
+                    }
+                }
+                if (ampCover != null) {
+                    val pageArt = match["artwork"]?.jsonObject
+                    return Album(
+                        heroUrl = null,
+                        coverUrl = ampCover,
+                        bgColor = pageArt?.get("bgColor")?.jsonPrimitive?.content,
+                        textHex = pageArt?.get("textColor1")?.jsonPrimitive?.content,
+                        inkPalette = inkPaletteOf(pageArt),
+                    )
+                }
+            }
+        }
+
+        // Fallback to iTunes song search
+        val itunesCover = lookUpSongViaItunes(name, artist, album, storefront)
+        if (itunesCover != null) {
+            return Album(
+                heroUrl = null,
+                coverUrl = itunesCover,
+            )
+        }
+        return null
+    }
 
     private suspend fun lookUpSong(
         name: String,
@@ -532,7 +636,7 @@ object AppleCatalog {
      * with both of them on it, as often as not. The lead name alone finds the
      * record, and the guests are still checked for below.
      */
-    private fun lead(artist: String): String = credited(artist).firstOrNull() ?: artist
+    internal fun lead(artist: String): String = credited(artist).firstOrNull() ?: artist
 
     /**
      * Whether two titles name the same record, decorations aside.
@@ -787,7 +891,7 @@ object AppleCatalog {
      * labels put in a name: none of it is how the other catalogue files the
      * song, and all of it stops a search from finding it.
      */
-    private fun plain(title: String): String = title
+    internal fun plain(title: String): String = title
         .replace(Regex("\\([^)]*\\)"), " ")
         .replace(Regex("\\[[^]]*]"), " ")
         .substringBefore(" - ")

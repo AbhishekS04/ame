@@ -290,6 +290,13 @@
     <string name="update_now">Update</string>
     <string name="update_downloading">Downloading…</string>
     <string name="update_channel">App updates</string>
+    <string name="page_updates">Updates</string>
+    <string name="page_updates_summary">Release channel and software updates</string>
+    <string name="channel_stable">Stable</string>
+    <string name="channel_beta">Beta (Pre-release)</string>
+    <string name="update_channel_label">Update Channel</string>
+    <string name="beta_channel_warning">Beta builds include cutting-edge experimental features, early UI updates, and test pipelines before official public rollout. They may contain bugs, crashes, or unpolished behavior. You can switch back to Stable at any time.</string>
+    <string name="release_notes_title">Release Notes</string>
     <string name="update_installing">Waiting for you to confirm</string>
     <string name="update_needs_permission">Allow installing — tap</string>
     <string name="update_failed">Not now — tap to retry</string>

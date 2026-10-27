@@ -509,6 +509,18 @@ fun AmeApp(
     val preferences = remember(context) {
         (context.applicationContext as com.abhishek.ame.AmeApplication).preferences
     }
+    val updater = remember(context) {
+        (context.applicationContext as com.abhishek.ame.AmeApplication).updater
+    }
+    LaunchedEffect(Unit) {
+        val now = System.currentTimeMillis()
+        if (now - preferences.lastUpdateCheck() >= 6 * 60 * 60 * 1000L) {
+            preferences.setLastUpdateCheck(now)
+            runCatching {
+                updater.check(preferences.updateChannel.value)
+            }
+        }
+    }
 
     // The session as it was left, so the player has something to draw before
     // the media controller connects. Read once, off the saved queue.
@@ -683,18 +695,13 @@ fun AmeApp(
 
     // The app's one accent, taken from the same picture the pages are tinted
     // by.
-    //
-    // It used to be read off Spotify's square print while the background was
-    // taken from the other catalogue's — two colours from two photographs of
-    // the same record, and on a cover where they disagree the bar came out
-    // brown over a grey page. The catalogue's own colour for the record wins
-    // where there is one: it was chosen for this page rather than measured off
-    // a photograph, which is the same reason a record's own page uses it.
-    val playingArt = currentTrackArt?.heroUrl
+    // Authoritative artwork model for the entire screen (both top hero cover and ambient background).
+    // Provides immediate ambient color & blurred background continuity from the queue's artwork,
+    // seamlessly upgrading to high-res Apple Music master artwork and motion once resolved.
+    val authoritativeArt = currentTrackArt?.heroUrl
         ?: currentTrackArt?.coverUrl
-        ?: playback.artworkUrl?.atSize(1200).takeIf {
-            coverSource.allowsQueueArtworkFallback && !appleArtPending
-        }
+        ?: playback.artworkUrl?.atSize(1200)
+    val playingArt = authoritativeArt
     val playingAccent by rememberArtworkColor(playingArt)
     val accent = currentTrackArt?.bgColor
         ?.let { hex ->
@@ -790,14 +797,16 @@ fun AmeApp(
         val next = runCatching {
             val at = player?.nextMediaItemIndex ?: androidx.media3.common.C.INDEX_UNSET
             if (at == androidx.media3.common.C.INDEX_UNSET) null
-            else player?.getMediaItemAt(at)?.mediaMetadata
+            else player?.getMediaItemAt(at)
         }.getOrNull()
         if (next != null) {
+            val meta = next.mediaMetadata
             viewModel.prefetchArt(
-                title = next.title?.toString().orEmpty(),
-                album = next.albumTitle?.toString().orEmpty(),
-                artist = next.artist?.toString().orEmpty(),
-                nextArtworkUrl = next.artworkUri?.toString(),
+                title = meta.title?.toString().orEmpty(),
+                album = meta.albumTitle?.toString().orEmpty(),
+                artist = meta.artist?.toString().orEmpty(),
+                nextArtworkUrl = meta.artworkUri?.toString(),
+                nextMediaId = next.mediaId,
                 source = coverSource,
             )
         }
@@ -976,10 +985,7 @@ fun AmeApp(
     var clipColumns by remember { mutableStateOf<List<Color>>(emptyList()) }
 
     // What the player's field is made of, worked out once.
-    val ambientArt = currentTrackArt?.heroUrl
-        ?: currentTrackArt?.coverUrl
-        ?: playback.artworkUrl?.atSize(1200)
-        ?: playback.artworkUrl
+    val ambientArt = authoritativeArt
     val ambientFoot by rememberArtworkFootColor(ambientArt)
     val ambientAccent by rememberArtworkColor(
         ambientArt.takeIf { currentTrackArt?.bgColor == null },
@@ -1006,12 +1012,25 @@ fun AmeApp(
     // is put away.
     val glassAccent = accent.takeUnless { videoOn || spotifyVideoOn }
 
+    // Artwork lookup has a bounded wait so queue playback never waits on a
+    // catalogue request. Keep the visual theme locked through that fallback
+    // window, otherwise the title/control glass briefly falls back to dark gray
+    // before the replacement artwork color arrives.
+    val visualArtworkLoading = !videoOn && !spotifyVideoOn && (
+        appleArtPending ||
+            (playingArt != null && playingAccent == null)
+        )
+    var visualAccent by remember { mutableStateOf(glassAccent) }
+    LaunchedEffect(playback.mediaId, glassAccent, visualArtworkLoading) {
+        if (!visualArtworkLoading) visualAccent = glassAccent
+    }
+
     // And the film on its glass: still dark, and now the record's own dark.
     // The song's colour at the depth the grey film sat at, see playerFilmTint,
     // eased from one song to the next rather than cut, like the field under it.
     val playerFilm by animateColorAsState(
-        targetValue = glassAccent?.let { com.abhishek.ame.ui.player.playerFilmTint(it) }
-            ?: Color(0xFF23232A),
+        targetValue = visualAccent?.let { com.abhishek.ame.ui.player.playerFilmTint(it) }
+            ?: com.abhishek.ame.ui.player.PlayerFilm.copy(alpha = 1f),
         animationSpec = tween(PLAYER_FILM_FADE_MS),
         label = "playerFilm",
     )
@@ -1382,7 +1401,7 @@ fun AmeApp(
     // a tab bar and a player's worth of controls into a thumbnail, none of it
     // legible and none of it reachable — the system owns the gestures there.
     if (inPip) {
-        AmeTheme(seed = glassAccent) {
+        AmeTheme(seed = visualAccent) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -1428,7 +1447,7 @@ fun AmeApp(
         }
     }
     if (landscape && (videoOn || spotifyVideoOn) && player != null) {
-        AmeTheme(seed = glassAccent) {
+        AmeTheme(seed = visualAccent) {
             com.abhishek.ame.ui.player.FullScreenVideo(
                 player = player,
                 attachKey = spotifyVideoGeneration,
@@ -1482,7 +1501,7 @@ fun AmeApp(
     androidx.compose.runtime.CompositionLocalProvider(
         com.abhishek.ame.ui.glass.LocalBackdropLuminance provides backdropLuminance,
     ) {
-    AmeTheme(seed = glassAccent) {
+    AmeTheme(seed = visualAccent) {
         // Material's default content colour is black, and it used to arrive from
         // the Surface that wrapped this tree. That Surface is gone — it painted
         // an opaque page over the backdrop — so the colour has to be provided
@@ -3506,11 +3525,11 @@ fun AmeApp(
                                             coverSource == com.abhishek.ame.data.PreferencesStore.CoverSource.PREMIUM)
                                 },
                                 coverSquareUrl = currentTrackArt?.coverUrl,
-                                allowQueueArtworkFallback = coverSource.allowsQueueArtworkFallback && !appleArtPending,
-                                // Spotify's cover is the fallback, not the
-                                // first draft: while the catalogue is still
-                                // being asked, the player shows colour rather
-                                // than a picture it is about to replace.
+                                allowQueueArtworkFallback = coverSource.allowsQueueArtworkFallback,
+                                // Keep the queue cover visible while an
+                                // Apple-only replacement is being looked up.
+                                // Both the sharp cover and the ambient layer
+                                // then change from the same source together.
                                 coverPending = appleArtPending,
                                 devices = devices,
                                 onAnotherDevice = remote != null,
@@ -4153,7 +4172,8 @@ fun AmeApp(
                 // Here rather than at the top of the app: a sheet made of
                 // glass has to be drawn where there is a layer to refract, and
                 // this is the layer the other sheets use.
-                UpdatePrompt(overlayBackdrop, onOpenChange = { updateOpen = it })
+                // UpdatePrompt commented out per user instruction: updates are notified via the Settings page badge instead of a startup popup.
+                // UpdatePrompt(overlayBackdrop, onOpenChange = { updateOpen = it })
 
                 AddToPlaylistSheet(
                     state = addToPlaylist,

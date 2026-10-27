@@ -12,10 +12,18 @@
 
 package com.abhishek.ame.ui.player
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -194,77 +202,93 @@ fun FloatingMiniPlayer(
                     vertical = androidx.compose.ui.unit.lerp(8.dp, 6.dp, fold),
                 ),
         ) {
-            if (djSpeaking) {
-                DjVoice(
-                    Modifier
-                        .size(artSize)
-                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(9.dp)),
+            Crossfade(
+                targetState = state.artworkUrl to state.title,
+                animationSpec = tween(280),
+                label = "miniArt",
+            ) { (artUrl, artTitle) ->
+                if (djSpeaking) {
+                    DjVoice(
+                        Modifier
+                            .size(artSize)
+                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(9.dp)),
+                    )
+                } else Artwork(
+                    url = artUrl,
+                    title = artTitle,
+                    modifier = Modifier.size(artSize),
+                    corner = 9.dp,
+                    decodeSize = ArtSize,
                 )
-            } else Artwork(
-                url = state.artworkUrl,
-                title = state.title,
-                modifier = Modifier.size(artSize),
-                corner = 9.dp,
-                decodeSize = ArtSize,
-            )
+            }
 
             Spacer(Modifier.width(androidx.compose.ui.unit.lerp(10.dp, 8.dp, fold)))
 
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (state.smartRecommended) Icon(
-                        PhosphorIcons.Regular.Sparkle,
-                        contentDescription = null,
-                        tint = contentColor,
-                        modifier = Modifier.padding(end = 4.dp).size(14.dp),
-                    )
-                Text(
-                    text = state.title,
-                    style = androidx.compose.ui.text.lerp(
-                        MaterialTheme.typography.bodyMedium,
-                        MaterialTheme.typography.bodySmall,
-                        fold,
-                    ),
-                    color = contentColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // The DJ choosing, and talking; see DjMark.
-                    if (remoteLabel == null && isDjQueue(state.contextUri)) {
-                        DjMark(
-                            color = contentColor,
-                            fontSize = 9.sp,
-                            modifier = Modifier.padding(end = 5.dp),
-                        )
-                    }
-                    if (remoteLabel != null) {
-                        Icon(
-                            PhosphorIcons.Fill.Devices,
+            AnimatedContent(
+                targetState = state.title to (remoteLabel ?: state.artist),
+                transitionSpec = {
+                    (slideInVertically { it / 2 } + fadeIn(tween(220)))
+                        .togetherWith(slideOutVertically { -it / 2 } + fadeOut(tween(170)))
+                },
+                label = "miniNowPlaying",
+                modifier = Modifier.weight(1f).clipToBounds(),
+            ) { (title, artist) ->
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (state.smartRecommended) Icon(
+                            PhosphorIcons.Regular.Sparkle,
                             contentDescription = null,
-                            tint = MiniPlayerAccent,
-                            modifier = Modifier
-                                .size(androidx.compose.ui.unit.lerp(12.dp, 10.dp, fold))
-                                .padding(end = 0.dp),
+                            tint = contentColor,
+                            modifier = Modifier.padding(end = 4.dp).size(14.dp),
+                        )
+                        Text(
+                            text = title,
+                            style = androidx.compose.ui.text.lerp(
+                                MaterialTheme.typography.bodyMedium,
+                                MaterialTheme.typography.bodySmall,
+                                fold,
+                            ),
+                            color = contentColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    Text(
-                        text = remoteLabel ?: state.artist,
-                        style = androidx.compose.ui.text.lerp(
-                            MaterialTheme.typography.bodySmall,
-                            MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
-                            fold,
-                        ),
-                        color = if (remoteLabel != null) {
-                            MiniPlayerAccent
-                        } else {
-                            contentColor.copy(alpha = 0.7f)
-                        },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(start = if (remoteLabel != null) 4.dp else 0.dp),
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // The DJ choosing, and talking; see DjMark.
+                        if (remoteLabel == null && isDjQueue(state.contextUri)) {
+                            DjMark(
+                                color = contentColor,
+                                fontSize = 9.sp,
+                                modifier = Modifier.padding(end = 5.dp),
+                            )
+                        }
+                        if (remoteLabel != null) {
+                            Icon(
+                                PhosphorIcons.Fill.Devices,
+                                contentDescription = null,
+                                tint = MiniPlayerAccent,
+                                modifier = Modifier
+                                    .size(androidx.compose.ui.unit.lerp(12.dp, 10.dp, fold))
+                                    .padding(end = 0.dp),
+                            )
+                        }
+                        Text(
+                            text = artist,
+                            style = androidx.compose.ui.text.lerp(
+                                MaterialTheme.typography.bodySmall,
+                                MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
+                                fold,
+                            ),
+                            color = if (remoteLabel != null) {
+                                MiniPlayerAccent
+                            } else {
+                                contentColor.copy(alpha = 0.7f)
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(start = if (remoteLabel != null) 4.dp else 0.dp),
+                        )
+                    }
                 }
             }
 

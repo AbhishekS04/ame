@@ -23,6 +23,7 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,7 +42,6 @@ import coil.request.ImageRequest
 import com.abhishek.ame.ui.theme.warmArtworkColor
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * The room the player is in, made out of the record that is playing.
@@ -183,7 +183,12 @@ fun AmbientArtworkBackground(
     // it is until the picture is ready, and then moves both together.
     var held by remember { mutableStateOf(tone) }
     var holding by remember { mutableStateOf(false) }
-    if (!holding && held != tone) held = tone
+    // A tone update for the current cover is safe. During a cover change it is
+    // not: the new tone can arrive before the blurred bitmap and flash under
+    // the old cover. The transition below commits the pending tone with the
+    // warmed image instead.
+    if (artworkModel == shown && !holding && held != tone) held = tone
+    val latestTone = rememberUpdatedState(tone)
 
     // Eased, and slower than everything else here: the tone is the one thing on
     // screen with no picture in it, so a cut in it reads as the lights being
@@ -195,10 +200,19 @@ fun AmbientArtworkBackground(
     )
 
     LaunchedEffect(artworkModel) {
-        if (artworkModel == shown) return@LaunchedEffect
+        if (artworkModel == shown) {
+            holding = false
+            return@LaunchedEffect
+        }
+        if (artworkModel == null) {
+            // While authoritative artwork is resolving (e.g. Apple Music query),
+            // stably hold the existing blurred room instead of flashing an empty tone.
+            return@LaunchedEffect
+        }
         // Nothing to fade from on the first picture of all: fading up from the
         // tone is what the colour animation above is already doing.
-        if (shown == null || artworkModel == null) {
+        if (shown == null) {
+            held = latestTone.value
             shown = artworkModel
             leaving = null
             swap.snapTo(1f)
@@ -209,15 +223,21 @@ fun AmbientArtworkBackground(
         // Without this the old copy leaves while the new one is not cached,
         // resulting in a flash of flat tone between songs.
         holding = true
-        withTimeoutOrNull(READY_MS.toLong()) {
-            coroutineScope {
-                launch { warm(context, artworkModel, FAR_PX, FarBlur) }
-                launch { warm(context, artworkModel, NEAR_PX, NearBlur) }
-                launch { (artworkModel as? String)?.let { warmArtworkColor(context, it) } }
-            }
+        // Do not abandon the old room while the replacement is still decoding.
+        // The audio is already playing; keeping this layer unchanged for a
+        // little longer is invisible, while fading it into an empty layer is a
+        // visible dark flash at the title and controls.
+        coroutineScope {
+            launch { warm(context, artworkModel, FAR_PX, FarBlur) }
+            launch { warm(context, artworkModel, NEAR_PX, NearBlur) }
+            launch { (artworkModel as? String)?.let { warmArtworkColor(context, it) } }
         }
         holding = false
 
+        // Commit the newest tone in the same state change that starts the image
+        // crossfade. `rememberUpdatedState` matters when metadata finishes
+        // arriving while the bitmap is being warmed.
+        held = latestTone.value
         leaving = shown
         shown = artworkModel
         swap.snapTo(0f)
@@ -659,11 +679,6 @@ private const val DRIFT_MS = 12_000
 
 /** How long the room takes to become a different room. */
 private const val SWAP_MS = 600
-
-/**
- * How long the change will wait for the new picture before going without it.
- */
-private const val READY_MS = 750
 
 /** And the colour under it, which is slower still. */
 private const val TONE_MS = 900

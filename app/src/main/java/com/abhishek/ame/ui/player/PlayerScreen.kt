@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.verticalScroll
@@ -549,33 +550,14 @@ fun PlayerScreen(
     // there it keeps refracting it.
     var clipBottom by remember { mutableFloatStateOf(Float.MAX_VALUE) }
     var lowerTop by remember { mutableFloatStateOf(0f) }
-    val lowerBackdropAlone = if (lowerTop >= clipBottom) groundBackdrop else glassBackdrop
 
-    // The panes over a moving Apple cover read the page's own blurred ground
-    // instead of the cover. The cover is in the layer they refract, and every
-    // frame of it had that whole layer recorded again and every pane over it
-    // blurred again; behind this much glass the motion is only a shimmer, and
-    // it was costing the player half its frames.
     val coverMoving = coverMotionUrl != null && canvas == null
-    val upperBackdrop = when {
-        panel != PlayerPanel.NONE -> groundBackdrop
-        coverMoving -> groundBackdrop
-        else -> glassBackdrop
-    }
-    // The panes below it too. The cover's picture carries on under it to the
-    // foot of the screen, moving with it, so the layer changed under the title,
-    // the transport and the tabs with every frame as well, and each of them
-    // redid its blur and its lens: a trace of the player over a moving cover
-    // counted close to a hundred render passes a frame.
-    val lowerBackdropMoving = if (coverMoving) groundBackdrop else lowerBackdropAlone
-    // Behind a panel every pane reads the same layer: the ground, the cover
-    // blurred over the whole screen, which is near enough one colour from top
-    // to bottom. The round buttons beside the lyrics read the cover's own
-    // layer while the panes under them read the ground, and the two looked
-    // like different glass (#85); moved to the cover's layer, the tabs at the
-    // foot took its dark end and came out grey under brown panes.
+    val upperBackdrop = groundBackdrop
+    // The bottom panes (title capsule, transport controls, and tabs) always sit
+    // over the ambient ground layer. Binding them stably to groundBackdrop prevents
+    // jarring backdrop texture swaps and eliminates shader flicker during track transitions.
     val panelBackdrop = groundBackdrop
-    val lowerBackdrop = if (panel != PlayerPanel.NONE) panelBackdrop else lowerBackdropMoving
+    val lowerBackdrop = groundBackdrop
 
     // Lyrics take over the middle of the screen rather than opening a panel at
     // the bottom, and the Canvas goes out of focus behind them: a clip is
@@ -2304,6 +2286,13 @@ private fun Cover(
     }
 }
 
+private data class TitleData(
+    val title: String,
+    val artist: String,
+    val explicit: Boolean,
+    val smartRecommended: Boolean,
+)
+
 @Composable
 private fun TitleBlock(
     state: PlaybackState,
@@ -2322,14 +2311,14 @@ private fun TitleBlock(
     // the track is named now that the big cover is gone, so the change has to be
     // visible without watching for it.
     AnimatedContent(
-        targetState = state.title to state.artist,
+        targetState = TitleData(state.title, state.artist, state.explicit, state.smartRecommended),
         transitionSpec = {
             (slideInVertically { it / 2 } + fadeIn(tween(220)))
                 .togetherWith(slideOutVertically { -it / 2 } + fadeOut(tween(170)))
         },
         label = "title",
-        modifier = modifier,
-    ) { (title, artist) ->
+        modifier = modifier.clipToBounds(),
+    ) { data ->
         Column {
             // The title is the way to the record it is on — the same idea as
             // the artist's name below it being the way to them. Only where
@@ -2338,7 +2327,7 @@ private fun TitleBlock(
             // address for, and a title that looks like a link and does nothing
             // is worse than a caption.
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (state.smartRecommended) {
+                if (data.smartRecommended) {
                     Icon(
                         PhosphorIcons.Regular.Sparkle,
                         contentDescription = stringResource(R.string.smart_shuffle),
@@ -2347,7 +2336,7 @@ private fun TitleBlock(
                     )
                 }
             Text(
-                text = title,
+                text = data.title,
                 style = MaterialTheme.typography.titleLarge,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -2360,14 +2349,14 @@ private fun TitleBlock(
             }
             // The rating beside the names rather than on its own line: it is
             // about the song, and a line of its own would read as a warning.
-            if (state.explicit) {
+            if (data.explicit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     com.abhishek.ame.ui.components.ExplicitMark(color = GlassInk)
                     Spacer(Modifier.width(6.dp))
-                    ArtistLine(state, artist, onOpenArtist)
+                    ArtistLine(state, data.artist, onOpenArtist)
                 }
             } else {
-                ArtistLine(state, artist, onOpenArtist)
+                ArtistLine(state, data.artist, onOpenArtist)
             }
         }
     }
@@ -2460,9 +2449,13 @@ internal fun TimeRow(positionMs: State<Long>, durationMs: Long) {
 
         // Apple Music style Lossless badge: Waveform icon + "Lossless"
         // Rendered strictly for genuine FLAC lossless bitstream playback only!
-        if (activeFidelity == AudioFidelity.LOSSLESS) {
+        AnimatedVisibility(
+            visible = activeFidelity == AudioFidelity.LOSSLESS,
+            enter = fadeIn(tween(250)),
+            exit = fadeOut(tween(200)),
+            modifier = Modifier.align(Alignment.Center),
+        ) {
             Row(
-                modifier = Modifier.align(Alignment.Center),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
@@ -2551,7 +2544,11 @@ internal fun Controls(
             // A Box, because the button lays its content out in a row and the
             // ring belongs *around* the icon rather than beside it.
             Box(contentAlignment = Alignment.Center) {
-                if (state.isBuffering) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = state.isBuffering,
+                    enter = fadeIn(tween(180)),
+                    exit = fadeOut(tween(180)),
+                ) {
                     CircularProgressIndicator(
                         color = LocalContentColor.current.copy(alpha = 0.5f),
                         strokeWidth = 2.dp,

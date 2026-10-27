@@ -230,6 +230,22 @@ class PreferencesStore(context: Context) {
         prefs.edit().putString(KEY_COVER_SOURCE, value.name).apply()
     }
 
+    enum class UpdateChannel {
+        STABLE,
+        BETA,
+    }
+
+    private val _updateChannel = MutableStateFlow(
+        UpdateChannel.entries.firstOrNull { it.name == prefs.getString(KEY_UPDATE_CHANNEL, null) }
+            ?: UpdateChannel.STABLE,
+    )
+    val updateChannel: StateFlow<UpdateChannel> = _updateChannel.asStateFlow()
+
+    fun setUpdateChannel(value: UpdateChannel) {
+        _updateChannel.value = value
+        prefs.edit().putString(KEY_UPDATE_CHANNEL, value.name).apply()
+    }
+
     private val _keepPlayingOnClose = MutableStateFlow(prefs.getBoolean(KEY_KEEP_PLAYING, false))
 
     /**
@@ -435,6 +451,7 @@ class PreferencesStore(context: Context) {
         const val KEY_PROFILE_NAME = "profile_name"
         const val KEY_PROFILE_ART = "profile_art"
         const val KEY_LAST_UPDATE_CHECK = "last_update_check"
+        const val KEY_UPDATE_CHANNEL = "update_channel"
         const val KEY_SKIPPED_UPDATE = "skipped_update"
         const val KEY_USER_COUNTRY = "user_country"
     }

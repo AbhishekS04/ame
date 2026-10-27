@@ -16,6 +16,11 @@ app/.cxx/
 
 # Local agent settings: machine-specific, and no business in a public repo
 .claude/
+.agents/
+.qoder/
+.qwen/
+/skills/
+/skills-lock.json
 
 # Deferred local security audit notes; do not publish until explicitly approved.
 SECURITY_AUDIT_TODO.md

@@ -46,6 +46,8 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.abhishek.ame.data.PreferencesStore
 import com.adamglin.PhosphorIcons
 import com.adamglin.phosphoricons.Regular
 import com.adamglin.phosphoricons.regular.ArrowLeft
@@ -853,12 +855,8 @@ fun SettingsScreen(
             }
         }
 
-        // The update on its own, never folded away: the one thing on this
-        // page somebody comes to do rather than to read.
-        if (shown == SettingsPage.About) item("update") {
-            Section(null) {
-                UpdateRow(askToInstall)
-            }
+        if (shown == SettingsPage.Updates) item("updates-content") {
+            UpdatesSection(askToInstall = askToInstall)
         }
 
         if (shown == SettingsPage.About) groupHeading(Group.ABOUT, open = "about" in openGroups) { toggleGroup("about") }
@@ -980,6 +978,7 @@ private enum class SettingsPage(
     Downloads(R.string.page_downloads, R.string.page_downloads_summary, PhosphorIcons.Regular.DownloadSimple),
     App(R.string.page_app, R.string.page_app_summary, PhosphorIcons.Regular.SlidersHorizontal),
     About(R.string.about, R.string.page_about_summary, PhosphorIcons.Regular.Info),
+    Updates(R.string.page_updates, R.string.page_updates_summary, PhosphorIcons.Regular.ArrowClockwise),
 }
 
 /** How long a page takes to arrive, and how quickly the last one goes. */
@@ -1050,12 +1049,102 @@ private fun SettingsIndex(
             )
         }
 
+        val context = LocalContext.current
+        val app = remember(context) { context.applicationContext as com.abhishek.ame.AmeApplication }
+        val updater = app.updater
+        val preferences = app.preferences
+        val updaterState by updater.state.collectAsStateWithLifecycle()
+        val updateChannel by preferences.updateChannel.collectAsStateWithLifecycle()
+        val hasUpdate = updaterState is Updater.State.Available
+        val available = updaterState as? Updater.State.Available
+        val isChecking = updaterState is Updater.State.Checking
+        val isDownloading = updaterState is Updater.State.Downloading
+
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(32.dp))
+                .background(
+                    if (hasUpdate) Color(0xFFF59E0B).copy(alpha = 0.16f)
+                    else Ink.copy(alpha = 0.07f)
+                )
+                .clickable { onOpen(SettingsPage.Updates) }
+                .padding(horizontal = 20.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (hasUpdate) Color(0xFFF59E0B).copy(alpha = 0.28f)
+                        else Ink.copy(alpha = 0.08f)
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    PhosphorIcons.Regular.ArrowClockwise,
+                    contentDescription = null,
+                    tint = if (hasUpdate) Color(0xFFF59E0B) else Ink,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Column(Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        stringResource(R.string.page_updates),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (hasUpdate) Color(0xFFF59E0B) else Ink,
+                    )
+                    if (hasUpdate) {
+                        Box(
+                            Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFFF59E0B))
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                        ) {
+                            Text(
+                                "UPDATE",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.Black,
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = when {
+                        hasUpdate -> "Update your application (v${available?.version})"
+                        isChecking -> stringResource(R.string.update_checking)
+                        isDownloading -> stringResource(R.string.update_downloading)
+                        else -> "v${BuildConfig.VERSION_NAME} • ${if (updateChannel == PreferencesStore.UpdateChannel.BETA) "Beta" else "Stable"}"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (hasUpdate) Color(0xFFF59E0B) else InkDim,
+                    fontWeight = if (hasUpdate) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(
+                PhosphorIcons.Regular.CaretRight,
+                contentDescription = null,
+                tint = if (hasUpdate) Color(0xFFF59E0B) else InkDim,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+
         // Six places, and a seventh tile that is not a place: it leaves the app
         // for the Ko-fi page. Last, and in the same shape as the rest, because
         // it is an offer rather than a setting — asking louder than that would
         // be asking on a screen somebody opened to change something.
         val uriHandler = LocalUriHandler.current
-        val pages = SettingsPage.entries.filter { it != SettingsPage.Account }
+        val pages = SettingsPage.entries.filter { it != SettingsPage.Account && it != SettingsPage.Updates }
         val rows = pages.chunked(2)
         rows.forEach { pair ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1273,7 +1362,7 @@ private fun BackendSection() {
     val chosen by store.backend.collectAsStateWithLifecycle()
 
     Section(stringResource(R.string.backend)) {
-        listOf(BackendId.SPOTIFY, BackendId.YOUTUBE_MUSIC).forEachIndexed { index, backend ->
+        listOf(BackendId.YOUTUBE_MUSIC).forEachIndexed { index, backend ->
             if (index > 0) RowDivider()
             ChoiceRow(
                 label = stringResource(
@@ -1748,54 +1837,440 @@ private fun YouTubeQualitySection() {
  * automatic.
  */
 @Composable
-private fun UpdateRow(onNeedsPermission: (Updater.State.Available) -> Unit) {
+private fun UpdatesSection(
+    askToInstall: (Updater.State.Available) -> Unit,
+) {
     val context = LocalContext.current
-    val updater = remember(context) {
-        (context.applicationContext as com.abhishek.ame.AmeApplication).updater
-    }
+    val app = remember(context) { context.applicationContext as com.abhishek.ame.AmeApplication }
+    val updater = app.updater
+    val store = app.preferences
+    val channel by store.updateChannel.collectAsStateWithLifecycle()
     val state by updater.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
-    val status = when (val current = state) {
-        is Updater.State.Idle -> null
-        is Updater.State.Checking -> stringResource(R.string.update_checking)
-        is Updater.State.UpToDate -> stringResource(R.string.update_none)
-        is Updater.State.Available -> stringResource(R.string.update_available, current.version)
-        is Updater.State.Downloading ->
-            current.progress?.let { "${(it * 100).toInt()}%" } ?: stringResource(R.string.update_downloading)
-        is Updater.State.Installing -> stringResource(R.string.update_installing)
-        is Updater.State.Failed ->
-            if (current.reason == Updater.REASON_PERMISSION) stringResource(R.string.update_needs_permission)
-            else stringResource(R.string.update_failed)
+    val available = state as? Updater.State.Available
+    val isChecking = state is Updater.State.Checking
+    val isDownloading = state is Updater.State.Downloading
+    val isInstalling = state is Updater.State.Installing
+    val downloadProgress = (state as? Updater.State.Downloading)?.progress
+
+    val channelReleases by updater.channelReleases.collectAsStateWithLifecycle()
+    val channelRelease = channelReleases[channel]
+    val releaseNotes = available?.notes?.takeIf { it.isNotBlank() } ?: channelRelease?.notes.orEmpty()
+    val releaseTag = available?.version ?: channelRelease?.version
+    var notesExpanded by rememberSaveable(channel) { mutableStateOf(available != null) }
+
+    LaunchedEffect(channel) {
+        if (channelReleases[channel] == null) {
+            updater.check(channel)
+        }
     }
 
-    val busy = state is Updater.State.Checking ||
-        state is Updater.State.Downloading ||
-        state is Updater.State.Installing
-
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(enabled = !busy) {
-                scope.launch { updater.checkAndInstall()?.let(onNeedsPermission) }
+    // 1. Version and Status Card
+    Section(stringResource(R.string.page_updates)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column {
+                    if (available != null) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                text = "v${BuildConfig.VERSION_NAME}",
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough,
+                                ),
+                                color = InkDim,
+                                fontWeight = FontWeight.Normal,
+                            )
+                            Icon(
+                                PhosphorIcons.Regular.CaretRight,
+                                contentDescription = null,
+                                tint = Color(0xFFF59E0B),
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(
+                                text = "v${available.version}",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFF59E0B),
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "Ame v${BuildConfig.VERSION_NAME}",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    Text(
+                        text = if (available != null) "Update available for ${if (channel == PreferencesStore.UpdateChannel.BETA) "Beta" else "Stable"} channel"
+                               else "Channel: ${if (channel == PreferencesStore.UpdateChannel.BETA) "Beta" else "Stable"}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (available != null) Color(0xFFF59E0B) else InkDim,
+                        fontWeight = if (available != null) FontWeight.Medium else FontWeight.Normal,
+                    )
+                }
+                if (available != null) {
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFFF59E0B))
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
+                        Text(
+                            "NEW",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Black,
+                        )
+                    }
+                }
             }
-            .padding(horizontal = 18.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text(
-            stringResource(R.string.check_for_updates),
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.weight(1f),
-        )
-        if (status != null) {
+
+            if (isDownloading) {
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        stringResource(R.string.update_downloading),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Text(
+                        downloadProgress?.let { "${(it * 100).toInt()}%" } ?: "…",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                androidx.compose.material3.LinearProgressIndicator(
+                    progress = { downloadProgress ?: 0f },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(ContinuousCapsule()),
+                )
+            } else if (isInstalling) {
+                Text(
+                    stringResource(R.string.update_installing),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = InkDim,
+                )
+            } else if (isChecking) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    androidx.compose.material3.CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    Text(
+                        stringResource(R.string.update_checking),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = InkDim,
+                    )
+                }
+            } else if (state is Updater.State.UpToDate) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        PhosphorIcons.Regular.Check,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        stringResource(R.string.update_none),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = InkDim,
+                    )
+                }
+            } else if (state is Updater.State.Failed) {
+                val reason = (state as Updater.State.Failed).reason
+                Text(
+                    if (reason == Updater.REASON_PERMISSION) stringResource(R.string.update_needs_permission)
+                    else stringResource(R.string.update_failed),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+
+        RowDivider()
+
+        if (available != null) {
+            ActionRow(
+                label = if (updater.canInstall()) "Install Update (v${available.version})" else "Allow Install & Update",
+                icon = PhosphorIcons.Regular.DownloadSimple,
+                destructive = false,
+            ) {
+                scope.launch {
+                    if (!updater.canInstall()) {
+                        askToInstall(available)
+                    } else {
+                        updater.install(available)
+                    }
+                }
+            }
+        } else {
+            val busy = isChecking || isDownloading || isInstalling
+            ActionRow(
+                label = stringResource(R.string.check_for_updates),
+                icon = PhosphorIcons.Regular.ArrowClockwise,
+                destructive = false,
+            ) {
+                if (!busy) {
+                    scope.launch { updater.check(channel) }
+                }
+            }
+        }
+    }
+
+    // 2. Channel Selection Section
+    Section(stringResource(R.string.update_channel_label)) {
+        PreferencesStore.UpdateChannel.entries.forEachIndexed { index, ch ->
+            if (index > 0) RowDivider()
+            ChoiceRow(
+                label = stringResource(
+                    when (ch) {
+                        PreferencesStore.UpdateChannel.STABLE -> R.string.channel_stable
+                        PreferencesStore.UpdateChannel.BETA -> R.string.channel_beta
+                    },
+                ),
+                selected = ch == channel,
+            ) {
+                if (ch != channel) {
+                    store.setUpdateChannel(ch)
+                    scope.launch { updater.check(ch) }
+                }
+            }
+        }
+    }
+
+    // 3. Collapsible Release Notes Section (directly under update channel)
+    Section(null) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clickable { notesExpanded = !notesExpanded }
+                .padding(horizontal = 18.dp, vertical = 14.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Box(
+                        Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Ink.copy(alpha = 0.08f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            PhosphorIcons.Regular.Package,
+                            contentDescription = null,
+                            tint = Ink,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = stringResource(R.string.release_notes_title),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = if (releaseTag != null) "v$releaseTag • ${if (channel == PreferencesStore.UpdateChannel.BETA) "Beta" else "Stable"}"
+                                   else "Latest for ${if (channel == PreferencesStore.UpdateChannel.BETA) "Beta" else "Stable"} channel",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = InkDim,
+                        )
+                    }
+                }
+                Icon(
+                    if (notesExpanded) PhosphorIcons.Regular.CaretUp else PhosphorIcons.Regular.CaretDown,
+                    contentDescription = null,
+                    tint = InkDim,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+
+        androidx.compose.animation.AnimatedVisibility(
+            visible = notesExpanded,
+            enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut(),
+        ) {
+            Column {
+                RowDivider()
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (releaseNotes.isBlank()) {
+                        Text(
+                            text = if (isChecking) stringResource(R.string.update_checking) else "No release notes available for this channel.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = InkDim,
+                        )
+                    } else {
+                        val structuredSections = remember(releaseNotes) {
+                            parseStructuredReleaseNotes(releaseNotes)
+                        }
+                        structuredSections.forEach { sec ->
+                            if (!sec.title.isNullOrBlank()) {
+                                Text(
+                                    text = sec.title,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
+                                )
+                            }
+                            sec.items.forEach { item ->
+                                Row(
+                                    modifier = Modifier.padding(vertical = 2.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.Top,
+                                ) {
+                                    Box(
+                                        Modifier
+                                            .padding(top = 7.dp)
+                                            .size(5.dp)
+                                            .clip(CircleShape)
+                                            .background(InkDim),
+                                    )
+                                    Text(
+                                        text = item,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = Ink,
+                                        lineHeight = 20.sp,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Beta Advisory Card
+    if (channel == PreferencesStore.UpdateChannel.BETA) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 6.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .background(Color(0xFFF59E0B).copy(alpha = 0.10f))
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    PhosphorIcons.Regular.ShieldCheck,
+                    contentDescription = null,
+                    tint = Color(0xFFF59E0B),
+                    modifier = Modifier.size(20.dp),
+                )
+                Text(
+                    text = "Beta Channel Advisory",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFFF59E0B),
+                )
+            }
             Text(
-                status,
-                style = MaterialTheme.typography.bodyMedium,
-                color = InkDim,
-                textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                text = stringResource(R.string.beta_channel_warning),
+                style = MaterialTheme.typography.bodySmall,
+                color = Ink,
+                lineHeight = 18.sp,
             )
         }
+    }
+}
+
+private data class ReleaseSection(
+    val title: String?,
+    val items: List<String>,
+)
+
+private fun parseStructuredReleaseNotes(markdown: String): List<ReleaseSection> {
+    val sections = mutableListOf<ReleaseSection>()
+    var currentTitle: String? = null
+    val currentItems = mutableListOf<String>()
+
+    fun flush() {
+        if (currentItems.isNotEmpty() || currentTitle != null) {
+            sections.add(ReleaseSection(currentTitle, currentItems.toList()))
+            currentItems.clear()
+            currentTitle = null
+        }
+    }
+
+    for (rawLine in markdown.lines()) {
+        val trimmed = rawLine.trim()
+        if (trimmed.isBlank()) continue
+
+        if (trimmed.startsWith("**Full Changelog**:", ignoreCase = true) ||
+            trimmed.startsWith("https://github.com/", ignoreCase = true) ||
+            trimmed.startsWith("Full Changelog:", ignoreCase = true)
+        ) continue
+
+        if (trimmed.startsWith("#")) {
+            flush()
+            currentTitle = trimmed.replace(Regex("^#+\\s*"), "").trim()
+            continue
+        }
+
+        val cleaned = trimmed
+            .replace(Regex("^[*\\-+]\\s+"), "")
+            .replace(Regex("^\\d+\\.\\s+"), "")
+            .replace("**", "")
+            .replace("__", "")
+            .replace("`", "")
+            .replace(Regex("by @[a-zA-Z0-9_-]+"), "")
+            .replace(Regex("in https://github\\.com/\\S+"), "")
+            .replace(Regex("\\(#\\d+\\)"), "")
+            .trim()
+
+        if (cleaned.isNotBlank()) {
+            currentItems.add(cleaned)
+        }
+    }
+    flush()
+
+    return if (sections.isEmpty() && markdown.isNotBlank()) {
+        listOf(ReleaseSection(null, listOf(markdown.trim())))
+    } else {
+        sections
     }
 }
 

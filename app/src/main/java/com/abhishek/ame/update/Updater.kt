@@ -46,6 +46,16 @@ class Updater(context: Context) {
     private val _state = MutableStateFlow<State>(State.Idle)
     val state: StateFlow<State> = _state.asStateFlow()
 
+    data class Release(
+        val version: String,
+        val url: String,
+        val bytes: Long,
+        val notes: String,
+    )
+
+    private val _channelReleases = MutableStateFlow<Map<com.abhishek.ame.data.PreferencesStore.UpdateChannel, Release>>(emptyMap())
+    val channelReleases: StateFlow<Map<com.abhishek.ame.data.PreferencesStore.UpdateChannel, Release>> = _channelReleases.asStateFlow()
+
     sealed interface State {
         data object Idle : State
         data object Checking : State
@@ -80,14 +90,18 @@ class Updater(context: Context) {
      * for, which is why nothing here runs on its own: it is called when the
      * button is pressed and at no other time.
      */
-    suspend fun check() {
+    suspend fun check(channel: com.abhishek.ame.data.PreferencesStore.UpdateChannel = com.abhishek.ame.data.PreferencesStore.UpdateChannel.STABLE) {
         _state.value = State.Checking
-        val result = runCatching { withContext(Dispatchers.IO) { latestRelease() } }
+        val result = runCatching { withContext(Dispatchers.IO) { fetchRelease(channel) } }
             .getOrElse {
                 android.util.Log.w(TAG, "check failed: $it")
                 _state.value = State.Failed(it.message ?: "network")
                 return
             }
+
+        if (result != null) {
+            _channelReleases.value += (channel to result)
+        }
 
         if (result == null || !isNewer(result.version, BuildConfig.VERSION_NAME)) {
             _state.value = State.UpToDate
@@ -108,8 +122,8 @@ class Updater(context: Context) {
      * @return the update it could not install without permission, so the caller
      *   can ask for it and come back here rather than starting over.
      */
-    suspend fun checkAndInstall(): State.Available? {
-        check()
+    suspend fun checkAndInstall(channel: com.abhishek.ame.data.PreferencesStore.UpdateChannel = com.abhishek.ame.data.PreferencesStore.UpdateChannel.STABLE): State.Available? {
+        check(channel)
         val update = _state.value as? State.Available ?: return null
         if (!canInstall()) {
             _state.value = State.Failed(REASON_PERMISSION)
@@ -119,31 +133,34 @@ class Updater(context: Context) {
         return null
     }
 
-    private data class Release(
-        val version: String,
-        val url: String,
-        val bytes: Long,
-        val notes: String,
-    )
-
-    private fun latestRelease(): Release? {
+    private fun fetchRelease(channel: com.abhishek.ame.data.PreferencesStore.UpdateChannel): Release? {
+        val url = if (channel == com.abhishek.ame.data.PreferencesStore.UpdateChannel.STABLE) {
+            "https://api.github.com/repos/$REPO/releases/latest"
+        } else {
+            "https://api.github.com/repos/$REPO/releases?per_page=5"
+        }
         val request = Request.Builder()
-            .url("https://api.github.com/repos/$REPO/releases/latest")
+            .url(url)
             .header("Accept", "application/vnd.github+json")
             .build()
 
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) error("HTTP ${response.code}")
-            val body = json.parseToJsonElement(response.body?.string().orEmpty()) as? JsonObject
-                ?: return null
+            val text = response.body?.string().orEmpty()
+            val body = if (channel == com.abhishek.ame.data.PreferencesStore.UpdateChannel.STABLE) {
+                json.parseToJsonElement(text) as? JsonObject
+            } else {
+                val array = json.parseToJsonElement(text) as? JsonArray
+                val releases = array?.filterIsInstance<JsonObject>().orEmpty()
+                releases.firstOrNull { it["prerelease"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() == true }
+                    ?: releases.firstOrNull()
+            } ?: return null
+
             val tag = body["tag_name"]?.jsonPrimitive?.content?.removePrefix("v") ?: return null
             val apks = (body["assets"] as? JsonArray)
                 ?.filterIsInstance<JsonObject>()
                 ?.filter { it["name"]?.jsonPrimitive?.content?.endsWith(".apk") == true }
                 .orEmpty()
-            // One APK per ABI and a universal one: the phone's own first, in
-            // the order it prefers them, then the universal, then whatever
-            // there is, for a release that ships a single APK.
             fun named(part: String) = apks.firstOrNull {
                 it["name"]?.jsonPrimitive?.content?.contains(part) == true
             }
@@ -151,10 +168,10 @@ class Updater(context: Context) {
                 ?: named("universal")
                 ?: apks.firstOrNull()
                 ?: return null
-            val url = asset["browser_download_url"]?.jsonPrimitive?.content ?: return null
+            val downloadUrl = asset["browser_download_url"]?.jsonPrimitive?.content ?: return null
             val size = asset["size"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L
             val notes = body["body"]?.jsonPrimitive?.content.orEmpty().trim()
-            return Release(tag, url, size, notes)
+            return Release(tag, downloadUrl, size, notes)
         }
     }
 
@@ -307,22 +324,39 @@ class Updater(context: Context) {
         /** Told apart from a network failure so the UI can offer the way out. */
         const val REASON_PERMISSION = "permission"
 
+        private fun parseVersion(v: String): Triple<List<Int>, Int, Int> {
+            val clean = v.trim().removePrefix("v")
+            val base = clean.substringBefore('-')
+            val extra = clean.substringAfter('-', "")
+            val parts = base.split('.').map { it.toIntOrNull() ?: 0 }
+            val (preType, preNum) = if (extra.isBlank()) {
+                Pair(999, 0)
+            } else {
+                val num = Regex("\\d+").find(extra)?.value?.toIntOrNull() ?: 1
+                val type = when {
+                    extra.contains("alpha", ignoreCase = true) -> 1
+                    extra.contains("beta", ignoreCase = true) -> 2
+                    extra.contains("rc", ignoreCase = true) -> 3
+                    else -> 2
+                }
+                Pair(type, num)
+            }
+            return Triple(parts, preType, preNum)
+        }
+
         /**
-         * Compares two dotted versions numerically.
-         *
-         * String comparison would put 1.10.0 before 1.9.0, which is exactly the
-         * release where a self-updater stops offering updates and nobody
-         * notices for a month.
+         * Compares two SemVer versions numerically, supporting pre-release suffixes (e.g. -beta.1).
          */
         fun isNewer(candidate: String, installed: String): Boolean {
-            val a = candidate.split('.').map { it.takeWhile(Char::isDigit).toIntOrNull() ?: 0 }
-            val b = installed.split('.').map { it.takeWhile(Char::isDigit).toIntOrNull() ?: 0 }
-            for (i in 0 until maxOf(a.size, b.size)) {
-                val left = a.getOrElse(i) { 0 }
-                val right = b.getOrElse(i) { 0 }
-                if (left != right) return left > right
+            val (cParts, cType, cNum) = parseVersion(candidate)
+            val (iParts, iType, iNum) = parseVersion(installed)
+            for (i in 0 until maxOf(cParts.size, iParts.size)) {
+                val c = cParts.getOrElse(i) { 0 }
+                val inst = iParts.getOrElse(i) { 0 }
+                if (c != inst) return c > inst
             }
-            return false
+            if (cType != iType) return cType > iType
+            return cNum > iNum
         }
     }
 }

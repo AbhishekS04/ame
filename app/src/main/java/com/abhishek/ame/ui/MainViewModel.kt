@@ -5955,6 +5955,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private var nowPlayingArtJob: Job? = null
     private var prefetchArtJob: Job? = null
+    private val nowPlayingArtCache = android.util.LruCache<String, com.abhishek.ame.data.AppleCatalog.Album>(200)
+
+    private fun artCacheKeys(uri: String?, title: String, album: String, artist: String): List<String> {
+        val keys = mutableListOf<String>()
+        if (!uri.isNullOrBlank()) keys.add(uri)
+        val t = title.trim().lowercase()
+        val a = artist.trim().lowercase()
+        val alb = album.trim().lowercase()
+        if (t.isNotBlank() && a.isNotBlank()) {
+            keys.add("$t|$a")
+            val leadArtist = com.abhishek.ame.data.AppleCatalog.lead(artist).lowercase()
+            val plainTitle = com.abhishek.ame.data.AppleCatalog.plain(title).lowercase()
+            if (leadArtist != a || plainTitle != t) {
+                keys.add("$plainTitle|$leadArtist")
+            }
+        }
+        if (alb.isNotBlank() && a.isNotBlank()) {
+            keys.add("$alb|$a")
+        }
+        return keys
+    }
 
     /**
      * Looks up, and downloads, the artwork of the song that comes next.
@@ -5974,6 +5995,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         album: String,
         artist: String,
         nextArtworkUrl: String? = null,
+        nextMediaId: String? = null,
         source: PreferencesStore.CoverSource,
     ) {
         if (!source.usesAppleArtwork || artist.isBlank() || com.abhishek.ame.playback.OfflineMode.active.value) return
@@ -5995,10 +6017,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 }
             }
-            val found = com.abhishek.ame.data.AppleCatalog.album(album, artist)
+            var found = com.abhishek.ame.data.AppleCatalog.album(album, artist)
                 .takeIf { album.isNotBlank() }
+            if ((found == null || (found.heroUrl == null && found.motionUrl == null)) && title.isNotBlank()) {
+                val fromSongAlbum = com.abhishek.ame.data.AppleCatalog.albumForSong(title, artist, album)
+                if (fromSongAlbum != null) {
+                    found = fromSongAlbum
+                }
+            }
             val cover = found?.coverUrl
                 ?: com.abhishek.ame.data.AppleCatalog.song(title, artist, album)
+            val resolved = (found ?: com.abhishek.ame.data.AppleCatalog.Album(
+                heroUrl = null,
+                coverUrl = null,
+            )).let { if (it.coverUrl == null && cover != null) it.copy(coverUrl = cover) else it }
+
+            if (resolved.heroUrl != null || resolved.coverUrl != null) {
+                artCacheKeys(nextMediaId, title, album, artist).forEach { k ->
+                    nowPlayingArtCache.put(k, resolved)
+                }
+            }
             // The bytes and the decode as well as the answer: Coil keeps what it
             // has already read, and this is the half that takes the longest.
             // At the size the player will ask for, not at the picture's own.
@@ -6112,18 +6150,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     ) {
         nowPlayingArtJob?.cancel()
         _nowPlayingArtUri.value = uri
-        _nowPlayingArt.value = null
+
         if (!source.usesAppleArtwork || artist.isBlank()) {
+            _nowPlayingArt.value = null
             _nowPlayingArtPending.value = false
             return
         }
-        _nowPlayingArtPending.value = true
-        nowPlayingArtJob = viewModelScope.launch {
-            launch {
-                delay(ART_WAIT_MS)
-                _nowPlayingArtPending.value = false
-            }
 
+        val keys = artCacheKeys(uri, title, album, artist)
+        val cached = keys.firstNotNullOfOrNull { nowPlayingArtCache.get(it) }
+
+        if (cached != null) {
+            _nowPlayingArt.value = cached
+            _nowPlayingArtPending.value = false
+            if (cached.heroUrl != null || cached.motionUrl != null) {
+                return
+            }
+        }
+
+        _nowPlayingArt.value = cached
+        _nowPlayingArtPending.value = cached == null
+        nowPlayingArtJob = viewModelScope.launch {
             // What came down with the download, first and without asking
             // anybody. A downloaded song keeps the tall picture beside its
             // audio, which is the whole point of keeping it: offline there is
@@ -6132,40 +6179,48 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             keptArt(uri)?.let {
                 _nowPlayingArt.value = it.album
                 _nowPlayingArtPending.value = false
+                it.album?.let { alb ->
+                    keys.forEach { k -> nowPlayingArtCache.put(k, alb) }
+                }
                 return@launch
             }
 
             var record = album
-            if (record.isBlank() && uri != null) {
-                for (wait in ALBUM_ASK_MS) {
-                    delay(wait)
-                    record = withContext(Dispatchers.IO) {
-                        runCatching { container.activeBackend.tracksOf(uri).firstOrNull()?.album }.getOrNull()
-                    }.orEmpty()
-                    if (record.isNotBlank()) break
-                }
-                android.util.Log.i(TAG, "art: record for $uri ${if (record.isBlank()) "not found" else "is '$record'"}")
+            if (record.isBlank() && uri != null && uri.startsWith("spotify:track:")) {
+                record = withContext(Dispatchers.IO) {
+                    runCatching { container.activeBackend.tracksOf(uri).firstOrNull()?.album }.getOrNull()
+                }.orEmpty()
             }
 
-            val found = com.abhishek.ame.data.AppleCatalog.album(record, artist)
+            var found = com.abhishek.ame.data.AppleCatalog.album(record, artist)
                 .takeIf { record.isNotBlank() }
-            _nowPlayingArt.value = found
 
-            // No record found, or one with no sleeve of its own: ask for the
-            // song instead. Spotify's largest cover is 640 across and the player
-            // draws it the width of the screen, so falling back to it is
-            // falling back to a soft picture — where Apple keeps a song's
-            // artwork at several thousand.
+            if ((found == null || (found.heroUrl == null && found.motionUrl == null)) && title.isNotBlank()) {
+                val fromSongAlbum = com.abhishek.ame.data.AppleCatalog.albumForSong(title, artist, record)
+                if (fromSongAlbum != null) {
+                    found = fromSongAlbum
+                }
+            }
+
             if (found?.coverUrl == null && title.isNotBlank()) {
                 val fromSong = com.abhishek.ame.data.AppleCatalog.song(title, artist, record)
                 if (fromSong != null) {
-                    _nowPlayingArt.value = (found ?: com.abhishek.ame.data.AppleCatalog.Album(
+                    found = (found ?: com.abhishek.ame.data.AppleCatalog.Album(
                         heroUrl = null,
                         coverUrl = null,
                     )).copy(coverUrl = fromSong)
+                } else if (found == null) {
+                    // Try title as album for singles/EPs
+                    found = com.abhishek.ame.data.AppleCatalog.album(title, artist)
                 }
             }
+
+            _nowPlayingArt.value = found
             _nowPlayingArtPending.value = false
+
+            if (found != null && (found.heroUrl != null || found.coverUrl != null)) {
+                keys.forEach { k -> nowPlayingArtCache.put(k, found) }
+            }
         }
     }
 
@@ -7105,7 +7160,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
          * short enough that a bad one costs a moment of colour rather than a
          * screen with no artwork.
          */
-        const val ART_WAIT_MS = 1_500L
+        const val ART_WAIT_MS = 1_000L
 
         /** How long a song's record has to arrive before it is given up on. */
         const val ALBUM_WAIT_MS = 900L

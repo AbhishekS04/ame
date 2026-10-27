@@ -117,11 +117,12 @@ object FidelityManager {
             return
         }
         activeMediaId = mediaId
-        // A previous resolution is not proof that this playback instance has
-        // decoded the same stream. The decoder confirmation below is the only
-        // path that can turn the badge on.
-        _activeFidelity.value = AudioFidelity.STANDARD
-        Log.i(TAG, "onTrackTransition mediaId=$mediaId -> waiting for decoded format")
+        // If the track already has recorded fidelity from prefetch/resolution, smoothly carry it over
+        // instead of dropping to STANDARD for a few frames and popping back in.
+        val norm = normalizeId(mediaId)
+        val known = trackFidelities[mediaId] ?: trackFidelities[norm] ?: trackFidelities["ytmusic:track:$norm"]
+        _activeFidelity.value = known ?: AudioFidelity.STANDARD
+        Log.i(TAG, "onTrackTransition mediaId=$mediaId -> fidelity=${_activeFidelity.value}")
     }
 
     /**

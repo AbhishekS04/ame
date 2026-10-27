@@ -4,9 +4,7 @@ import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
@@ -168,12 +166,21 @@ fun HeroBackdrop(
     val context = LocalContext.current
     val extended = extendPicture && !fadeToPage
     val activeKey = trackKey ?: artworkUrl
-    var art by remember(activeKey) { mutableStateOf<ArtSet?>(null) }
+    var art by remember { mutableStateOf<ArtSet?>(null) }
+    var currentKey by remember { mutableStateOf(activeKey) }
 
-    LaunchedEffect(artworkUrl, thumbnailUrl, activeKey, zoom, extended) {
+    LaunchedEffect(artworkUrl, thumbnailUrl, activeKey, zoom, extended, pending) {
         val target = artworkUrl ?: thumbnailUrl
+        if (currentKey != activeKey) {
+            currentKey = activeKey
+            // When track changes and new artwork is still pending resolution, smoothly fade out
+            // the previous sharp cover so the whole screen dissolves into the unified ambient blur.
+            if (target == null) {
+                art = null
+            }
+        }
         if (target == null) {
-            art = null
+            if (!pending) art = null
             return@LaunchedEffect
         }
 
@@ -243,9 +250,10 @@ fun HeroBackdrop(
                     },
                 ),
         ) {
-        key(activeKey) {
-            CoverFill(art = art, modifier = Modifier.fillMaxSize())
-        }
+        // Keep the previous decoded cover visible while the next one loads.
+        // The ambient layer and the sharp cover can then hand over together
+        // instead of exposing the empty layer between two requests.
+        CoverFill(art = art, modifier = Modifier.fillMaxSize())
 
         // The moving cover over the still one, which stays underneath as what is
         // shown until the first frame arrives.
@@ -498,19 +506,19 @@ private val HeroBlur = BlurTransformation(radius = 10, passes = 2)
  */
 @Composable
 private fun CoverFill(art: ArtSet?, modifier: Modifier = Modifier) {
-    val alpha by animateFloatAsState(
-        targetValue = if (art != null) 1f else 0f,
-        animationSpec = tween(durationMillis = 550, easing = FastOutSlowInEasing),
+    Crossfade(
+        targetState = art,
+        animationSpec = tween(SWAP_MS, easing = FastOutSlowInEasing),
         label = "coverReveal",
-    )
-    val currentArt = art
-    if (currentArt != null && alpha > 0.005f) {
-        Box(
-            modifier
-                .fillMaxSize()
-                .graphicsLayer { this.alpha = alpha }
-                .drawBehind { drawCropped(currentArt.cover, currentArt.zoom) },
-        )
+        modifier = modifier.fillMaxSize(),
+    ) { currentArt ->
+        if (currentArt != null) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .drawBehind { drawCropped(currentArt.cover, currentArt.zoom) },
+            )
+        }
     }
 }
 
@@ -519,7 +527,7 @@ private fun CoverFill(art: ArtSet?, modifier: Modifier = Modifier) {
  * for: the one fading out keeps its own while the next arrives, since a tall
  * picture and a square scan are not enlarged alike.
  */
-private class ArtSet(
+private data class ArtSet(
     val url: String,
     val cover: ImageBitmap,
     /** A tiny copy for the extension, where there is one. */
