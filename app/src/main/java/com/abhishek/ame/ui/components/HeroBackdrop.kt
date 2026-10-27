@@ -171,22 +171,22 @@ fun HeroBackdrop(
 
     LaunchedEffect(artworkUrl, thumbnailUrl, activeKey, zoom, extended, pending) {
         val target = artworkUrl ?: thumbnailUrl
-        if (currentKey != activeKey) {
-            currentKey = activeKey
-            // When track changes and new artwork is still pending resolution, smoothly fade out
-            // the previous sharp cover so the whole screen dissolves into the unified ambient blur.
-            if (target == null) {
-                art = null
-            }
-        }
         if (target == null) {
             if (!pending) art = null
+            currentKey = activeKey
             return@LaunchedEffect
         }
 
+        // Direct crossfade without dipping to empty null avoids jarring brightness flicker on track change
         val loaded = loadArtSet(context, target, extended, zoom)
+            ?: (if (thumbnailUrl != null && thumbnailUrl != target) loadArtSet(context, thumbnailUrl, extended, zoom) else null)
+
         if (loaded != null) {
             art = loaded
+            currentKey = activeKey
+        } else if (!pending) {
+            art = null
+            currentKey = activeKey
         }
     }
     Box(modifier) {

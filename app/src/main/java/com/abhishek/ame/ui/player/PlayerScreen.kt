@@ -760,7 +760,7 @@ fun PlayerScreen(
                 // an image the app had all along.
                 com.abhishek.ame.ui.components.HeroBackdrop(
                     artworkUrl = currentArtworkUrl,
-                    thumbnailUrl = state.artworkUrl.takeIf { allowQueueArtworkFallback && !coverPending },
+                    thumbnailUrl = state.artworkUrl.takeIf { allowQueueArtworkFallback },
                     trackKey = state.mediaId ?: state.title,
                     // The moving cover only while the player is standing
                     // still. Otherwise its TextureView goes black for the
@@ -1653,22 +1653,6 @@ fun PlayerScreen(
                                     },
                                     onOpenAlbum = onOpenAlbum,
                                 )
-                                // A station built from this track, the way the
-                                // official client's own radio button does it.
-                                if (onRadio != null) {
-                                    RoundGlassButton(
-                                        backdrop = lowerBackdrop,
-                                        size = 40.dp,
-                                        onClick = onRadio,
-                                    ) {
-                                        Icon(
-                                            PhosphorIcons.Regular.Broadcast,
-                                            contentDescription = stringResource(R.string.radio),
-                                            tint = panelTint(false),
-                                            modifier = Modifier.size(20.dp),
-                                        )
-                                    }
-                                }
                                 if (playlistEditAvailable) {
                                 Spacer(Modifier.size(8.dp))
                                 RoundGlassButton(
@@ -1750,6 +1734,7 @@ fun PlayerScreen(
                                 trackColor = GlassInk.copy(alpha = 0.28f),
                                 backdrop = lowerBackdrop,
                                 onScrubbing = { scrubMs = it },
+                                isBuffering = state.isBuffering,
                             )
                             TimeRow(positionMs, state.durationMs, scrubMs = scrubMs)
 
@@ -2543,38 +2528,16 @@ internal fun Controls(
         }
 
         RoundGlassButton(backdrop = backdrop, size = 76.dp, onClick = onTogglePlay) {
-            // A ring around the icon while the track is still being fetched.
-            //
-            // Worth its place here and nowhere else: a YouTube track has to have
-            // its stream resolved before a single byte can be read, which takes
-            // long enough that a tap on play looks like it did nothing at all.
-            // Around the button rather than in place of it, so the control stays
-            // where it is and stays pressable.
-            // A Box, because the button lays its content out in a row and the
-            // ring belongs *around* the icon rather than beside it.
-            Box(contentAlignment = Alignment.Center) {
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = state.isBuffering,
-                    enter = fadeIn(tween(180)),
-                    exit = fadeOut(tween(180)),
-                ) {
-                    CircularProgressIndicator(
-                        color = LocalContentColor.current.copy(alpha = 0.5f),
-                        strokeWidth = 2.dp,
-                        modifier = Modifier.size(52.dp),
-                    )
-                }
-                Crossfade(
-                    state.wantsPlay,
-                    animationSpec = tween(180),
-                    label = "playPause",
-                ) { playing ->
-                    Icon(
-                        imageVector = if (playing) PhosphorIcons.Fill.Pause else PhosphorIcons.Fill.Play,
-                        contentDescription = stringResource(if (playing) R.string.pause else R.string.play),
-                        modifier = Modifier.size(34.dp),
-                    )
-                }
+            Crossfade(
+                targetState = state.isPlaying,
+                animationSpec = tween(180),
+                label = "playPause",
+            ) { playing ->
+                Icon(
+                    imageVector = if (playing) PhosphorIcons.Fill.Pause else PhosphorIcons.Fill.Play,
+                    contentDescription = stringResource(if (playing) R.string.pause else R.string.play),
+                    modifier = Modifier.size(34.dp),
+                )
             }
         }
 
@@ -3126,6 +3089,7 @@ private fun SongCard(
                 onSeek = onSeek,
                 accentColor = GlassInk,
                 trackColor = GlassInk.copy(alpha = 0.28f),
+                isBuffering = state.isBuffering,
             )
             TimeRow(positionMs, state.durationMs)
         }

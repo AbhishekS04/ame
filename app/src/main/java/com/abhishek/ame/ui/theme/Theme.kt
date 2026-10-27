@@ -63,6 +63,7 @@ import androidx.core.view.WindowCompat
  * of luminance. Everything keyed on it would have called the dark theme light.
  */
 val LocalLightTheme = staticCompositionLocalOf { false }
+val LocalTrueDark = staticCompositionLocalOf { false }
 
 @Composable
 fun AmeTheme(
@@ -71,8 +72,9 @@ fun AmeTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
+    val isTrueDark = LocalTrueDark.current
     val base = seed ?: DefaultAccent
-    val accent = if (darkTheme) base.liftFor(DarkBase) else base.deepenFor(LightBase)
+    val accent = if (darkTheme) base.liftFor(if (isTrueDark) Color.Black else DarkBase) else base.deepenFor(LightBase)
 
     // Animated so a track change slides the accent across instead of snapping,
     // which otherwise reads as a glitch when artwork loads a beat late.
@@ -81,15 +83,23 @@ fun AmeTheme(
     // Keyed on the accent: rebuilding a ColorScheme allocates dozens of colours
     // and invalidates every composable that reads MaterialTheme, so doing it on
     // each recomposition drags the whole tree along with the seek bar.
-    val scheme = remember(animatedAccent, darkTheme) {
+    val scheme = remember(animatedAccent, darkTheme, isTrueDark) {
         // The ink and the film are the two things that change side, and both are
         // read back out of the scheme everywhere else in the app: `Ink` is the
         // scheme's own onSurface, and the glass takes a white film whenever the
         // scheme's surface is a light colour. So this is the only place that
         // knows which way round the app is.
         val ink = if (darkTheme) DarkInk else LightInk
-        val film = if (darkTheme) DarkFilm else LightFilm
-        val filmStrong = if (darkTheme) DarkFilmStrong else LightFilmStrong
+        val film = when {
+            isTrueDark -> Color(0xFF000000).copy(alpha = 0.88f)
+            darkTheme -> DarkFilm
+            else -> LightFilm
+        }
+        val filmStrong = when {
+            isTrueDark -> Color(0xFF0A0A0A)
+            darkTheme -> DarkFilmStrong
+            else -> LightFilmStrong
+        }
         if (darkTheme) {
             darkColorScheme(
                 primary = animatedAccent,
@@ -107,7 +117,7 @@ fun AmeTheme(
                 onSurface = ink,
                 surfaceVariant = filmStrong,
                 onSurfaceVariant = ink.copy(alpha = 0.66f),
-                outlineVariant = Color.White.copy(alpha = 0.16f),
+                outlineVariant = if (isTrueDark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.16f),
             )
         } else {
             lightColorScheme(
@@ -133,12 +143,16 @@ fun AmeTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as android.app.Activity).window
+            if (isTrueDark) {
+                window.statusBarColor = android.graphics.Color.BLACK
+                window.navigationBarColor = android.graphics.Color.BLACK
+            }
             // Dark icons over a light page and light ones over a dark page:
             // the bars sit over the artwork's own colour, which is taken in
             // whichever direction the system asked for.
             WindowCompat.getInsetsController(window, view).apply {
-                isAppearanceLightStatusBars = !darkTheme
-                isAppearanceLightNavigationBars = !darkTheme
+                isAppearanceLightStatusBars = !darkTheme && !isTrueDark
+                isAppearanceLightNavigationBars = !darkTheme && !isTrueDark
             }
         }
     }
@@ -314,10 +328,12 @@ fun ChosenTheme(content: @Composable () -> Unit) {
             ?: kotlinx.coroutines.flow.MutableStateFlow(com.abhishek.ame.data.PreferencesStore.ThemeMode.SYSTEM)
     }.collectAsState()
     val base = androidx.compose.ui.platform.LocalConfiguration.current
+    val isTrueDark = mode == com.abhishek.ame.data.PreferencesStore.ThemeMode.TRUE_DARK
     val night = when (mode) {
         com.abhishek.ame.data.PreferencesStore.ThemeMode.SYSTEM -> null
         com.abhishek.ame.data.PreferencesStore.ThemeMode.LIGHT -> android.content.res.Configuration.UI_MODE_NIGHT_NO
-        com.abhishek.ame.data.PreferencesStore.ThemeMode.DARK -> android.content.res.Configuration.UI_MODE_NIGHT_YES
+        com.abhishek.ame.data.PreferencesStore.ThemeMode.DARK,
+        com.abhishek.ame.data.PreferencesStore.ThemeMode.TRUE_DARK -> android.content.res.Configuration.UI_MODE_NIGHT_YES
     }
     val configuration = remember(base, night) {
         if (night == null) {
@@ -330,6 +346,7 @@ fun ChosenTheme(content: @Composable () -> Unit) {
     }
     CompositionLocalProvider(
         androidx.compose.ui.platform.LocalConfiguration provides configuration,
+        LocalTrueDark provides isTrueDark,
         content = content,
     )
 }

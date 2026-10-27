@@ -174,8 +174,8 @@ class PreferencesStore(context: Context) {
         prefs.edit().putBoolean(KEY_SYSTEM_FONT, value).apply()
     }
 
-    /** Light, dark, or whichever the phone is set to; see [themeMode]. */
-    enum class ThemeMode { SYSTEM, LIGHT, DARK }
+    /** Light, dark, AMOLED True Dark, or whichever the phone is set to; see [themeMode]. */
+    enum class ThemeMode { SYSTEM, LIGHT, DARK, TRUE_DARK }
 
     private val _themeMode = MutableStateFlow(
         ThemeMode.entries.firstOrNull { it.name == prefs.getString(KEY_THEME_MODE, null) } ?: ThemeMode.SYSTEM,

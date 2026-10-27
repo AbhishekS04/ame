@@ -660,6 +660,7 @@
     <string name="theme_system">Same as the phone</string>
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>
+    <string name="theme_true_dark">True Dark (AMOLED)</string>
     <string name="font_title">Font</string>
     <string name="font_system">Use the phone’s font</string>
     <string name="youtube_quality_auto">Automatic</string>

@@ -106,7 +106,11 @@ fun scrimColor(): Color {
 
 /** The colour every page's own colour is mixed towards. */
 @Composable
-fun pageGround(): Color = if (lightPage()) PageCeiling else PageFloor
+fun pageGround(): Color = when {
+    lightPage() -> PageCeiling
+    LocalTrueDark.current -> Color.Black
+    else -> PageFloor
+}
 
 /**
  * The page tone for a cover.
@@ -124,10 +128,10 @@ fun pageColorFor(accent: Color?): Color {
     // in it — and the whole point of these pages is that they are the colour of
     // what is playing.
     if (accent == null) return ground
-    return if (lightPage()) {
-        liftedTone(accent, 0.62f)
-    } else {
-        androidx.compose.ui.graphics.lerp(accent, ground, 0.7f)
+    return when {
+        lightPage() -> liftedTone(accent, 0.62f)
+        LocalTrueDark.current -> androidx.compose.ui.graphics.lerp(accent, Color.Black, 0.90f)
+        else -> androidx.compose.ui.graphics.lerp(accent, ground, 0.7f)
     }
 }
 
@@ -149,7 +153,7 @@ fun pageColorForHex(hex: String?, lift: Boolean = true): Color {
     // phone is set. Reading the ground from the theme is what put a page the
     // catalogue files as #311a1a on screen at (125,108,109): the mix was right
     // and it was being made towards paper.
-    val ground = if (lift) pageGround() else PageFloor
+    val ground = if (lift) pageGround() else if (LocalTrueDark.current) Color.Black else PageFloor
     val picked = hex
         ?.let { runCatching { Color(android.graphics.Color.parseColor("#$it")) }.getOrNull() }
         ?: return ground
@@ -364,7 +368,7 @@ private val cachedFeet = object : LinkedHashMap<String, Color>(16, 0.75f, true) 
  */
 @Composable
 fun footToneFor(foot: Color?, mix: Float = 0.34f, lift: Boolean = true): Color {
-    val ground = if (lift) pageGround() else PageFloor
+    val ground = if (lift) pageGround() else if (LocalTrueDark.current) Color.Black else PageFloor
     if (foot == null) return ground
     return if (lift && lightPage()) {
         liftedTone(foot, mix)

@@ -1,6 +1,27 @@
 # Project State: Ame
 
-## Current Status: v1.1.0 Released — Standardized Liquid Glass Slider & Animated Micro-Interaction Updates
+## Current Status: v1.2.0 Stable Released — True Dark AMOLED, Pristine White Thumb, Buffering Shimmer, & Clean Player Chrome
+
+- **Time Bar Buffering Shimmer & Pristine White Slider Thumb (`GlassProgressBar.kt`)**:
+  - **Zero Dark Shadow Artifact**: Removed the offset black circle behind the resting white thumb, rendering an immaculate, clean pure white circular thumb (`13.dp`, `CircleShape`).
+  - **Dynamic Time Bar Loading Shimmer**: When a track is loading or buffering (`isBuffering = true`), a glowing white/accent shimmer pulse travels continuously along the progress track bar (`tween(1200)`), giving intuitive visual feedback without cluttering controls.
+  - **Loading Shimmer State Thumb Hiding**: During loading and buffering, the resting white circle thumb is completely hidden (`thumbVisibility` transitions to 0f with `tween(200)`), leaving only the pure glowing sweep along the pill track. Once loading finishes and playback begins, the white circle thumb springs smoothly into position (`dampingRatio = 0.72f`, `stiffness = 420f`).
+
+- **Clean Play/Pause Button & Removed Radio Logo (`PlayerScreen.kt`)**:
+  - **Eliminated Button Loading Spinner**: Removed the circular progress loader inside the Play/Pause button. The button now displays a clean `Play` icon while waiting/buffering, and seamlessly transitions to `Pause` once audio playback starts automatically.
+  - **Removed Radio Button**: Stripped the `((o))` broadcast radio button from the title capsule row, leaving the song title/artist and the playlist `+` button in a neat, balanced layout.
+
+- **Flicker-Free Direct Banner Crossfade (`HeroBackdrop.kt`)**:
+  - Upgraded artwork transitions to crossfade directly between incoming and outgoing albums without intermediate flashes or dips to empty null, eliminating banner loading flicker during song skips.
+
+- **Round Thumb & Compact Liquid Glass Slider (`GlassProgressBar.kt`)**:
+  - **Sleek Round White Thumb**: Replaced the vertical oval with a perfectly circular white resting thumb (`13.dp`, `CircleShape`) featuring an ambient drop shadow for clarity on all cover arts.
+  - **Compact 28dp Liquid Glass Lens**: Resized the active glass orb from 36dp down to 28dp with refined refraction geometry (`12dp` height, `16dp` amount), making it nimbler and less intrusive over the seek bar.
+  - **Preserved Responsive Fluid Jiggle**: Maintained the velocity threshold (`650 px/sec`), spring damping (`0.52f`, `380f`), and volume-conserving squish/stretch for an organic liquid feel during fast scrubs.
+
+- **AMOLED "True Dark" Theme Mode (`SettingsScreen.kt`, `Theme.kt`, `ArtworkColor.kt`, `PreferencesStore.kt`, `strings.xml`)**:
+  - Added **True Dark (AMOLED)** theme option under `Settings > App > Appearance`.
+  - Configured pure pitch-black (`#000000`) page backgrounds across all app surfaces (`pageGround()`, `pageColorFor()`, `pageColorForHex()`), pure black system status and navigation bars, and OLED power-saving glass scrim films (`#0A0A0A`).
 
 - **Tuned & Standardized Liquid Glass Scrub Thumb (`GlassProgressBar.kt`)**:
   - **Zero Jiggle During Normal Scrubbing**: Added a deadzone speed threshold (`1400 px/sec`). During regular seeking or steady dragging, the slider thumb remains an immaculate, perfectly circular, standard liquid glass lens with zero unwanted wobble or deformation.

@@ -1,9 +1,16 @@
 package com.abhishek.ame.ui.player
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -28,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -78,6 +86,7 @@ fun GlassProgressBar(
     modifier: Modifier = Modifier,
     backdrop: Backdrop? = null,
     onScrubbing: ((Long?) -> Unit)? = null,
+    isBuffering: Boolean = false,
 ) {
     var scrubbing by remember { mutableStateOf<Float?>(null) }
     var committedScrub by remember { mutableStateOf<Float?>(null) }
@@ -126,9 +135,27 @@ fun GlassProgressBar(
         }
     )
 
+    // Dynamic loading shimmer alpha: fades in when buffering starts, dissolves cleanly when loaded
+    val shimmerAlpha by animateFloatAsState(
+        targetValue = if (isBuffering) 1f else 0f,
+        animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+        label = "bufferingShimmerAlpha",
+    )
+
+    // Thumb visibility: hidden while glowing loading shimmer is active; gracefully springs into view once loaded
+    val thumbVisibility by animateFloatAsState(
+        targetValue = if (isBuffering) 0f else 1f,
+        animationSpec = if (isBuffering) {
+            tween(durationMillis = 200, easing = FastOutSlowInEasing)
+        } else {
+            spring(dampingRatio = 0.72f, stiffness = 420f)
+        },
+        label = "bufferingThumbVisibility",
+    )
+
     val density = LocalDensity.current
     val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
-    val thumbSize = 36.dp
+    val thumbSize = 28.dp
 
     BoxWithConstraints(
         modifier
@@ -167,95 +194,153 @@ fun GlassProgressBar(
                         layout(w, placeable.height) { placeable.place(0, 0) }
                     }
             )
+
+            // Dynamic loading shimmer pulse along the time bar during song loading/buffering
+            if (shimmerAlpha > 0.005f) {
+                val infiniteTransition = rememberInfiniteTransition(label = "timeBarBuffering")
+                val shimmerPhase by infiniteTransition.animateFloat(
+                    initialValue = -0.3f,
+                    targetValue = 1.3f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(1200, easing = LinearEasing),
+                        repeatMode = RepeatMode.Restart,
+                    ),
+                    label = "bufferingPulse",
+                )
+                val shimmerBrush = Brush.horizontalGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0f),
+                        Color.White.copy(alpha = 0.50f * shimmerAlpha),
+                        Color.White.copy(alpha = 0.90f * shimmerAlpha),
+                        Color.White.copy(alpha = 0.50f * shimmerAlpha),
+                        Color.White.copy(alpha = 0f),
+                    ),
+                    startX = (shimmerPhase - 0.25f) * trackWidth,
+                    endX = (shimmerPhase + 0.25f) * trackWidth,
+                )
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(50))
+                        .background(shimmerBrush)
+                )
+            }
         }
 
-        // Liquid glass orb thumb: rendered when touched / dragging
-        if (dragProgress > 0.005f) {
-            val thumbSizePx = with(density) { thumbSize.toPx() }
-            val visualProgress = if (isLtr) progress else (1f - progress)
-            val thumbCenterX = (visualProgress * trackWidth).coerceIn(0f, trackWidth.toFloat())
-            val thumbLeft = (thumbCenterX - thumbSizePx / 2f)
-                .coerceIn(-thumbSizePx * 0.25f, trackWidth - thumbSizePx * 0.75f)
+        // Unified Thumb: Sleek round white circle during resting playback, smoothly morphing into
+        // the refined compact Liquid Glass lens orb (28dp) when touched/dragged, with bouncy fluid jiggle.
+        val thumbSizePx = with(density) { thumbSize.toPx() }
+        val visualProgress = if (isLtr) progress else (1f - progress)
+        val thumbCenterX = (visualProgress * trackWidth).coerceIn(0f, trackWidth.toFloat())
+        val thumbLeft = (thumbCenterX - thumbSizePx / 2f)
+            .coerceIn(-thumbSizePx * 0.25f, trackWidth - thumbSizePx * 0.75f)
 
-            // Refined velocity deformation:
-            // Standard/stable during normal sliding; subtly stretches & squishes only during fast scrub
-            val v = velocityAnim.value
-            val absV = abs(v)
-            val stretchX = 1f + (absV * 0.35f).coerceAtMost(0.18f)
-            val squishY = 1f / (1f + (absV * 0.25f).coerceAtMost(0.14f))
-            val tiltDegrees = (v * 5f).coerceIn(-5f, 5f)
+        // Fluid velocity deformation:
+        // Calm & steady during gentle scrubbing; lively, volume-conserving squish & stretch on fast flick
+        val v = velocityAnim.value
+        val absV = abs(v)
+        val stretchX = 1f + (absV * 0.55f).coerceAtMost(0.26f)
+        val squishY = 1f / (1f + (absV * 0.40f).coerceAtMost(0.18f))
+        val tiltDegrees = (v * 9f).coerceIn(-9f, 9f)
 
-            Box(
-                Modifier
-                    .graphicsLayer {
-                        translationX = thumbLeft
-                        rotationZ = tiltDegrees
-                        scaleX = (0.42f + 0.58f * dragProgress) * stretchX
-                        scaleY = (0.42f + 0.58f * dragProgress) * squishY
-                        alpha = dragProgress.coerceIn(0f, 1f)
-                    }
-                    .drawBackdrop(
-                        backdrop = combinedBackdrop,
-                        shape = { CircleShape },
-                        effects = {
-                            lens(
-                                refractionHeight = 16f.dp.toPx() * dragProgress,
-                                refractionAmount = 22f.dp.toPx() * dragProgress,
-                                depthEffect = true,
-                                chromaticAberration = true,
-                            )
-                        },
-                        highlight = {
-                            Highlight.Ambient.copy(
-                                width = 1.2.dp,
-                                blurRadius = 0.8.dp,
-                                alpha = dragProgress * 0.90f,
-                            )
-                        },
-                        shadow = {
-                            Shadow(
-                                radius = 8.dp,
-                                color = Color.Black.copy(alpha = 0.24f * dragProgress),
-                            )
-                        },
-                        innerShadow = {
-                            InnerShadow(
-                                radius = 5.dp * dragProgress,
-                                alpha = 0.48f * dragProgress,
-                            )
-                        },
-                        onDrawSurface = {
-                            // Radial top-left light source reflection
-                            drawCircle(
-                                brush = Brush.radialGradient(
-                                    colors = listOf(
-                                        Color.White.copy(alpha = 0.35f * dragProgress),
-                                        Color.White.copy(alpha = 0.10f * dragProgress),
-                                        Color.Transparent,
-                                    ),
-                                    center = Offset(size.width * 0.35f, size.height * 0.30f),
-                                    radius = size.width * 0.55f,
-                                )
-                            )
-                            // Refracting sweep rim caustics
-                            drawCircle(
-                                brush = Brush.sweepGradient(
-                                    colors = listOf(
-                                        Color.White.copy(alpha = 0.72f * dragProgress),
-                                        Color.White.copy(alpha = 0.18f * dragProgress),
-                                        Color.White.copy(alpha = 0.62f * dragProgress),
-                                        Color.White.copy(alpha = 0.16f * dragProgress),
-                                        Color.White.copy(alpha = 0.72f * dragProgress),
-                                    ),
-                                    center = Offset(size.width / 2f, size.height / 2f),
-                                ),
-                                radius = (size.width / 2f) - 0.75f,
-                                style = Stroke(width = 1.3f),
-                            )
+        Box(
+            modifier = Modifier
+                .graphicsLayer {
+                    translationX = thumbLeft
+                }
+                .size(thumbSize),
+            contentAlignment = Alignment.Center,
+        ) {
+            // 1. Resting state: pristine round white circle thumb (clean white, zero dark circle artifact)
+            // Hidden during loading shimmer; animates back in once song has loaded
+            val restingAlpha = ((1f - dragProgress * 2.2f).coerceIn(0f, 1f)) * thumbVisibility
+            if (restingAlpha > 0.005f) {
+                Box(
+                    modifier = Modifier
+                        .graphicsLayer {
+                            alpha = restingAlpha
+                            scaleX = (1f - dragProgress * 0.2f) * thumbVisibility
+                            scaleY = (1f - dragProgress * 0.2f) * thumbVisibility
                         }
-                    )
-                    .size(thumbSize)
-            )
+                        .size(13.dp)
+                        .clip(CircleShape)
+                        .background(Color.White)
+                )
+            }
+
+            // 2. Dragging state: authentic compact Liquid Glass lens orb with fluid refraction and caustics
+            if (dragProgress > 0.005f) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            rotationZ = tiltDegrees
+                            scaleX = (0.38f + 0.62f * dragProgress) * stretchX
+                            scaleY = (0.38f + 0.62f * dragProgress) * squishY
+                            alpha = dragProgress.coerceIn(0f, 1f)
+                        }
+                        .drawBackdrop(
+                            backdrop = combinedBackdrop,
+                            shape = { CircleShape },
+                            effects = {
+                                lens(
+                                    refractionHeight = 12f.dp.toPx() * dragProgress,
+                                    refractionAmount = 16f.dp.toPx() * dragProgress,
+                                    depthEffect = true,
+                                    chromaticAberration = true,
+                                )
+                            },
+                            highlight = {
+                                Highlight.Ambient.copy(
+                                    width = 1.2.dp,
+                                    blurRadius = 0.8.dp,
+                                    alpha = dragProgress * 0.90f,
+                                )
+                            },
+                            shadow = {
+                                Shadow(
+                                    radius = 8.dp,
+                                    color = Color.Black.copy(alpha = 0.24f * dragProgress),
+                                )
+                            },
+                            innerShadow = {
+                                InnerShadow(
+                                    radius = 5.dp * dragProgress,
+                                    alpha = 0.48f * dragProgress,
+                                )
+                            },
+                            onDrawSurface = {
+                                // Radial top-left light source reflection
+                                drawCircle(
+                                    brush = Brush.radialGradient(
+                                        colors = listOf(
+                                            Color.White.copy(alpha = 0.35f * dragProgress),
+                                            Color.White.copy(alpha = 0.10f * dragProgress),
+                                            Color.Transparent,
+                                        ),
+                                        center = Offset(size.width * 0.35f, size.height * 0.30f),
+                                        radius = size.width * 0.55f,
+                                    )
+                                )
+                                // Refracting sweep rim caustics
+                                drawCircle(
+                                    brush = Brush.sweepGradient(
+                                        colors = listOf(
+                                            Color.White.copy(alpha = 0.72f * dragProgress),
+                                            Color.White.copy(alpha = 0.18f * dragProgress),
+                                            Color.White.copy(alpha = 0.62f * dragProgress),
+                                            Color.White.copy(alpha = 0.16f * dragProgress),
+                                            Color.White.copy(alpha = 0.72f * dragProgress),
+                                        ),
+                                        center = Offset(size.width / 2f, size.height / 2f),
+                                    ),
+                                    radius = (size.width / 2f) - 0.75f,
+                                    style = Stroke(width = 1.3f),
+                                )
+                            }
+                        )
+                )
+            }
         }
 
         // Unified responsive gesture detector with instant down capture and velocity tracking
@@ -291,13 +376,13 @@ fun GlassProgressBar(
                                     change.consume()
                                     velocityTracker.addPosition(change.uptimeMillis, change.position)
                                     val rawVx = velocityTracker.calculateVelocity().x
-                                    // Deadzone: normal sliding (< 1400 px/sec) is standard and never jiggles.
-                                    // Fast scrub or quick flings activate subtle liquid inertia.
-                                    val fastThreshold = 1400f
+                                    // Deadzone: steady/gentle sliding (< 650 px/sec) remains standard and steady.
+                                    // Intentional fast scrub or quick flick activates elastic fluid jiggle.
+                                    val fastThreshold = 650f
                                     val excess = (abs(rawVx) - fastThreshold).coerceAtLeast(0f)
                                     val targetVx = if (excess > 0f) {
                                         val sign = kotlin.math.sign(rawVx)
-                                        val intensity = (excess / 3200f).coerceIn(0f, 0.25f)
+                                        val intensity = (excess / 2200f).coerceIn(0f, 0.35f)
                                         sign * intensity
                                     } else {
                                         0f
@@ -306,8 +391,8 @@ fun GlassProgressBar(
                                         velocityAnim.animateTo(
                                             targetValue = targetVx,
                                             animationSpec = spring(
-                                                dampingRatio = 0.65f, // Refined standard damping
-                                                stiffness = 450f,
+                                                dampingRatio = 0.52f, // Bouncy fluid inertia
+                                                stiffness = 380f,
                                             ),
                                         )
                                     }
@@ -326,8 +411,8 @@ fun GlassProgressBar(
                                 velocityAnim.animateTo(
                                     targetValue = 0f,
                                     animationSpec = spring(
-                                        dampingRatio = 0.70f, // Clean and smooth settling
-                                        stiffness = 420f,
+                                        dampingRatio = 0.58f, // Fluid settling bounce
+                                        stiffness = 360f,
                                     ),
                                 )
                             }

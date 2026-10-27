@@ -91,6 +91,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
 import com.adamglin.phosphoricons.regular.DeviceMobile
 import com.adamglin.phosphoricons.regular.Moon
+import com.adamglin.phosphoricons.regular.MoonStars
 import com.adamglin.phosphoricons.regular.Sun
 import com.adamglin.phosphoricons.regular.Package
 import com.adamglin.phosphoricons.regular.FilmStrip
@@ -673,6 +674,7 @@ fun SettingsScreen(
                                 com.abhishek.ame.data.PreferencesStore.ThemeMode.SYSTEM -> R.string.theme_system
                                 com.abhishek.ame.data.PreferencesStore.ThemeMode.LIGHT -> R.string.theme_light
                                 com.abhishek.ame.data.PreferencesStore.ThemeMode.DARK -> R.string.theme_dark
+                                com.abhishek.ame.data.PreferencesStore.ThemeMode.TRUE_DARK -> R.string.theme_true_dark
                             },
                         ),
                         selected = choice == mode,
@@ -680,6 +682,7 @@ fun SettingsScreen(
                             com.abhishek.ame.data.PreferencesStore.ThemeMode.SYSTEM -> PhosphorIcons.Regular.DeviceMobile
                             com.abhishek.ame.data.PreferencesStore.ThemeMode.LIGHT -> PhosphorIcons.Regular.Sun
                             com.abhishek.ame.data.PreferencesStore.ThemeMode.DARK -> PhosphorIcons.Regular.Moon
+                            com.abhishek.ame.data.PreferencesStore.ThemeMode.TRUE_DARK -> PhosphorIcons.Regular.MoonStars
                         },
                     ) { store.setThemeMode(choice) }
                 }
