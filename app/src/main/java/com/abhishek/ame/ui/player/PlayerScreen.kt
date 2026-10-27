@@ -1740,14 +1740,18 @@ fun PlayerScreen(
                             // Tighter on its side, where the column is short.
                             Spacer(Modifier.height(if (sideways) 10.dp else 18.dp))
 
+                            var scrubMs by remember { mutableStateOf<Long?>(null) }
+
                             GlassProgressBar(
                                 positionMs = positionMs,
                                 durationMs = state.durationMs,
                                 onSeek = onSeek,
                                 accentColor = GlassInk,
                                 trackColor = GlassInk.copy(alpha = 0.28f),
+                                backdrop = lowerBackdrop,
+                                onScrubbing = { scrubMs = it },
                             )
-                            TimeRow(positionMs, state.durationMs)
+                            TimeRow(positionMs, state.durationMs, scrubMs = scrubMs)
 
                             Spacer(Modifier.height(if (sideways) 6.dp else 14.dp))
                         }
@@ -2434,16 +2438,21 @@ private fun Modifier.plainClickable(onClick: () -> Unit): Modifier {
 
 /** Isolated so the ticking position recomposes only these two labels. */
 @Composable
-internal fun TimeRow(positionMs: State<Long>, durationMs: Long) {
+internal fun TimeRow(
+    positionMs: State<Long>,
+    durationMs: Long,
+    scrubMs: Long? = null,
+) {
     val activeFidelity by FidelityManager.activeFidelity.collectAsStateWithLifecycle()
     Box(
         Modifier.fillMaxWidth(),
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            formatDuration(positionMs.value),
+            formatDuration(scrubMs ?: positionMs.value),
             style = MaterialTheme.typography.bodySmall,
-            color = GlassInkDim,
+            color = if (scrubMs != null) GlassInk else GlassInkDim,
+            fontWeight = if (scrubMs != null) FontWeight.Medium else FontWeight.Normal,
             modifier = Modifier.align(Alignment.CenterStart),
         )
 

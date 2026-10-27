@@ -1882,77 +1882,58 @@ private fun UpdatesSection(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Column(Modifier.weight(1f)) {
+                Column(Modifier.weight(1f, fill = false)) {
                     Text(
                         text = "ame",
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = Ink,
                     )
-                    Spacer(Modifier.height(3.dp))
-                    if (available != null) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Text(
-                                text = "v${BuildConfig.VERSION_NAME.substringBefore('-')}",
-                                style = MaterialTheme.typography.headlineSmall.copy(
-                                    textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough,
-                                ),
-                                color = InkDim.copy(alpha = 0.5f),
-                                fontWeight = FontWeight.Normal,
-                            )
-                            Icon(
-                                PhosphorIcons.Regular.CaretRight,
-                                contentDescription = null,
-                                tint = Color(0xFFF59E0B),
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Text(
-                                text = "v${available.version}",
-                                style = MaterialTheme.typography.headlineSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFF59E0B),
-                            )
-                        }
-                    } else {
-                        Text(
-                            text = "v${BuildConfig.VERSION_NAME.substringBefore('-')}",
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = Ink,
-                        )
-                    }
-                    Spacer(Modifier.height(3.dp))
+                    Spacer(Modifier.height(2.dp))
                     Text(
                         text = when {
-                            available != null && channel == PreferencesStore.UpdateChannel.STABLE && isInstalledBeta ->
-                                "Stable channel • Switch to official release"
-                            available != null ->
-                                "${if (channel == PreferencesStore.UpdateChannel.BETA) "Beta" else "Stable"} channel • Update available"
-                            isChecking ->
-                                "${if (channel == PreferencesStore.UpdateChannel.BETA) "Beta" else "Stable"} channel • Checking…"
-                            else ->
-                                "${if (channel == PreferencesStore.UpdateChannel.BETA) "Beta" else "Stable"} channel • Up to date"
+                            channel == PreferencesStore.UpdateChannel.BETA -> "Beta channel"
+                            else -> "Stable channel"
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = if (available != null) Color(0xFFF59E0B) else InkDim,
                         fontWeight = if (available != null) FontWeight.Medium else FontWeight.Normal,
                     )
                 }
-                if (available != null) {
-                    Box(
-                        Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFFF59E0B))
-                            .padding(horizontal = 10.dp, vertical = 5.dp),
-                    ) {
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    val currentNum = BuildConfig.VERSION_NAME.removePrefix("v").substringBefore('-')
+                    if (available != null) {
+                        val newNum = available.version.removePrefix("v").substringBefore('-')
                         Text(
-                            if (channel == PreferencesStore.UpdateChannel.STABLE && isInstalledBeta) "STABLE" else "UPDATE",
-                            style = MaterialTheme.typography.labelSmall,
+                            text = currentNum,
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough,
+                            ),
+                            color = InkDim.copy(alpha = 0.5f),
+                            fontWeight = FontWeight.Normal,
+                        )
+                        Icon(
+                            PhosphorIcons.Regular.CaretRight,
+                            contentDescription = null,
+                            tint = Color(0xFFF59E0B),
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Text(
+                            text = newNum,
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color.Black,
+                            color = Color(0xFFF59E0B),
+                        )
+                    } else {
+                        Text(
+                            text = currentNum,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Ink,
                         )
                     }
                 }

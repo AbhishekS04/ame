@@ -259,14 +259,17 @@ fun FullScreenVideo(
             // The vertical player's own bar and its own discs of glass. Same
             // controls, same material: turning the phone changes where they sit
             // on the screen, not what the app is made of.
+            var scrubMs by remember { mutableStateOf<Long?>(null) }
             GlassProgressBar(
                 positionMs = positionMs,
                 durationMs = state.durationMs,
                 onSeek = onSeek,
                 accentColor = Color.White,
                 trackColor = Color.White.copy(alpha = 0.28f),
+                backdrop = backdrop,
+                onScrubbing = { scrubMs = it },
             )
-            TimeRow(positionMs, state.durationMs)
+            TimeRow(positionMs, state.durationMs, scrubMs = scrubMs)
 
             Spacer(Modifier.height(10.dp))
 
