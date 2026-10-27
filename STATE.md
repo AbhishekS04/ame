@@ -1,20 +1,18 @@
 # Project State: Ame
 
-## Current Status: v1.1.0 Released — Liquid Glass Jiggly Scrub Thumb, Dynamic Update Accents & Clean Home Shelves
+## Current Status: v1.1.0 Released — Standardized Liquid Glass Slider & Animated Micro-Interaction Updates
 
-- **Liquid Glass Dynamic "Giggly" Scrub Thumb (`GlassProgressBar.kt`, `PlayerScreen.kt`, `FullScreenVideo.kt`)**:
-  - **Minimal Normal State**: During normal playback, the scrub bar remains a clean, distraction-free capsule progress track with zero overlay elements, no resting white dot, and zero idle GPU shader overhead.
-  - **Authentic Liquid Glass Lens on Drag**: When touched or dragged with a finger (`dragProgress > 0`), a circular liquid glass orb thumb (`CircleShape`, 36dp) smoothly springs into view right at the touch point, tracking the finger with sub-pixel precision.
-  - **Fluid Inertia "Giggly" Squish & Stretch**: Integrated velocity tracking (`VelocityTracker` & `Animatable`) with underdamped spring physics (`dampingRatio = 0.38f`, `stiffness = 380f`). Fast dragging stretches the lens horizontally along the motion direction while compressing it vertically to preserve liquid volume (`stretchX = 1f + |v| * 0.42f`, `squishY = 1f / (1f + |v| * 0.32f)`), with a bouncy fluid wobble and tilt that jiggles smoothly before settling back into a round sphere.
-  - **Multi-Backdrop Refraction & Meniscus Curvature**: Combines ambient player backdrop with recorded layer backdrop of the playback track (`rememberLayerBackdrop()`). The track layer dynamically scales inside the lens (`lerp(0.72f, 1f, dragProgress)` on X, `lerp(0f, 1f, dragProgress)` on Y) through the Skia/AGSL runtime shader lens (`effects/Lens.kt`), producing an authentic liquid meniscus where the active bar terminates inside the glass droplet.
-  - **Caustic Rim & Chromatic Aberration**: Features chromatic dispersion along the perimeter with spectral rainbow fringe (`chromaticAberration = true`), subtle ambient specular reflection, outer sweep gradient glass rim, and inner shadow.
-  - **Zero-Delay Tactile Gestures**: Built with `awaitEachGesture` and `awaitFirstDown` on a 36dp touch target, reacting instantly without `touchSlop` drag delay.
-  - **Live Scrubbing Counter**: Connects scrubbing fraction to `TimeRow`, updating the elapsed time counter smoothly while dragging and committing the seek position on release without buffering jump-backs.
+- **Tuned & Standardized Liquid Glass Scrub Thumb (`GlassProgressBar.kt`)**:
+  - **Zero Jiggle During Normal Scrubbing**: Added a deadzone speed threshold (`1400 px/sec`). During regular seeking or steady dragging, the slider thumb remains an immaculate, perfectly circular, standard liquid glass lens with zero unwanted wobble or deformation.
+  - **Refined Fluid Inertia on Fast Scrub**: When intentionally dragging or scrubbing rapidly (`> 1400 px/sec`), subtle volume-conserving squish & stretch dynamically activates (`stretchX` up to 18%, `squishY` up to 14%) with a refined standard spring (`dampingRatio = 0.65f`, `stiffness = 450f`), settling cleanly without lingering jello oscillation.
 
-- **Dynamic Release Channel Colors (`SettingsScreen.kt`)**:
-  - **Stable Channel Update**: When an update is available on the Stable channel, the version number, Caret icon, "UPDATE" badge, and update accent text/icon light up in vibrant Electric Blue (`Color(0xFF2563EB)`).
-  - **Beta Channel Update**: When an update is available on the Beta channel, the version number, Caret icon, "UPDATE" badge, update accent text/icon, and Beta Advisory Card light up in rich Deep Red / Maroon (`Color(0xFFDC2626)`).
-  - **Strikethrough Version Cut**: The Updates hub header neatly shows `ame` and the channel on the left, and the old version crossed out with grayscale strikethrough pointing to the new colored version on the right (`~~1.1.0~~  →  1.1.0`).
+- **Micro-Interaction Channel Colors & Animated Strikethrough Cut (`SettingsScreen.kt`)**:
+  - **Idle State Version Coloring**: When up to date on the Updates page, the right corner version number matches the active channel color (Electric Blue `#2563EB` for Stable, Deep Red `#DC2626` for Beta).
+  - **Contextual Transition Channel Colors**:
+    - **Stable → Beta**: Old version is Blue, new version is Red.
+    - **Beta → Stable**: Old version is Red, new version is Blue.
+    - **Stable → Stable / Beta → Beta**: Old version is Gray (`InkDim`), new version is the channel color (Blue or Red).
+  - **Smooth Animated Strikethrough Cut**: Replaced static text decoration with a real-time animated strikethrough line (`Animatable` from 0f to 1f over 420ms with `FastOutSlowInEasing`). When an update is detected or channel switched, the line smoothly slices across the old version from left to right with rounded caps.
 
 - **Pristine Home Shelves & Artwork (`HomeScreen.kt`)**:
   - Removed circular waving equalizer badges (`AnimatedEqualizerBadge`) across Quick Picks, Album cards, and Song shelves. Track artwork remains clean and visible, while the track title dynamically highlights in the playing accent color.

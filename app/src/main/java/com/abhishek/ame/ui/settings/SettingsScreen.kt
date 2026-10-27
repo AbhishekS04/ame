@@ -1,5 +1,8 @@
 package com.abhishek.ame.ui.settings
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,7 +18,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -1879,6 +1884,28 @@ private fun UpdatesSection(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             val channelAccentColor = if (channel == PreferencesStore.UpdateChannel.BETA) Color(0xFFDC2626) else Color(0xFF2563EB)
+            val cutAnim = remember { Animatable(0f) }
+            LaunchedEffect(available != null) {
+                if (available != null) {
+                    cutAnim.snapTo(0f)
+                    cutAnim.animateTo(
+                        targetValue = 1f,
+                        animationSpec = tween(
+                            durationMillis = 420,
+                            easing = FastOutSlowInEasing,
+                        ),
+                    )
+                } else {
+                    cutAnim.snapTo(0f)
+                }
+            }
+
+            val oldCutColor = when {
+                !isInstalledBeta && channel == PreferencesStore.UpdateChannel.BETA -> Color(0xFF2563EB) // Stable -> Beta: Blue
+                isInstalledBeta && channel == PreferencesStore.UpdateChannel.STABLE -> Color(0xFFDC2626) // Beta -> Stable: Red
+                else -> InkDim.copy(alpha = 0.5f) // Same channel: Gray
+            }
+            val newVersionColor = channelAccentColor
 
             Row(
                 Modifier.fillMaxWidth(),
@@ -1911,32 +1938,46 @@ private fun UpdatesSection(
                     val currentNum = BuildConfig.VERSION_NAME.removePrefix("v").substringBefore('-')
                     if (available != null) {
                         val newNum = available.version.removePrefix("v").substringBefore('-')
-                        Text(
-                            text = currentNum,
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough,
-                            ),
-                            color = InkDim.copy(alpha = 0.5f),
-                            fontWeight = FontWeight.Normal,
-                        )
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = currentNum,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = oldCutColor.copy(alpha = if (oldCutColor == InkDim.copy(alpha = 0.5f)) 0.5f else 0.85f),
+                                fontWeight = FontWeight.Normal,
+                            )
+                            Canvas(modifier = Modifier.matchParentSize()) {
+                                if (cutAnim.value > 0f) {
+                                    val y = size.height * 0.53f
+                                    val startX = -1.dp.toPx()
+                                    val endX = (size.width + 1.dp.toPx()) * cutAnim.value
+                                    drawLine(
+                                        color = oldCutColor,
+                                        start = Offset(startX, y),
+                                        end = Offset(endX, y),
+                                        strokeWidth = 1.8f.dp.toPx(),
+                                        cap = StrokeCap.Round,
+                                    )
+                                }
+                            }
+                        }
                         Icon(
                             PhosphorIcons.Regular.CaretRight,
                             contentDescription = null,
-                            tint = channelAccentColor,
+                            tint = newVersionColor,
                             modifier = Modifier.size(14.dp),
                         )
                         Text(
                             text = newNum,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = channelAccentColor,
+                            color = newVersionColor,
                         )
                     } else {
                         Text(
                             text = currentNum,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Ink,
+                            color = channelAccentColor,
                         )
                     }
                 }

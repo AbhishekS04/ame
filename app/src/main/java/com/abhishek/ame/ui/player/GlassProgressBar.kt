@@ -177,13 +177,13 @@ fun GlassProgressBar(
             val thumbLeft = (thumbCenterX - thumbSizePx / 2f)
                 .coerceIn(-thumbSizePx * 0.25f, trackWidth - thumbSizePx * 0.75f)
 
-            // Volume-conserving giggly deformation:
-            // Fast scrub stretches horizontally (scaleX) and squeezes vertically (scaleY)
+            // Refined velocity deformation:
+            // Standard/stable during normal sliding; subtly stretches & squishes only during fast scrub
             val v = velocityAnim.value
             val absV = abs(v)
-            val stretchX = 1f + (absV * 0.42f).coerceAtMost(0.40f)
-            val squishY = 1f / (1f + (absV * 0.32f).coerceAtMost(0.30f))
-            val tiltDegrees = (v * 10f).coerceIn(-10f, 10f)
+            val stretchX = 1f + (absV * 0.35f).coerceAtMost(0.18f)
+            val squishY = 1f / (1f + (absV * 0.25f).coerceAtMost(0.14f))
+            val tiltDegrees = (v * 5f).coerceIn(-5f, 5f)
 
             Box(
                 Modifier
@@ -291,13 +291,23 @@ fun GlassProgressBar(
                                     change.consume()
                                     velocityTracker.addPosition(change.uptimeMillis, change.position)
                                     val rawVx = velocityTracker.calculateVelocity().x
-                                    val normalizedVx = (rawVx / 1800f).coerceIn(-0.45f, 0.45f)
+                                    // Deadzone: normal sliding (< 1400 px/sec) is standard and never jiggles.
+                                    // Fast scrub or quick flings activate subtle liquid inertia.
+                                    val fastThreshold = 1400f
+                                    val excess = (abs(rawVx) - fastThreshold).coerceAtLeast(0f)
+                                    val targetVx = if (excess > 0f) {
+                                        val sign = kotlin.math.sign(rawVx)
+                                        val intensity = (excess / 3200f).coerceIn(0f, 0.25f)
+                                        sign * intensity
+                                    } else {
+                                        0f
+                                    }
                                     coroutineScope.launch {
                                         velocityAnim.animateTo(
-                                            targetValue = normalizedVx,
+                                            targetValue = targetVx,
                                             animationSpec = spring(
-                                                dampingRatio = 0.38f, // underdamped = fluid liquid jiggle
-                                                stiffness = 380f,
+                                                dampingRatio = 0.65f, // Refined standard damping
+                                                stiffness = 450f,
                                             ),
                                         )
                                     }
@@ -316,8 +326,8 @@ fun GlassProgressBar(
                                 velocityAnim.animateTo(
                                     targetValue = 0f,
                                     animationSpec = spring(
-                                        dampingRatio = 0.30f, // jiggly bounce back settling to sphere
-                                        stiffness = 320f,
+                                        dampingRatio = 0.70f, // Clean and smooth settling
+                                        stiffness = 420f,
                                     ),
                                 )
                             }
