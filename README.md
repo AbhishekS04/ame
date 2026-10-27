@@ -136,69 +136,15 @@ Ame is engineered as a high-performance, modular audio client. While it originat
 
 ### 🌐 System Topology & Node Interconnections
 
-The following diagram illustrates how Ame orchestrates UI events, state coordination, dynamic stream resolution, DSP manipulation, and hardware audio delivery:
+The following video illustrates how Ame orchestrates UI events, state coordination, dynamic stream resolution, DSP manipulation, and hardware audio delivery:
 
-```mermaid
-flowchart TD
-    subgraph UI ["UI Layer (Jetpack Compose & Liquid Glass)"]
-        UserAction["User Taps Track / Autoplay"]
-        PlayerScreen["PlayerScreen (Backdrop, Controls, Lossless Badge)"]
-        HeroBackdrop["HeroBackdrop (Progressive Blur & Motion Cover)"]
-        LyricsView["LyricsView (Synced Karaoke Words)"]
-    end
-
-    subgraph Coordination ["State & Coordination Layer"]
-        MainVM["MainViewModel / PlaybackService"]
-        FidelityMgr["FidelityManager (Clean Metadata & Fidelity State)"]
-        AppleCat["AppleCatalog (Storefront API & Motion Video)"]
-        LyricsSvc["LyricsService (lossless.wtf / LrcLib)"]
-    end
-
-    subgraph Resolution ["Audio Resolution Engine (ResolvingDataSource)"]
-        Resolver["FidelityResolver (Target Bitrate & Cache)"]
-        StrictMatch{"Strict Candidate Matcher"}
-        MonoCDN["Monochrome Lossless CDN (Primary & Proxy)"]
-        JioCDN["Studio Master CDN (Akamai / Azure 320k)"]
-        YTFallback["YouTube Music Engine (NewPipe / Innertube)"]
-    end
-
-    subgraph DSP ["Audio Decoding & DSP Pipeline"]
-        Exo["ExoPlayer (Preferred FFmpeg Decoders)"]
-        Bungee["Bungee DSP (Pitch & Speed Vocoder)"]
-        VocalRemover["Center-Channel Vocal Remover"]
-        AudioMixer["MixerRateProcessor (Unified 44.1/48kHz)"]
-        AudioTrack["Android AudioTrack (Hardware Output)"]
-    end
-
-    UserAction --> MainVM
-    MainVM --> FidelityMgr
-    MainVM --> AppleCat
-    MainVM --> LyricsSvc
-
-    AppleCat --> HeroBackdrop
-    LyricsSvc --> LyricsView
-
-    MainVM --> Exo
-    Exo --> Resolver
-
-    Resolver -->|"Lossless (>= 1000k)"| MonoCDN
-    Resolver -->|"Premium (320k/256k)"| JioCDN
-
-    MonoCDN --> StrictMatch
-    JioCDN --> StrictMatch
-
-    StrictMatch -->|"Match Confirmed"| Exo
-    StrictMatch -->|"Mismatch / Timeout"| YTFallback
-    Resolver -->|"Standard (160k/48k)"| YTFallback
-    YTFallback --> Exo
-
-    Exo --> Bungee
-    Bungee --> VocalRemover
-    VocalRemover --> AudioMixer
-    AudioMixer --> AudioTrack
-
-    FidelityMgr -.->|"Strict Lossless Status"| PlayerScreen
-```
+<div align="center">
+  <video src="Untitled-1.mp4" controls="controls" width="100%"></video>
+  <br><br>
+  <a href="https://todiagram.com/editor?doc=812e8230e24728bce7300db4">
+    <img src="https://todiagram.com/images/open-in-todiagram.svg" alt="Open in ToDiagram" />
+  </a>
+</div>
 
 ---
 
