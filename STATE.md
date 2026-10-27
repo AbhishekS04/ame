@@ -1,6 +1,18 @@
 # Project State: Ame
 
-## Current Status: v1.0.9 In-Development — Dedicated Updates Page, Beta Channel & In-Place Updater
+## Current Status: v1.1.0-beta.2 Released — Liquid Glass Scrub Thumb & Refined Updates Hub
+
+- **Liquid Glass Dynamic Scrub Thumb (`GlassProgressBar.kt`, `PlayerScreen.kt`, `FullScreenVideo.kt`)**:
+  - **Minimal Normal State**: During normal playback, the scrub bar remains a clean, distraction-free capsule progress track with zero overlay elements or GPU shader overhead.
+  - **Authentic Liquid Glass Lens on Drag**: When touched or dragged with a finger (`dragProgress > 0`), a circular liquid glass orb thumb (`CircleShape`, 34dp) smoothly springs into view right at the touch point, tracking the finger with sub-pixel precision.
+  - **Multi-Backdrop Refraction & Dispersion**: Combines ambient player backdrop with recorded layer backdrop of the active/inactive playback track (`rememberLayerBackdrop()`), sampling both through the native Skia/AGSL runtime shader lens (`effects/Lens.kt`). The active playback bar is visibly magnified and optically refracted inside the droplet.
+  - **Caustic Rim & Chromatic Aberration**: Features chromatic dispersion along the perimeter with spectral rainbow fringe (`chromaticAberration = true`), subtle ambient specular reflection, outer sweep gradient glass rim, and inner shadow.
+  - **Zero-Delay Tactile Gestures**: Built with `awaitEachGesture` and `awaitFirstDown` on a 36dp touch target, reacting instantly without `touchSlop` drag delay.
+  - **Live Scrubbing Counter**: Connects scrubbing fraction to `TimeRow`, updating the elapsed time counter smoothly while dragging and committing the seek position on release without buffering jump-backs.
+
+- **Refined Updates Hub Header & Channel Card (`SettingsScreen.kt`)**:
+  - **Clean Brand & Channel Anchoring**: Left side displays lowercase `ame` in bold title typography with the active channel (`Beta channel` or `Stable channel`) directly underneath, illuminating in amber `#F59E0B` when an update is available.
+  - **Clean Version Numbers & Strikethrough Cut**: Right side displays purely the numeric version (e.g. `1.1.0`, stripping all `-beta.X` tags). When an update is available, cuts the current version with a grayscale strikethrough line (`~~1.1.0~~  →  1.1.0`) pointing to the new release without squished badges or awkward wrapping.
 
 - **Dedicated Updates Hub & Release Channels (`SettingsScreen.kt`, `PreferencesStore.kt`, `Updater.kt`, `AmeApp.kt`, `strings.xml`)**:
   - **Medicine Capsule Updates Card**: Positioned directly below the Account profile card on the Settings index with a sleek capsule layout (`RoundedCornerShape(32.dp)`). Displays current version and channel (`v1.0.8 • Stable`), dynamically illuminating with an amber `UPDATE` badge and yellow text (*"Update your application (vX.X.X)"*) whenever an update is available.
