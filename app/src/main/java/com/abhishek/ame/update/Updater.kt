@@ -103,7 +103,26 @@ class Updater(context: Context) {
             _channelReleases.value += (channel to result)
         }
 
-        if (result == null || !isNewer(result.version, BuildConfig.VERSION_NAME)) {
+        val isInstalledBeta = BuildConfig.VERSION_NAME.contains("-")
+        val shouldOffer = when (channel) {
+            com.abhishek.ame.data.PreferencesStore.UpdateChannel.STABLE -> {
+                if (isInstalledBeta) {
+                    result != null && result.version != BuildConfig.VERSION_NAME
+                } else {
+                    result != null && isNewer(result.version, BuildConfig.VERSION_NAME)
+                }
+            }
+            com.abhishek.ame.data.PreferencesStore.UpdateChannel.BETA -> {
+                if (!isInstalledBeta) {
+                    result != null && (isNewer(result.version, BuildConfig.VERSION_NAME) ||
+                        result.version.substringBefore('-') == BuildConfig.VERSION_NAME)
+                } else {
+                    result != null && isNewer(result.version, BuildConfig.VERSION_NAME)
+                }
+            }
+        }
+
+        if (result == null || !shouldOffer) {
             _state.value = State.UpToDate
             return
         }

@@ -77,6 +77,7 @@ import com.adamglin.phosphoricons.regular.DownloadSimple
 import androidx.compose.ui.res.pluralStringResource
 import com.abhishek.ame.ui.glass.shapes.ContinuousCapsule
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
@@ -1853,12 +1854,13 @@ private fun UpdatesSection(
     val isDownloading = state is Updater.State.Downloading
     val isInstalling = state is Updater.State.Installing
     val downloadProgress = (state as? Updater.State.Downloading)?.progress
+    val isInstalledBeta = BuildConfig.VERSION_NAME.contains("-")
 
     val channelReleases by updater.channelReleases.collectAsStateWithLifecycle()
     val channelRelease = channelReleases[channel]
     val releaseNotes = available?.notes?.takeIf { it.isNotBlank() } ?: channelRelease?.notes.orEmpty()
     val releaseTag = available?.version ?: channelRelease?.version
-    var notesExpanded by rememberSaveable(channel) { mutableStateOf(available != null) }
+    var notesExpanded by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(channel) {
         if (channelReleases[channel] == null) {
@@ -1871,6 +1873,7 @@ private fun UpdatesSection(
         Column(
             Modifier
                 .fillMaxWidth()
+                .animateContentSize()
                 .padding(horizontal = 18.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -1879,43 +1882,60 @@ private fun UpdatesSection(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Column {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = "ame",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Ink,
+                    )
+                    Spacer(Modifier.height(3.dp))
                     if (available != null) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Text(
-                                text = "v${BuildConfig.VERSION_NAME}",
-                                style = MaterialTheme.typography.titleLarge.copy(
+                                text = "v${BuildConfig.VERSION_NAME.substringBefore('-')}",
+                                style = MaterialTheme.typography.headlineSmall.copy(
                                     textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough,
                                 ),
-                                color = InkDim,
+                                color = InkDim.copy(alpha = 0.5f),
                                 fontWeight = FontWeight.Normal,
                             )
                             Icon(
                                 PhosphorIcons.Regular.CaretRight,
                                 contentDescription = null,
                                 tint = Color(0xFFF59E0B),
-                                modifier = Modifier.size(18.dp),
+                                modifier = Modifier.size(16.dp),
                             )
                             Text(
                                 text = "v${available.version}",
-                                style = MaterialTheme.typography.titleLarge,
+                                style = MaterialTheme.typography.headlineSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFFF59E0B),
                             )
                         }
                     } else {
                         Text(
-                            text = "Ame v${BuildConfig.VERSION_NAME}",
-                            style = MaterialTheme.typography.titleLarge,
+                            text = "v${BuildConfig.VERSION_NAME.substringBefore('-')}",
+                            style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold,
+                            color = Ink,
                         )
                     }
+                    Spacer(Modifier.height(3.dp))
                     Text(
-                        text = if (available != null) "Update available for ${if (channel == PreferencesStore.UpdateChannel.BETA) "Beta" else "Stable"} channel"
-                               else "Channel: ${if (channel == PreferencesStore.UpdateChannel.BETA) "Beta" else "Stable"}",
+                        text = when {
+                            available != null && channel == PreferencesStore.UpdateChannel.STABLE && isInstalledBeta ->
+                                "Stable channel • Switch to official release"
+                            available != null ->
+                                "${if (channel == PreferencesStore.UpdateChannel.BETA) "Beta" else "Stable"} channel • Update available"
+                            isChecking ->
+                                "${if (channel == PreferencesStore.UpdateChannel.BETA) "Beta" else "Stable"} channel • Checking…"
+                            else ->
+                                "${if (channel == PreferencesStore.UpdateChannel.BETA) "Beta" else "Stable"} channel • Up to date"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = if (available != null) Color(0xFFF59E0B) else InkDim,
                         fontWeight = if (available != null) FontWeight.Medium else FontWeight.Normal,
@@ -1926,10 +1946,10 @@ private fun UpdatesSection(
                         Modifier
                             .clip(RoundedCornerShape(8.dp))
                             .background(Color(0xFFF59E0B))
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
                     ) {
                         Text(
-                            "NEW",
+                            if (channel == PreferencesStore.UpdateChannel.STABLE && isInstalledBeta) "STABLE" else "UPDATE",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = Color.Black,
@@ -2016,8 +2036,14 @@ private fun UpdatesSection(
         RowDivider()
 
         if (available != null) {
+            val isSwitchingToStable = channel == PreferencesStore.UpdateChannel.STABLE && isInstalledBeta
             ActionRow(
-                label = if (updater.canInstall()) "Install Update (v${available.version})" else "Allow Install & Update",
+                label = when {
+                    isSwitchingToStable ->
+                        if (updater.canInstall()) "Switch to Stable (v${available.version})" else "Allow Install & Switch to Stable"
+                    else ->
+                        if (updater.canInstall()) "Install Update (v${available.version})" else "Allow Install & Update"
+                },
                 icon = PhosphorIcons.Regular.DownloadSimple,
                 destructive = false,
             ) {
@@ -2069,6 +2095,7 @@ private fun UpdatesSection(
         Column(
             Modifier
                 .fillMaxWidth()
+                .animateContentSize()
                 .clickable { notesExpanded = !notesExpanded }
                 .padding(horizontal = 18.dp, vertical = 14.dp),
         ) {
@@ -2123,13 +2150,13 @@ private fun UpdatesSection(
             enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
             exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut(),
         ) {
-            Column {
+            Column(Modifier.animateContentSize()) {
                 RowDivider()
                 Column(
                     Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 18.dp, vertical = 14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     if (releaseNotes.isBlank()) {
                         Text(
@@ -2148,29 +2175,17 @@ private fun UpdatesSection(
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
+                                    modifier = Modifier.padding(top = 6.dp, bottom = 4.dp),
                                 )
                             }
                             sec.items.forEach { item ->
-                                Row(
-                                    modifier = Modifier.padding(vertical = 2.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.Top,
-                                ) {
-                                    Box(
-                                        Modifier
-                                            .padding(top = 7.dp)
-                                            .size(5.dp)
-                                            .clip(CircleShape)
-                                            .background(InkDim),
-                                    )
-                                    Text(
-                                        text = item,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = Ink,
-                                        lineHeight = 20.sp,
-                                    )
-                                }
+                                Text(
+                                    text = item,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Ink,
+                                    lineHeight = 22.sp,
+                                    modifier = Modifier.padding(bottom = 6.dp),
+                                )
                             }
                         }
                     }
@@ -2180,7 +2195,11 @@ private fun UpdatesSection(
     }
 
     // 4. Beta Advisory Card
-    if (channel == PreferencesStore.UpdateChannel.BETA) {
+    androidx.compose.animation.AnimatedVisibility(
+        visible = channel == PreferencesStore.UpdateChannel.BETA,
+        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
+        exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically(),
+    ) {
         Column(
             Modifier
                 .fillMaxWidth()
