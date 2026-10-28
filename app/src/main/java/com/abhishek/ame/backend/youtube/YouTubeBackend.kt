@@ -324,14 +324,72 @@ class YouTubeBackend(private val account: YouTubeAccount) : MusicBackend {
                     ?.items.orEmpty()
                     .mapNotNull { section -> section.title?.let { rowOf(it, section.items) } }
             }
+            val newAlbums = async {
+                runCatching { YouTube.newReleaseAlbums().getOrThrow() }
+                    .onFailure { android.util.Log.w(LOG_TAG, "new albums unavailable: $it") }
+                    .getOrNull()
+                    ?.mapNotNull(::toCatalogPlaylist)
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let {
+                        listOf(
+                            HomeRow(
+                                title = "Albums for you",
+                                items = it,
+                                strapline = "NEW FULL-LENGTH RECORDS",
+                            )
+                        )
+                    }.orEmpty()
+            }
             val charts = async {
                 runCatching { YouTube.getChartsPage().getOrThrow() }
                     .onFailure { android.util.Log.w(LOG_TAG, "charts unavailable: $it") }
                     .getOrNull()
-                    ?.sections.orEmpty()
-                    .map { rowOf(it.title, it.items) }
+                    ?.let { page ->
+                        val sections = page.sections.map { section ->
+                            val isTrending = section.title.contains("trend", ignoreCase = true) ||
+                                section.title.contains("top song", ignoreCase = true) ||
+                                section.title.contains("top track", ignoreCase = true) ||
+                                section.chartType == com.metrolist.innertube.pages.ChartsPage.ChartType.TRENDING
+                            val title = if (isTrending) "Trending songs for you" else section.title
+                            val strapline = if (isTrending) "POPULAR TODAY" else null
+                            rowOf(title, section.items, strapline = strapline)
+                        }
+                        val hasTrending = sections.any { it.title == "Trending songs for you" && it.tracks.isNotEmpty() }
+                        if (!hasTrending) {
+                            val allChartSongs = page.sections.flatMap { it.items.filterIsInstance<SongItem>() }
+                                .distinctBy { it.id }
+                                .take(25)
+                            if (allChartSongs.isNotEmpty()) {
+                                listOf(
+                                    HomeRow(
+                                        title = "Trending songs for you",
+                                        tracks = allChartSongs.map(::toCatalogTrack),
+                                        strapline = "POPULAR TODAY",
+                                    )
+                                ) + sections
+                            } else sections
+                        } else sections
+                    }.orEmpty()
             }
-            (releases.await() + charts.await())
+            val energize = async {
+                runCatching {
+                    val groups = YouTube.moodAndGenres().getOrThrow()
+                    val energizeItem = groups.flatMap { it.items }.firstOrNull { item ->
+                        item.title.contains("Energize", ignoreCase = true) ||
+                        item.title.contains("Energy", ignoreCase = true) ||
+                        item.title.contains("Workout", ignoreCase = true)
+                    }
+                    if (energizeItem != null) {
+                        val browse = YouTube.browse(energizeItem.endpoint.browseId, energizeItem.endpoint.params).getOrThrow()
+                        browse.items.firstOrNull { it.items.isNotEmpty() }?.let { section ->
+                            rowOf("Energize", section.items, strapline = "HIGH ENERGY & FOCUS")
+                        }
+                    } else null
+                }.onFailure { android.util.Log.w(LOG_TAG, "energize unavailable: $it") }
+                 .getOrNull()
+            }
+
+            (releases.await() + newAlbums.await() + charts.await() + listOfNotNull(energize.await()))
                 .filterNot { it.isEmpty }
                 // The charts page repeats the new albums under the same name.
                 .distinctBy { it.title }

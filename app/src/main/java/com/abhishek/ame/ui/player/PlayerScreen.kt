@@ -480,6 +480,8 @@ fun PlayerScreen(
     connectAvailable: Boolean = true,
     /** Whether the sound is coming out of another of the account's devices. */
     onAnotherDevice: Boolean = false,
+    /** Direct 1-tap addition of an endless autoplay track into the origin playlist. */
+    onAddAutoplayToPlaylist: (() -> Unit)? = null,
 ) {
     var panel by remember { mutableStateOf(PlayerPanel.NONE) }
     // The official SDK mixes its own audio: no effects or karaoke reach it.
@@ -1624,6 +1626,8 @@ fun PlayerScreen(
                             )
                         }
 
+
+
                         // Title and artist on their own capsule, with the two
                         // per-track actions on the right.
                         GlassSurface(
@@ -1653,69 +1657,46 @@ fun PlayerScreen(
                                     },
                                     onOpenAlbum = onOpenAlbum,
                                 )
+                                if (onToggleLike != null) {
+                                    Spacer(Modifier.size(6.dp))
+                                    RoundGlassButton(
+                                        backdrop = lowerBackdrop,
+                                        size = 40.dp,
+                                        onClick = onToggleLike,
+                                    ) {
+                                        Icon(
+                                            imageVector = if (inLikedSongs) PhosphorIcons.Fill.Heart else PhosphorIcons.Regular.Heart,
+                                            contentDescription = stringResource(if (inLikedSongs) R.string.remove_from_liked else R.string.liked_songs),
+                                            tint = if (inLikedSongs) Color(0xFFEF4444) else panelTint(false),
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    }
+                                }
                                 if (playlistEditAvailable) {
-                                Spacer(Modifier.size(8.dp))
-                                RoundGlassButton(
-                                    backdrop = lowerBackdrop,
-                                    size = 40.dp,
-                                    onClick = {
-                                        // A tick opens the lists, where it can
-                                        // be taken back; a heart, filled or
-                                        // not, is the like itself.
-                                        if (onToggleLike != null && (inLikedSongs || !alreadySaved)) {
-                                            onToggleLike()
-                                        } else {
+                                    Spacer(Modifier.size(6.dp))
+                                    RoundGlassButton(
+                                        backdrop = lowerBackdrop,
+                                        size = 40.dp,
+                                        onClick = {
                                             panel = if (panel == PlayerPanel.ADD_TO_PLAYLIST) {
                                                 PlayerPanel.NONE
                                             } else {
                                                 onAddToPlaylist()
                                                 PlayerPanel.ADD_TO_PLAYLIST
                                             }
-                                        }
-                                    },
-                                    onLongClick = {
-                                        panel = if (panel == PlayerPanel.ADD_TO_PLAYLIST) {
-                                            PlayerPanel.NONE
-                                        } else {
-                                            onAddToPlaylist()
-                                            PlayerPanel.ADD_TO_PLAYLIST
-                                        }
-                                    },
-                                ) {
-                                    // A heart where a tap likes the song, a plus
-                                    // where the tap opens the lists instead: the
-                                    // picture says what pressing it does. And a
-                                    // tick where the song is in one of the
-                                    // listener's playlists and not liked: the
-                                    // heart had taken its place, which left no
-                                    // way to see that, or to take the song back
-                                    // out of the list it was playing from.
-                                    val hearts = onToggleLike != null
-                                    Icon(
-                                        when {
-                                            hearts && inLikedSongs -> PhosphorIcons.Fill.Heart
-                                            alreadySaved -> PhosphorIcons.Regular.Check
-                                            !hearts -> PhosphorIcons.Regular.Plus
-                                            else -> PhosphorIcons.Regular.Heart
                                         },
-                                        contentDescription = stringResource(
-                                            when {
-                                                hearts && inLikedSongs -> R.string.remove_from_liked
-                                                alreadySaved -> R.string.in_a_playlist
-                                                !hearts -> R.string.add_to_playlist
-                                                else -> R.string.liked_songs
+                                    ) {
+                                        Icon(
+                                            imageVector = if (alreadySaved) PhosphorIcons.Regular.Check else PhosphorIcons.Regular.Plus,
+                                            contentDescription = stringResource(if (alreadySaved) R.string.in_a_playlist else R.string.add_to_playlist),
+                                            tint = when {
+                                                panel == PlayerPanel.ADD_TO_PLAYLIST -> panelTint(true)
+                                                alreadySaved -> Color(0xFF22C55E)
+                                                else -> panelTint(false)
                                             },
-                                        ),
-                                        tint = when {
-                                            panel == PlayerPanel.ADD_TO_PLAYLIST ->
-                                                panelTint(true)
-                                            hearts && inLikedSongs -> SavedInk
-                                            alreadySaved -> SavedInk
-                                            else -> panelTint(false)
-                                        },
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                }
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -2351,6 +2332,8 @@ private fun TitleBlock(
     }
 }
 
+
+
 /**
  * The line under the title: who made this, and a way to each of them.
  *
@@ -2623,7 +2606,7 @@ private fun KaraokeBadge(amount: Float, backdrop: Backdrop, onClick: () -> Unit)
 }
 
 @Composable
-private fun RoundGlassButton(
+internal fun RoundGlassButton(
     backdrop: Backdrop,
     size: Dp,
     modifier: Modifier = Modifier,

@@ -4,7 +4,7 @@
 //! `java.lang.IllegalStateException` with the engine's error message. Kotlin
 //! therefore never has to check return codes.
 
-use crate::{catalog, dj, downloads, engine, sink};
+use crate::{catalog, dj, downloads, engine, recs, sink};
 use jni::objects::{JClass, JObject, JString};
 use jni::sys::{jboolean, jint, jlong, jstring, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
@@ -1015,3 +1015,30 @@ pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeDjPre
     let uris: Vec<String> = serde_json::from_str(&json).unwrap_or_default();
     guard(&mut env, "DjPrepare", || dj::prepare(&uris));
 }
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeRankCandidates(
+    mut env: JNIEnv,
+    _class: JClass,
+    candidates_json: JString,
+    history_json: JString,
+    liked_uris_json: JString,
+    context_json: JString,
+) -> jstring {
+    let Ok(candidates) = read_string(&mut env, &candidates_json) else {
+        return JObject::null().into_raw() as jstring;
+    };
+    let Ok(history) = read_string(&mut env, &history_json) else {
+        return JObject::null().into_raw() as jstring;
+    };
+    let Ok(liked) = read_string(&mut env, &liked_uris_json) else {
+        return JObject::null().into_raw() as jstring;
+    };
+    let Ok(context) = read_string(&mut env, &context_json) else {
+        return JObject::null().into_raw() as jstring;
+    };
+
+    let result = recs::rank_candidates(&candidates, &history, &liked, &context);
+    string_or_throw(&mut env, result)
+}
+

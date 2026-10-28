@@ -3,7 +3,9 @@ package com.abhishek.ame.ui.settings
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,8 +16,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.res.painterResource
+import com.adamglin.phosphoricons.regular.Bell
+import com.adamglin.phosphoricons.regular.Sparkle
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.ui.geometry.Offset
@@ -689,6 +696,21 @@ fun SettingsScreen(
             }
         }
 
+        // App Icon Switcher matching the reference squircle styling
+        if (shown == SettingsPage.App && "appearance" in openGroups) groupItem("app_icon", Group.APPEARANCE) {
+            val activeIcon = remember(context) {
+                com.abhishek.ame.ui.theme.AppIconManager.getActiveIcon(context)
+            }
+            Section("App Icon") {
+                AppIconSelector(
+                    activeIcon = activeIcon,
+                    onSelect = { selected ->
+                        com.abhishek.ame.ui.theme.AppIconManager.setAppIcon(context, selected)
+                    },
+                )
+            }
+        }
+
         // What the bar does, which is behaviour rather than material: the glass
         // page says what it is made of, this says how it acts.
         if (shown == SettingsPage.App && "appearance" in openGroups) groupItem("bar", Group.APPEARANCE) {
@@ -758,6 +780,47 @@ fun SettingsScreen(
                             android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
                         )
                     }
+                }
+            }
+        }
+
+        if (shown == SettingsPage.App && "system" in openGroups) groupItem("notifications", Group.SYSTEM) {
+            val store = remember(context) {
+                (context.applicationContext as com.abhishek.ame.AmeApplication).preferences
+            }
+            val notifications by store.notificationsEnabled.collectAsStateWithLifecycle()
+            val musicReminders by store.musicRemindersEnabled.collectAsStateWithLifecycle()
+            Section("Notifications") {
+                DownloadSwitch(
+                    label = "App Notifications",
+                    checked = notifications,
+                    backdrop = backdrop,
+                    icon = PhosphorIcons.Regular.Bell,
+                    onChange = { enabled ->
+                        store.setNotificationsEnabled(enabled)
+                        if (!enabled) {
+                            com.abhishek.ame.notification.AmeNotificationManager.cancelMusicReminder(context)
+                        } else {
+                            com.abhishek.ame.notification.AmeNotificationManager.scheduleMusicReminder(context)
+                        }
+                    },
+                )
+                if (notifications) {
+                    RowDivider()
+                    DownloadSwitch(
+                        label = "Music Reminders & Drops",
+                        checked = musicReminders,
+                        backdrop = backdrop,
+                        icon = PhosphorIcons.Regular.Sparkle,
+                        onChange = { enabled ->
+                            store.setMusicRemindersEnabled(enabled)
+                            if (!enabled) {
+                                com.abhishek.ame.notification.AmeNotificationManager.cancelMusicReminder(context)
+                            } else {
+                                com.abhishek.ame.notification.AmeNotificationManager.scheduleMusicReminder(context)
+                            }
+                        },
+                    )
                 }
             }
         }
@@ -2589,6 +2652,103 @@ private fun Section(title: String?, content: @Composable () -> Unit) {
                 .background(Ink.copy(alpha = 0.07f)),
             content = { content() },
         )
+    }
+}
+
+@Composable
+private fun AppIconSelector(
+    activeIcon: com.abhishek.ame.ui.theme.AppIcon,
+    onSelect: (com.abhishek.ame.ui.theme.AppIcon) -> Unit,
+) {
+    val icons = com.abhishek.ame.ui.theme.AppIcon.entries
+    val rows = icons.chunked(3)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        rows.forEach { rowIcons ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceAround,
+                verticalAlignment = Alignment.Top,
+            ) {
+                rowIcons.forEach { icon ->
+                    val isSelected = icon == activeIcon
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .width(92.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .clickable { if (!isSelected) onSelect(icon) }
+                            .padding(horizontal = 2.dp, vertical = 2.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier.size(72.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Image(
+                                painter = painterResource(icon.previewRes),
+                                contentDescription = icon.title,
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .clip(RoundedCornerShape(18.dp))
+                                    .then(
+                                        if (isSelected) {
+                                            Modifier.border(
+                                                width = 2.dp,
+                                                color = Color(0xFF22C55E),
+                                                shape = RoundedCornerShape(18.dp),
+                                            )
+                                        } else {
+                                            Modifier.border(
+                                                width = 0.8.dp,
+                                                color = Ink.copy(alpha = 0.15f),
+                                                shape = RoundedCornerShape(18.dp),
+                                            )
+                                        }
+                                    ),
+                            )
+                            if (isSelected) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .offset(x = 1.dp, y = (-1).dp)
+                                        .size(19.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF22C55E))
+                                        .border(1.5.dp, Color.Black, CircleShape),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        imageVector = PhosphorIcons.Regular.Check,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(11.dp),
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = icon.title,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                            ),
+                            color = if (isSelected) Ink else InkDim,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                repeat(3 - rowIcons.size) {
+                    Spacer(Modifier.width(92.dp))
+                }
+            }
+        }
     }
 }
 

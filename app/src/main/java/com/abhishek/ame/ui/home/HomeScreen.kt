@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -89,6 +90,7 @@ import com.adamglin.phosphoricons.Regular
 import com.adamglin.phosphoricons.fill.BookmarkSimple
 import com.adamglin.phosphoricons.fill.Pause
 import com.adamglin.phosphoricons.fill.Play
+import com.adamglin.phosphoricons.fill.Star
 import com.adamglin.phosphoricons.regular.BookmarkSimple
 import com.adamglin.phosphoricons.regular.Check
 import com.adamglin.phosphoricons.regular.DotsThree
@@ -381,8 +383,13 @@ private fun QuickPickRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            val subText = if (!track.recommendationReason.isNullOrBlank()) {
+                "${track.artist} • ${track.recommendationReason}"
+            } else {
+                track.artist
+            }
             Text(
-                track.artist,
+                subText,
                 style = MaterialTheme.typography.bodySmall,
                 color = InkDim,
                 maxLines = 1,
@@ -538,6 +545,87 @@ private fun TrackRow(
 
 
 /**
+ * Circular avatar shelf for starred artists and AI high-affinity voices.
+ */
+/**
+ * Clean circular avatar shelf for starred artists.
+ * Ponytail Ultra: Clean, minimalist liquid glass design, no yellow borders, no star badge.
+ */
+@Composable
+private fun FavoriteArtistsRow(
+    artists: List<com.abhishek.ame.data.SearchItem>,
+    onOpenArtist: (com.abhishek.ame.data.SearchItem) -> Unit,
+) {
+    val haptic = LocalHapticFeedback.current
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 20.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.padding(top = 10.dp, bottom = 12.dp),
+    ) {
+        items(artists, key = { "fav_artist_${it.uri}" }) { artist ->
+            Column(
+                modifier = Modifier
+                    .width(76.dp)
+                    .pressable(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onOpenArtist(artist)
+                        },
+                        pressedScale = 0.93f,
+                    ),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF141518))
+                        .border(
+                            width = 0.75.dp,
+                            color = Color.White.copy(alpha = 0.16f),
+                            shape = CircleShape,
+                        )
+                        .softShadow(CircleShape, elevation = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Artwork(
+                        url = artist.artworkUrl,
+                        title = artist.title,
+                        modifier = Modifier.fillMaxSize(),
+                        corner = 36.dp,
+                        decodeSize = 72.dp,
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = artist.title,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp,
+                        lineHeight = 15.sp,
+                    ),
+                    color = Ink,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    text = "Artist",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = 10.5.sp,
+                    ),
+                    color = InkDim,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+    }
+}
+
+/**
  * YouTube Music Home Page:
  * Decluttered & Clean:
  * - Liquid glass navbar with time-of-day greeting (and name if logged in) + liquid glass profile button
@@ -549,7 +637,10 @@ private fun TrackRow(
 private fun YouTubeHome(
     contentPadding: PaddingValues,
     home: MainViewModel.YouTubeHomeState,
+    recommendedQuickPicks: List<CatalogTrack> = emptyList(),
     sourceNew: List<com.abhishek.ame.backend.HomeRow> = emptyList(),
+    followedArtists: List<com.abhishek.ame.data.SearchItem> = emptyList(),
+    onOpenArtist: (com.abhishek.ame.data.SearchItem) -> Unit = {},
     recent: List<CatalogTrack>,
     accountName: String?,
     backdrop: Backdrop,
@@ -730,11 +821,15 @@ private fun YouTubeHome(
                 }
             }
         } else {
-            // Main Home Screen: STRICTLY DECLUTTERED
+            // Main Home Screen: CURATED & ELEGANT
             // 1. Daily Discovery (if present)
-            // 2. Quick Picks (The 4-item column horizontal snap carousel)
-            // 3. New releases (Standard horizontal carousel)
-            // 4. Play again / My History
+            // 2. Quick Picks (The 4-item column horizontal snap carousel - On-Device AI recommendations)
+            // 3. New Releases (Fresh albums, singles & EPs)
+            // 4. Favorite Artists (Clean circles - Starred voices, strictly under New Releases)
+            // 5. Trending songs for you (Charts)
+            // 6. Albums for you (Full-length studio albums)
+            // 7. Energize (High energy & workout category)
+            // 8. Play again / My History
 
             val dailyDiscoverRow = distinctRows.find {
                 it.title.contains("daily discover", ignoreCase = true) ||
@@ -746,16 +841,22 @@ private fun YouTubeHome(
                 it.title.contains("Top picks", ignoreCase = true)
             } ?: distinctRows.firstOrNull { it !== dailyDiscoverRow && it.tracks.size >= 4 }
 
-            val quickPicksTracks = quickPicksRow?.tracks.orEmpty()
+            val quickPicksTracks = if (recommendedQuickPicks.isNotEmpty()) {
+                recommendedQuickPicks
+            } else {
+                quickPicksRow?.tracks.orEmpty()
+            }
 
-            val newReleasesRow = distinctRows.find {
+            val newReleasesRow = sourceNew.find {
+                it.title.contains("New release", ignoreCase = true) ||
+                it.title.contains("Fresh", ignoreCase = true)
+            } ?: distinctRows.find {
                 it !== dailyDiscoverRow && it !== quickPicksRow && (
                     it.title.contains("New", ignoreCase = true) ||
                     it.title.contains("Release", ignoreCase = true) ||
                     it.title.contains("Fresh", ignoreCase = true)
                 )
-            } ?: sourceNew.firstOrNull { it.items.isNotEmpty() || it.tracks.isNotEmpty() }
-              ?: distinctRows.firstOrNull { it !== dailyDiscoverRow && it !== quickPicksRow && (it.items.isNotEmpty() || it.tracks.isNotEmpty()) }
+            } ?: sourceNew.firstOrNull { it.title.contains("New", ignoreCase = true) || it.title.contains("Release", ignoreCase = true) }
 
             val newReleasesTitle = remember(newReleasesRow) {
                 newReleasesRow?.title?.takeIf { it.isNotBlank() } ?: "New releases"
@@ -765,10 +866,81 @@ private fun YouTubeHome(
             }
 
             val newReleaseItems = remember(sourceNew, newReleasesRow) {
-                (newReleasesRow?.items.orEmpty() + sourceNew.flatMap { it.items }).distinctBy { it.uri }
+                val fromRow = newReleasesRow?.items.orEmpty()
+                val fromSource = sourceNew.filter {
+                    it.title.contains("New release", ignoreCase = true) && !it.title.contains("Album", ignoreCase = true)
+                }.flatMap { it.items }
+                (fromRow + fromSource).distinctBy { it.uri }
             }
             val newReleaseTracks = remember(newReleasesRow, sourceNew) {
-                (newReleasesRow?.tracks.orEmpty() + sourceNew.flatMap { it.tracks }).distinctBy { it.uri }
+                (newReleasesRow?.tracks.orEmpty() + sourceNew.filter {
+                    it.title.contains("New release", ignoreCase = true)
+                }.flatMap { it.tracks }).distinctBy { it.uri }
+            }
+
+            // Starred Favorite Artists (strictly from user's explicitly starred artists)
+            val favoriteArtists = remember(followedArtists) {
+                followedArtists.distinctBy { it.uri }
+            }
+
+            // Trending Songs for you (Charts)
+            val trendingRow = sourceNew.find {
+                it.title.contains("Trending", ignoreCase = true) ||
+                it.title.contains("Top song", ignoreCase = true) ||
+                it.title.contains("Top track", ignoreCase = true)
+            } ?: distinctRows.find {
+                it !== dailyDiscoverRow && it !== quickPicksRow && it !== newReleasesRow && (
+                    it.title.contains("Trending", ignoreCase = true) ||
+                    it.title.contains("Top song", ignoreCase = true) ||
+                    it.title.contains("Chart", ignoreCase = true)
+                )
+            }
+            val trendingTracks = remember(trendingRow, sourceNew) {
+                if (trendingRow != null && trendingRow.tracks.isNotEmpty()) {
+                    trendingRow.tracks
+                } else {
+                    sourceNew.flatMap { it.tracks }
+                        .filter { track -> quickPicksTracks.none { it.uri == track.uri } }
+                        .distinctBy { it.uri }
+                }
+            }
+
+            // Albums for you (New full length studio albums)
+            val albumsForYouRow = sourceNew.find {
+                it.title.contains("Albums for you", ignoreCase = true) ||
+                it.title.contains("Album", ignoreCase = true)
+            } ?: distinctRows.find {
+                it !== dailyDiscoverRow && it !== quickPicksRow && it !== newReleasesRow && (
+                    it.title.contains("Album", ignoreCase = true) ||
+                    it.title.contains("Record", ignoreCase = true)
+                )
+            }
+            val albumsForYouItems = remember(albumsForYouRow, sourceNew) {
+                val fromRow = albumsForYouRow?.items.orEmpty()
+                val fromSource = sourceNew.filter { it.title.contains("Album", ignoreCase = true) }
+                    .flatMap { it.items }
+                (fromRow + fromSource).distinctBy { it.uri }
+            }
+
+            // Energize category
+            val energizeRow = sourceNew.find {
+                it.title.contains("Energize", ignoreCase = true) ||
+                it.title.contains("Energy", ignoreCase = true)
+            } ?: distinctRows.find {
+                it !== dailyDiscoverRow && it !== quickPicksRow && it !== newReleasesRow && (
+                    it.title.contains("Energize", ignoreCase = true) ||
+                    it.title.contains("Workout", ignoreCase = true)
+                )
+            }
+
+            // Community Playlists / Handpicked Mixes row
+            val communityPlaylistsRow = distinctRows.find {
+                it !== dailyDiscoverRow && it !== quickPicksRow && it !== newReleasesRow &&
+                it !== albumsForYouRow && it !== energizeRow &&
+                it.items.isNotEmpty() &&
+                (it.title.contains("Mix", ignoreCase = true) ||
+                 it.title.contains("Community", ignoreCase = true) ||
+                 it.title.contains("For You", ignoreCase = true))
             }
 
             val historyTracks = remember(recent, home.rows) {
@@ -824,11 +996,16 @@ private fun YouTubeHome(
                         } else {
                             "Quick picks"
                         }
-                        Heading(quickPicksTitle, "START RADIO FROM A SONG")
+                        val quickPicksStrapline = if (recommendedQuickPicks.isNotEmpty()) {
+                            "TAILORED FOR YOU • ON-DEVICE AI"
+                        } else {
+                            "START RADIO FROM A SONG"
+                        }
+                        Heading(quickPicksTitle, quickPicksStrapline)
                     }
                     item(key = "quick_picks_tracks") {
                         QuickPicks(
-                            tracks = quickPicksTracks.take(16),
+                            tracks = quickPicksTracks.take(80),
                             currentTrackUri = currentTrackUri,
                             isPlaying = isPlaying,
                             playingColor = playingColor,
@@ -838,7 +1015,7 @@ private fun YouTubeHome(
                     }
                 }
 
-                // 3. New releases / Featured Music (Standard horizontal carousel)
+                // 3. New Releases (New releases horizontal shelf)
                 if (newReleaseItems.isNotEmpty()) {
                     item(key = "new_releases_head") {
                         Heading(newReleasesTitle, newReleasesStrapline)
@@ -849,7 +1026,7 @@ private fun YouTubeHome(
                             horizontalArrangement = Arrangement.spacedBy(14.dp),
                             modifier = Modifier.padding(top = 14.dp),
                         ) {
-                            items(newReleaseItems.take(15), key = { it.uri }) { entry ->
+                            items(newReleaseItems.take(15), key = { "rel_${it.uri}" }) { entry ->
                                 val isPlayingThis = isPlaying && (currentContextUri == entry.uri || currentTrackUri == entry.uri)
                                 val isSaved = isPlaylistSaved(entry.uri)
                                 val bannerUrl = customBanners[entry.uri] ?: entry.artworkUrl
@@ -880,10 +1057,149 @@ private fun YouTubeHome(
                     }
                 }
 
-                // 4. Play again / My History
+                // 4. Trending songs for you (Charts)
+                if (trendingTracks.isNotEmpty()) {
+                    item(key = "trending_songs_head") {
+                        Heading("Trending songs for you", trendingRow?.strapline ?: "POPULAR TODAY")
+                    }
+                    item(key = "trending_songs_tracks") {
+                        if (trendingTracks.size >= QUICK_PICK_MINIMUM) {
+                            QuickPicks(
+                                tracks = trendingTracks.take(20),
+                                currentTrackUri = currentTrackUri,
+                                isPlaying = isPlaying,
+                                playingColor = playingColor,
+                            ) { i ->
+                                onPlayTrending(trendingTracks, i)
+                            }
+                        } else {
+                            TrackRow(
+                                tracks = trendingTracks.take(16),
+                                currentTrackUri = currentTrackUri,
+                                isPlaying = isPlaying,
+                                playingColor = playingColor,
+                            ) { i ->
+                                onPlayTrending(trendingTracks, i)
+                            }
+                        }
+                    }
+                }
+
+                // 6. Albums for you (Full studio albums)
+                if (albumsForYouItems.isNotEmpty()) {
+                    item(key = "albums_for_you_head") {
+                        Heading(albumsForYouRow?.title?.takeIf { it.isNotBlank() } ?: "Albums for you", albumsForYouRow?.strapline ?: "NEW FULL-LENGTH RECORDS")
+                    }
+                    item(key = "albums_for_you_items") {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 20.dp),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            modifier = Modifier.padding(top = 14.dp),
+                        ) {
+                            items(albumsForYouItems.take(15), key = { "album_${it.uri}" }) { entry ->
+                                val isPlayingThis = isPlaying && (currentContextUri == entry.uri || currentTrackUri == entry.uri)
+                                val isSaved = isPlaylistSaved(entry.uri)
+                                val bannerUrl = customBanners[entry.uri] ?: entry.artworkUrl
+                                PlaylistTile(
+                                    playlist = entry.copy(artworkUrl = bannerUrl),
+                                    isPlayingThis = isPlayingThis,
+                                    playingColor = playingColor,
+                                    isSaved = isSaved,
+                                    onSave = { onSavePlaylist(entry) },
+                                    onClick = { onOpenPlaylist(entry) },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 7. Energize (High energy & workout category)
+                if (energizeRow != null && (energizeRow.tracks.isNotEmpty() || energizeRow.items.isNotEmpty())) {
+                    item(key = "energize_head") {
+                        Heading(energizeRow.title, energizeRow.strapline ?: "HIGH ENERGY & FOCUS")
+                    }
+                    if (energizeRow.tracks.isNotEmpty()) {
+                        item(key = "energize_tracks") {
+                            TrackRow(
+                                tracks = energizeRow.tracks.take(16),
+                                currentTrackUri = currentTrackUri,
+                                isPlaying = isPlaying,
+                                playingColor = playingColor,
+                            ) { i ->
+                                onPlayTrending(energizeRow.tracks, i)
+                            }
+                        }
+                    } else if (energizeRow.items.isNotEmpty()) {
+                        item(key = "energize_items") {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 20.dp),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                modifier = Modifier.padding(top = 14.dp),
+                            ) {
+                                items(energizeRow.items.take(15), key = { "energize_${it.uri}" }) { entry ->
+                                    val isPlayingThis = isPlaying && (currentContextUri == entry.uri || currentTrackUri == entry.uri)
+                                    val isSaved = isPlaylistSaved(entry.uri)
+                                    val bannerUrl = customBanners[entry.uri] ?: entry.artworkUrl
+                                    PlaylistTile(
+                                        playlist = entry.copy(artworkUrl = bannerUrl),
+                                        isPlayingThis = isPlayingThis,
+                                        playingColor = playingColor,
+                                        isSaved = isSaved,
+                                        onSave = { onSavePlaylist(entry) },
+                                        onClick = { onOpenPlaylist(entry) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 7. Community Mixes / Curated Playlists (if present)
+                if (communityPlaylistsRow != null && communityPlaylistsRow.items.isNotEmpty()) {
+                    item(key = "community_playlists_head") {
+                        val title = if (communityPlaylistsRow.title.isNotBlank()) communityPlaylistsRow.title else "From Community"
+                        Heading(title, communityPlaylistsRow.strapline ?: "HANDPICKED MIXES & PLAYLISTS")
+                    }
+                    item(key = "community_playlists_items") {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 20.dp),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            modifier = Modifier.padding(top = 14.dp),
+                        ) {
+                            items(communityPlaylistsRow.items.take(15), key = { "comm_${it.uri}" }) { entry ->
+                                val isPlayingThis = isPlaying && (currentContextUri == entry.uri || currentTrackUri == entry.uri)
+                                val isSaved = isPlaylistSaved(entry.uri)
+                                val bannerUrl = customBanners[entry.uri] ?: entry.artworkUrl
+                                PlaylistTile(
+                                    playlist = entry.copy(artworkUrl = bannerUrl),
+                                    isPlayingThis = isPlayingThis,
+                                    playingColor = playingColor,
+                                    isSaved = isSaved,
+                                    onSave = { onSavePlaylist(entry) },
+                                    onClick = { onOpenPlaylist(entry) },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 8. Favorite Artists (Placed strictly under From Community)
+                if (favoriteArtists.isNotEmpty()) {
+                    item(key = "fav_artists_head") {
+                        Heading("Favorite Artists", "STARRED VOICES")
+                    }
+                    item(key = "fav_artists_row") {
+                        FavoriteArtistsRow(
+                            artists = favoriteArtists,
+                            onOpenArtist = onOpenArtist,
+                        )
+                    }
+                }
+
+                // 9. Play again / My History
                 if (historyTracks.isNotEmpty()) {
                     item(key = "history_head") {
-                        Heading(stringResource(R.string.play_again), "MY HISTORY")
+                        Heading(stringResource(R.string.play_again), "FROM YOUR HISTORY")
                     }
                     item(key = "history_tracks") {
                         TrackRow(
@@ -959,8 +1275,11 @@ fun HomeScreen(
     youtubeMode: Boolean = false,
     onRetryOnline: (suspend () -> Boolean)? = null,
     youtubeHome: MainViewModel.YouTubeHomeState = MainViewModel.YouTubeHomeState(),
+    recommendedQuickPicks: List<CatalogTrack> = emptyList(),
     sourceNew: List<com.abhishek.ame.backend.HomeRow> = emptyList(),
     userPlaylists: List<CatalogPlaylist> = emptyList(),
+    followedArtists: List<com.abhishek.ame.data.SearchItem> = emptyList(),
+    onOpenArtist: (com.abhishek.ame.data.SearchItem) -> Unit = onOpenItem,
     onPlayTrending: (List<CatalogTrack>, Int) -> Unit = { _, _ -> },
     onPickYouTubeChip: (com.abhishek.ame.backend.HomeChip?) -> Unit = {},
     onLoadMoreYouTube: () -> Unit = {},
@@ -990,7 +1309,10 @@ fun HomeScreen(
         YouTubeHome(
             contentPadding = contentPadding,
             home = youtubeHome,
+            recommendedQuickPicks = recommendedQuickPicks,
             sourceNew = sourceNew,
+            followedArtists = followedArtists,
+            onOpenArtist = onOpenArtist,
             recent = recent,
             accountName = accountName,
             backdrop = backdrop,

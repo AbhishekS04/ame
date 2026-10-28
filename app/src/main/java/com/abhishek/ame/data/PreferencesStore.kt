@@ -278,7 +278,7 @@ class PreferencesStore(context: Context) {
         prefs.edit().putBoolean(KEY_SPONSOR_BLOCK, value).apply()
     }
 
-    private val _autoplayInfinite = MutableStateFlow(prefs.getBoolean(KEY_AUTOPLAY_INFINITE, false))
+    private val _autoplayInfinite = MutableStateFlow(prefs.getBoolean(KEY_AUTOPLAY_INFINITE, true))
 
     /** Whether playback automatically appends similar tracks when reaching queue end. */
     val autoplayInfinite: StateFlow<Boolean> = _autoplayInfinite.asStateFlow()
@@ -426,6 +426,22 @@ class PreferencesStore(context: Context) {
         }
     }
 
+    private val _notificationsEnabled = MutableStateFlow(prefs.getBoolean(KEY_NOTIFICATIONS_ENABLED, true))
+    val notificationsEnabled: StateFlow<Boolean> = _notificationsEnabled.asStateFlow()
+
+    fun setNotificationsEnabled(value: Boolean) {
+        _notificationsEnabled.value = value
+        prefs.edit().putBoolean(KEY_NOTIFICATIONS_ENABLED, value).apply()
+    }
+
+    private val _musicRemindersEnabled = MutableStateFlow(prefs.getBoolean(KEY_MUSIC_REMINDERS_ENABLED, true))
+    val musicRemindersEnabled: StateFlow<Boolean> = _musicRemindersEnabled.asStateFlow()
+
+    fun setMusicRemindersEnabled(value: Boolean) {
+        _musicRemindersEnabled.value = value
+        prefs.edit().putBoolean(KEY_MUSIC_REMINDERS_ENABLED, value).apply()
+    }
+
     private companion object {
         const val FILE_NAME = "ame_preferences"
         const val KEY_TRACK_SORT = "track_sort"
@@ -454,6 +470,8 @@ class PreferencesStore(context: Context) {
         const val KEY_UPDATE_CHANNEL = "update_channel"
         const val KEY_SKIPPED_UPDATE = "skipped_update"
         const val KEY_USER_COUNTRY = "user_country"
+        const val KEY_NOTIFICATIONS_ENABLED = "notifications_enabled"
+        const val KEY_MUSIC_REMINDERS_ENABLED = "music_reminders_enabled"
     }
 }
 

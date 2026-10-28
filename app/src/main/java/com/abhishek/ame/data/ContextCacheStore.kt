@@ -100,8 +100,12 @@ class ContextCacheStore(context: Context) {
                     json.decodeFromString(Entry.serializer(), file.readText())
                 }.getOrNull() ?: continue
                 if (entry.savedAt <= cutoff) continue
-                if (!entry.uri.startsWith("spotify:playlist:")) continue
-                entry.tracks.forEach { add(it.uri) }
+                if (!isPlaylistUri(entry.uri)) continue
+                entry.tracks.forEach { track ->
+                    add(track.uri)
+                    val id = track.uri.substringAfterLast(':').takeIf { it.isNotBlank() }
+                    if (id != null) add(id)
+                }
             }
         }
     }
@@ -109,19 +113,30 @@ class ContextCacheStore(context: Context) {
     /**
      * The playlists this device holds that have [trackUri] in them.
      *
-     * For the ticks in the playlist picker, which say where the track already
-     * is so that picking one of those takes it out; the same caveat as
-     * [tracksInPlaylists] about what the app has seen.
+     * Matches by exact URI, by video/track ID, or by title and artist match.
      */
-    suspend fun playlistsWith(trackUri: String): Set<String> = withContext(Dispatchers.IO) {
+    suspend fun playlistsWith(
+        trackUri: String,
+        trackTitle: String? = null,
+        artist: String? = null,
+    ): Set<String> = withContext(Dispatchers.IO) {
         val cutoff = System.currentTimeMillis() - MAX_AGE_MS
+        val id = trackUri.substringAfterLast(':').takeIf { it.isNotBlank() }
+        val normTitle = trackTitle?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+        val normArtist = artist?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
         dir.listFiles().orEmpty().mapNotNullTo(mutableSetOf()) { file ->
             val entry = runCatching {
                 json.decodeFromString(Entry.serializer(), file.readText())
             }.getOrNull() ?: return@mapNotNullTo null
             entry.uri.takeIf {
-                entry.savedAt > cutoff && it.startsWith("spotify:playlist:") &&
-                    entry.tracks.any { track -> track.uri == trackUri }
+                entry.savedAt > cutoff && isPlaylistUri(it) &&
+                    entry.tracks.any { track ->
+                        track.uri == trackUri ||
+                            (id != null && track.uri.substringAfterLast(':') == id) ||
+                            (normTitle != null && normArtist != null &&
+                                track.name.trim().lowercase() == normTitle &&
+                                track.artist.trim().lowercase() == normArtist)
+                    }
             }
         }
     }
@@ -147,9 +162,19 @@ class ContextCacheStore(context: Context) {
     // it escapes.
     private fun fileFor(uri: String) = File(dir, "${uri.hashCode().toUInt().toString(16)}.json")
 
-    private companion object {
+    companion object {
         const val DIR_NAME = "contexts"
         const val MAX_ENTRIES = 40
+
+        fun isPlaylistUri(uri: String): Boolean {
+            if (uri.startsWith("spotify:playlist:")) return true
+            if (uri == com.abhishek.ame.backend.youtube.YouTubeBackend.LIKED_MUSIC_URI) return false
+            if (uri.startsWith(com.abhishek.ame.backend.youtube.YouTubeBackend.PLAYLIST_PREFIX)) {
+                val id = uri.removePrefix(com.abhishek.ame.backend.youtube.YouTubeBackend.PLAYLIST_PREFIX)
+                return id.startsWith("PL") || id.startsWith("VLPL")
+            }
+            return false
+        }
 
         /**
          * Old entries are dropped rather than trusted indefinitely.

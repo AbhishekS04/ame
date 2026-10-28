@@ -1,5 +1,65 @@
 # Project State: Ame
 
+## Latest Feature: Funky Badass App Icon Switcher & Dynamic Launcher Restart
+
+1. **8 Unique App Icon Variants (`AppIconManager.kt`, `AndroidManifest.xml`, `SettingsScreen.kt`)**:
+   - **8 Funky Badass Variants**:
+     - **Default**: Original Ame Star emblem (`MainActivity` / `MainActivityDefault`).
+     - **True Dark**: Pure AMOLED black stealth edition (`MainActivityDark`).
+     - **Orbit**: Cosmic distressed Ame ring orbit (`MainActivityOrbit`).
+     - **Blue Drip**: Streetwear aesthetic distressed blue liquid drip (`MainActivityBlueDrip`).
+     - **Galactic**: Deep nebula celestial star burst (`MainActivityGalactic`).
+     - **Gothic**: Heavy metallic distressed gothic emblem (`MainActivityGothic`).
+     - **Vinyl Orbit**: Classic vinyl grooves with cosmic center label (`MainActivityVinyl`).
+     - **Ame Stars**: Retro distressed triple star constellation (`MainActivityStars`).
+   - **Full Density Launcher & Adaptive Mipmaps**:
+     - Generated adaptive XML (`mipmap-anydpi-v26`) and legacy density mipmaps (`mdpi` through `xxxhdpi`) for all 8 icons.
+     - Cropped and scaled badges with 76dp safe zones on 108dp canvases to prevent launcher mask clipping across all Android OEMs (OneUI, Pixel, HyperOS).
+     - Generated high-resolution 512x512 squircle preview drawables (`res/drawable/preview_icon_*`).
+   - **Interactive In-App Selector (`SettingsScreen.kt`)**:
+     - 3-column squircle grid matching Spotify/Apple Music design language under `Settings > App > Appearance > App Icon`.
+     - 64dp squircles with 18dp rounded corners, 2dp green outline (`#22C55E`), and top-right check badge on the active icon.
+     - Single-tap selection with dynamic launcher switching via `AppIconManager.setAppIcon` and seamless restart.
+
+
+## Latest Feature: Curated Home Hub, Clean Starred Voices, Fresh Trending/Albums/Energize Shelves & Pristine Library
+
+1. **Clean Starred Artists on Home Screen (`HomeScreen.kt`, `MainViewModel.kt`, `FollowedArtistsStore.kt`)**:
+   - **Fixed Random Artist Injection**: Eliminated fake "algoArtists" and YouTube channel subscription pollution. `followedArtists` now strictly reflects artists explicitly starred by the user in Ame on-device (`FollowedArtistsStore`).
+   - **Ponytail Ultra Minimalist Circles**: Replaced yellow borders and yellow star badges with clean, minimalist 72dp circular avatars featuring a subtle 0.75dp specular white border (`alpha = 0.16f`), soft shadow, and clean `"Artist"` sublabel.
+   - **Exact Requested Positioning**: Positioned directly under **New Releases** (Order: Quick Picks → New Releases → Favorite Artists). Only renders when the user has starred one or more artists.
+
+2. **Pristine Library Screen (`LibraryScreen.kt`, `CdJewelCard.kt`)**:
+   - Completely removed artists from the Library screen and restored the CD Jewel Case layout.
+   - Kept the Library exclusively dedicated to user playlists, albums, podcasts, and local downloads.
+
+3. **Fresh Dynamic Categories from YouTube Music (`YouTubeBackend.kt`, `MainViewModel.kt`)**:
+   - **Eliminated 2–3 Day Stale Caching**: Added `loadSourceNew(force = true)` on Home navigation, ensuring new music and charts update dynamically.
+   - **Trending songs for you**: Fetches daily trending chart-toppers directly from YouTube Music charts (`YouTube.getChartsPage()`) with strapline `"POPULAR TODAY"`.
+   - **Albums for you**: Fetches fresh full-length studio albums directly from `YouTube.newReleaseAlbums()` (`FEmusic_new_releases_albums`) with strapline `"NEW FULL-LENGTH RECORDS"`.
+   - **Energize Category**: Added dedicated high-energy and focus shelf from YouTube Music's Energize mood category with strapline `"HIGH ENERGY & FOCUS"`.
+
+4. **Dedicated Like Button, YouTube Music Like Sync & Smart Playlist Validation**:
+- **100% On-Device & Zero Server Dependency**:
+  - Implemented high-performance native recommendation engine in Rust (`native/src/recs.rs`), running in sub-millisecond execution time directly on the phone via `libamecore.so`.
+  - **Implicit Feedback Modeling**: Evaluates play completion ratios, awards repeat listen bonuses (+1.5), applies fast skip (<30s) penalties (-2.5), and scales weights by an exponential recency decay (14-day half life).
+  - **CoSeRNN-Lite Session Context Dynamics**: Segments listening patterns into 4 distinct time-of-day buckets (Late Night, Morning, Afternoon, Evening) and factors in recent session momentum (artists from the last 3-5 played songs).
+  - **BaRT Contextual Multi-Armed Bandits (Explore / Exploit / Explain)**:
+    - *Exploitation*: Balances artist affinity, track affinity, time-of-day alignment, and liked songs.
+    - *Exploration*: Uses UCB1 uncertainty bonuses ($c \cdot \sqrt{\ln(N+1)/(n_i+1)}$) to surface discovery gems and prevent echo chambers.
+    - *Explainability*: Attaches transparent attribution badges to every recommended pick (*"Because you love {artist}"*, *"On heavy repeat"*, *"Late night vibe"*, *"Fresh pick from {artist}"*).
+    - *Diversity Guardrails*: Caps per-artist saturation to max 2 items in top positions, ensuring broad genre and artist variety.
+- **Rich Quick Picks Carousel Expansion (`HomeScreen.kt`, `MainViewModel.kt`)**:
+  - Expanded Quick Picks from a static 16-item list to a rich 40-song pool (10 horizontal snap columns of 4 songs each).
+  - Subtitles dynamically display the artist along with the AI recommendation reason (e.g., `The Weeknd • Because you love The Weeknd`).
+  - Strapline dynamically updates to `TAILORED FOR YOU • ON-DEVICE AI` when personalized recommendations are active.
+- **Removed Story Studio UI**:
+  - Removed share action buttons from `PlayerScreen.kt` and `AmeApp.kt` bottom sheet, restoring pristine minimalism. Complete technical specification preserved in `holdtot.md`.
+
+## Features on Hold: Ame Story Studio & Social Sharing
+- Placed on hold per user decision. All technical specifications, architecture diagrams, file mappings, and resumption steps are comprehensively documented in [`holdtot.md`](file:///run/media/abhishek/BBC/best-projects/ame/holdtot.md).
+- Working prototype files preserved under `app/src/main/java/com/abhishek/ame/ui/story/`.
+
 ## Current Status: v1.2.0 Stable Released — True Dark AMOLED, Pristine White Thumb, Buffering Shimmer, & Clean Player Chrome
 
 - **Time Bar Buffering Shimmer & Pristine White Slider Thumb (`GlassProgressBar.kt`)**:

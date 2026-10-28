@@ -69,6 +69,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import com.adamglin.phosphoricons.fill.User
 import com.adamglin.phosphoricons.fill.XCircle
+import com.adamglin.phosphoricons.fill.BookmarkSimple
+import com.adamglin.phosphoricons.regular.BookmarkSimple
 import com.adamglin.phosphoricons.regular.Waveform
 import com.abhishek.ame.ui.glass.floatingtabbar.FloatingTabBar
 import com.abhishek.ame.ui.glass.floatingtabbar.sharedSearchTab
@@ -491,6 +493,7 @@ fun AmeApp(
      * already open is still a request.
      */
     openPlayer: Int = 0,
+    openSettings: Int = 0,
     /** A Spotify link the app was opened with; see [LinkRequest]. */
     link: LinkRequest? = null,
     viewModel: MainViewModel = viewModel(),
@@ -1073,6 +1076,7 @@ fun AmeApp(
     val backendChosen by preferences.backendChosen.collectAsStateWithLifecycle()
     val backend by preferences.backend.collectAsStateWithLifecycle()
     val youtubeHome by viewModel.youtubeHome.collectAsStateWithLifecycle()
+    val recommendedQuickPicks by viewModel.recommendedQuickPicks.collectAsStateWithLifecycle()
     val sourceNew by viewModel.sourceNew.collectAsStateWithLifecycle()
     val sourceRadio by viewModel.sourceRadio.collectAsStateWithLifecycle()
     // Whether YouTube Music knows whose it is, for the pages that suggest
@@ -1291,10 +1295,12 @@ fun AmeApp(
      */
     var lyricsFor by remember { mutableStateOf<String?>(null) }
 
-    // One small question per track: is this one saved? The player draws a heart
-    // from the answer, and there is no other way to know without reading the
-    // whole of Liked Songs.
-    LaunchedEffect(playback.mediaId) { viewModel.checkLiked(playback.mediaId) }
+    // One small question per track: is this one saved or in playlists? The player draws a heart
+    // and checkmark from the answer.
+    LaunchedEffect(playback.mediaId, playback.title, playback.artist) {
+        viewModel.checkLiked(playback.mediaId, playback.title, playback.artist)
+        viewModel.checkTrackMembership(playback.mediaId, playback.title, playback.artist)
+    }
 
     // Fetched per track. Most of the catalogue has none, so a null result is an
     // ordinary answer that shows an empty state rather than an error.
@@ -1585,6 +1591,12 @@ fun AmeApp(
                 // is showing without the route changing at all.
                 LaunchedEffect(route, playlist.uri) { navFreeze.mark() }
 
+                LaunchedEffect(openSettings) {
+                    if (openSettings > 0) {
+                        navController.navigate(Routes.SETTINGS)
+                    }
+                }
+
                 // Which tab the bar shows as the current one.
                 //
                 // Not the route: a playlist, an album and an artist are pages
@@ -1844,7 +1856,8 @@ fun AmeApp(
                                 viewModel.loadBrowse()
                                 viewModel.loadFeed()
                                 viewModel.loadYouTubeHome()
-                                viewModel.loadSourceNew()
+                                viewModel.loadSourceNew(force = true)
+                                viewModel.loadFollowedArtists()
                             }
                             HomeScreen(
                                 state = state,
@@ -1858,6 +1871,13 @@ fun AmeApp(
                                 recent = recent,
                                 sourceNew = sourceNew.rows,
                                 userPlaylists = (state as? MainViewModel.UiState.Ready)?.playlists.orEmpty(),
+                                followedArtists = followedArtists,
+                                onOpenArtist = { artist ->
+                                    viewModel.openContext(artist.uri, artist.title, artist.artworkUrl)
+                                    if (navController.currentDestination?.route != Routes.PLAYLIST) {
+                                        navController.navigate(Routes.PLAYLIST) { launchSingleTop = true }
+                                    }
+                                },
                                 onPlayRecent = { tracks, index ->
                                     onPlay(tracks, index, null, false, playAgainLabel, 0L)
                                 },
@@ -1876,6 +1896,7 @@ fun AmeApp(
                                     backend != com.abhishek.ame.backend.BackendId.SPOTIFY,
                                 onRetryOnline = viewModel::retryOnline,
                                 youtubeHome = youtubeHome,
+                                recommendedQuickPicks = recommendedQuickPicks,
                                 shelves = homeShelves,
                                 shelvesLoading = homeShelvesLoading,
                                 podcastShelves = podcastShelves,
@@ -1931,7 +1952,13 @@ fun AmeApp(
                                 playingColor = dynamicPlayingColor,
                                 customBanners = customBanners,
                                 savedPlaylists = savedPlaylists,
-                                onSavePlaylist = viewModel::savePublicPlaylist,
+                                onSavePlaylist = { pl ->
+                                    if (viewModel.isPlaylistSaved(pl.uri)) {
+                                        viewModel.removePublicPlaylist(pl.uri)
+                                    } else {
+                                        viewModel.savePublicPlaylist(pl)
+                                    }
+                                },
                                 accountName = customProfileDisplayName ?: if (backend != com.abhishek.ame.backend.BackendId.SPOTIFY) {
                                     youtubeAccountName
                                 } else {
@@ -3538,15 +3565,16 @@ fun AmeApp(
                                 // that list has been read into the cache.
                                 alreadySaved = playback.mediaId != null &&
                                     (
-                                        playback.mediaId in inPlaylists ||
-                                            (
-                                                (state as? MainViewModel.UiState.Ready)?.playlists
-                                                    ?.any { it.uri == playback.contextUri } == true &&
-                                                    "${playback.contextUri}|${playback.mediaId}" !in takenOut
-                                                )
-                                        ),
-                                inLikedSongs = playback.mediaId != null &&
-                                    playback.mediaId in likedTracks,
+                                        viewModel.isTrackInPlaylists(playback.mediaId, playback.title, playback.artist) ||
+                                            playback.mediaId in inPlaylists ||
+                                            (playback.mediaId?.substringAfterLast(':')?.let { it.isNotEmpty() && it in inPlaylists } == true) ||
+                                            (addToPlaylist.trackUri == playback.mediaId && addToPlaylist.containing.isNotEmpty())
+                                    ),
+                                inLikedSongs = playback.mediaId != null && (
+                                    playback.mediaId in likedTracks ||
+                                        (playback.mediaId?.substringAfterLast(':')?.let { it.isNotEmpty() && it in likedTracks } == true) ||
+                                        viewModel.isLiked(playback.mediaId, playback.title, playback.artist)
+                                ),
                                 // The song's own radio, from the service it
                                 // came from: Spotify's station or YouTube
                                 // Music's, each meaningless to the other.
@@ -3620,15 +3648,19 @@ fun AmeApp(
                                         contextUri = playback.contextUri,
                                     )
                                 },
-                                // The heart is Spotify's library. On the other
-                                // source the button is a plus instead and opens
-                                // the lists, liked songs among them.
-                                onToggleLike = playback.mediaId
-                                    ?.takeIf {
-                                        it.startsWith("spotify:") &&
-                                            backend == com.abhishek.ame.backend.BackendId.SPOTIFY
+                                onAddAutoplayToPlaylist = if (playback.isAutoplay && !playback.originPlaylistUri.isNullOrBlank()) {
+                                    {
+                                        viewModel.addTrackToPlaylistDirect(
+                                            playlistUri = playback.originPlaylistUri!!,
+                                            playlistName = playback.originPlaylistName.orEmpty(),
+                                            trackUri = playback.mediaId.orEmpty(),
+                                            trackTitle = playback.title,
+                                            artist = playback.artist,
+                                            artworkUrl = playback.artworkUrl,
+                                        )
                                     }
-                                    ?.let { uri ->
+                                } else null,
+                                onToggleLike = playback.mediaId?.let { uri ->
                                     {
                                         viewModel.toggleLike(
                                             uri,
@@ -3643,7 +3675,7 @@ fun AmeApp(
                                 playlistEditAvailable =
                                     backend == com.abhishek.ame.backend.BackendId.SPOTIFY ||
                                         (viewModel.canEditPlaylists && !offlineNow &&
-                                            playback.mediaId?.startsWith("ytmusic:track:") == true),
+                                            playback.mediaId != null),
                                 onWatchVideo = player
                                     ?.takeIf {
                                         // A video is streamed, so there is
@@ -3706,27 +3738,43 @@ fun AmeApp(
                     onDismiss = { playlistMenu = null },
                 ) {
                     if (shownPlaylist != null) {
-                        // First action: this is the one that costs nothing and
-                        // can be undone by pressing it again.
-                        val isPinned = shownPlaylist.uri in pinnedPlaylists
+                        // First action: Save to library / Remove from library
+                        val isSavedToLib = viewModel.isPlaylistSaved(shownPlaylist.uri) ||
+                            ((playlist.uri == shownPlaylist.uri && playlist.saved == true) || playlistMenuSaved)
+                        TrackSheetAction(
+                            stringResource(if (isSavedToLib) R.string.remove_from_library else R.string.add_to_library),
+                            if (isSavedToLib) PhosphorIcons.Fill.BookmarkSimple else PhosphorIcons.Regular.BookmarkSimple,
+                        ) {
+                            playlistMenu = null
+                            if (playlist.uri == shownPlaylist.uri) {
+                                viewModel.toggleSaved()
+                            } else {
+                                if (isSavedToLib) {
+                                    viewModel.removePublicPlaylist(shownPlaylist.uri)
+                                } else {
+                                    viewModel.savePublicPlaylist(shownPlaylist)
+                                }
+                            }
+                        }
+
                         // Pinning is about where a row sits in the library, so
                         // it is offered for what is in the library. A playlist
                         // you are only looking at has no row to move.
-                        if (playlistMenuSaved) TrackSheetAction(
+                        val isPinned = shownPlaylist.uri in pinnedPlaylists
+                        if (isSavedToLib) TrackSheetAction(
                             stringResource(if (isPinned) R.string.unpin else R.string.pin),
                             PhosphorIcons.Regular.PushPin,
                         ) {
                             viewModel.togglePinned(shownPlaylist.uri)
                             playlistMenu = null
                         }
-                        // The whole record, or the whole list, into a
-                        // playlist: what the open page holds, in its order.
+                        // The whole record, or the whole list, into another playlist
                         if (playlist.uri == shownPlaylist.uri && playlist.tracks.isNotEmpty() &&
                             (playlist.kind == MainViewModel.DetailKind.ALBUM ||
                                 playlist.kind == MainViewModel.DetailKind.PLAYLIST)
                         ) TrackSheetAction(
                             stringResource(R.string.add_to_playlist),
-                            PhosphorIcons.Regular.Plus,
+                            PhosphorIcons.Regular.Queue,
                         ) {
                             playlistMenu = null
                             viewModel.openAddAllToPlaylist(playlist.tracks, playlist.name)
@@ -4120,7 +4168,6 @@ fun AmeApp(
                         }
                     }
                 }
-
 
                 FriendsPanel(
                     visible = friendsOpen,

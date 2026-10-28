@@ -164,7 +164,9 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
-            if (playbackState == androidx.media3.common.Player.STATE_READY) {
+            if (playbackState == androidx.media3.common.Player.STATE_READY ||
+                playbackState == androidx.media3.common.Player.STATE_ENDED
+            ) {
                 maybeTriggerAutoplay(player.currentMediaItem)
             }
         }
@@ -254,26 +256,58 @@ class PlaybackService : MediaLibraryService() {
 
         val current = mediaItem ?: player.currentMediaItem ?: return
         val currentUri = current.mediaId
-        if (!currentUri.startsWith("spotify:track:")) return
+        if (currentUri.isBlank()) return
 
         val currentIdx = player.currentMediaItemIndex
         val totalCount = player.mediaItemCount
         val remaining = totalCount - currentIdx - 1
-        if (remaining > 2) return
+        if (remaining > 3) return
 
         val toAdd = (AUTOPLAY_QUEUE_CAP - remaining).coerceAtLeast(0)
         if (toAdd <= 0) return
 
-        if (autoplayInFlight || currentUri == lastAutoplayTrackUri) return
+        val isEnded = player.playbackState == androidx.media3.common.Player.STATE_ENDED
+        if (autoplayInFlight || (currentUri == lastAutoplayTrackUri && !isEnded)) return
         autoplayInFlight = true
         lastAutoplayTrackUri = currentUri
 
+        val extras = current.mediaMetadata.extras
+        val contextUri = extras?.getString(com.abhishek.ame.ui.EXTRA_CONTEXT_URI)
+        val contextLabel = extras?.getString(com.abhishek.ame.ui.EXTRA_CONTEXT_LABEL).orEmpty()
+        val originPlaylistUri = extras?.getString(com.abhishek.ame.ui.EXTRA_ORIGIN_PLAYLIST_URI)
+            ?: contextUri?.takeIf {
+                it.startsWith("spotify:playlist:") ||
+                    it.startsWith(com.abhishek.ame.backend.youtube.YouTubeBackend.PLAYLIST_PREFIX) ||
+                    it.contains(":playlist:") ||
+                    it.endsWith(":LM")
+            }
+        val originPlaylistName = extras?.getString(com.abhishek.ame.ui.EXTRA_ORIGIN_PLAYLIST_NAME)
+            ?: contextLabel.takeIf { it.isNotBlank() }
+
         scope.launch(Dispatchers.IO) {
             try {
-                val id = currentUri.substringAfterLast(':')
-                val stationUri = "spotify:station:track:$id"
-                val stationTrackUris = com.abhishek.ame.data.Catalog.contextTrackUris(stationUri)
-                val catalogTracks = com.abhishek.ame.data.Catalog.tracks(stationTrackUris)
+                val rawTracks = if (currentUri.startsWith("spotify:track:")) {
+                    val id = currentUri.substringAfterLast(':')
+                    val stationUri = "spotify:station:track:$id"
+                    val stationTrackUris = com.abhishek.ame.data.Catalog.contextTrackUris(stationUri)
+                    com.abhishek.ame.data.Catalog.tracks(stationTrackUris)
+                } else {
+                    container.youtubeBackend.radio(currentUri)
+                }
+
+                // On-Device Spotify-grade Re-ranking via Rust Native Recommendation Engine
+                val catalogTracks = runCatching {
+                    val historyEvents = container.listeningStore.events.value
+                    val likedSet = container.likedStore.likedTracks.value
+                    val recentList = container.recentStore.tracks.value
+                    com.abhishek.ame.backend.recs.RecommendationEngine.rankQuickPicks(
+                        candidates = rawTracks,
+                        events = historyEvents,
+                        likedUris = likedSet,
+                        recentTracks = recentList,
+                    )
+                }.getOrNull()?.takeIf { it.isNotEmpty() } ?: rawTracks
+
                 withContext(Dispatchers.Main) {
                     val currentUris = (0 until player.mediaItemCount)
                         .mapNotNull { player.getMediaItemAt(it).mediaId }
@@ -285,8 +319,15 @@ class PlaybackService : MediaLibraryService() {
                                 uri = track.uri,
                                 title = track.name,
                                 artist = track.artist,
-                                durationSec = if (track.durationMs > 0) track.durationMs / 1000 else 0L
+                                durationSec = if (track.durationMs > 0) track.durationMs / 1000 else 0L,
                             )
+                            val itemExtras = android.os.Bundle().apply {
+                                putBoolean(com.abhishek.ame.ui.EXTRA_IS_AUTOPLAY, true)
+                                originPlaylistUri?.let { putString(com.abhishek.ame.ui.EXTRA_ORIGIN_PLAYLIST_URI, it) }
+                                originPlaylistName?.let { putString(com.abhishek.ame.ui.EXTRA_ORIGIN_PLAYLIST_NAME, it) }
+                                putString(com.abhishek.ame.ui.EXTRA_CONTEXT_URI, "radio:$currentUri")
+                                originPlaylistName?.let { putString(com.abhishek.ame.ui.EXTRA_CONTEXT_LABEL, it) }
+                            }
                             androidx.media3.common.MediaItem.Builder()
                                 .setMediaId(track.uri)
                                 .setUri(track.uri)
@@ -301,14 +342,21 @@ class PlaybackService : MediaLibraryService() {
                                                 com.abhishek.ame.download.DownloadExtras.fileOf(url, "art")
                                                     ?.let(android.net.Uri::fromFile)
                                                     ?: android.net.Uri.parse(url)
-                                            }
+                                            },
                                         )
-                                        .build()
+                                        .setExtras(itemExtras)
+                                        .build(),
                                 )
                                 .build()
                         }
-                        android.util.Log.i(TAG, "Autoplay: appending ${items.size} tracks for $currentUri (queue cap: $AUTOPLAY_QUEUE_CAP)")
+                        android.util.Log.i(TAG, "Autoplay: appending ${items.size} tracks for $currentUri (origin: $originPlaylistName)")
                         player.addMediaItems(items)
+                        if (player.playbackState == androidx.media3.common.Player.STATE_ENDED) {
+                            player.prepare()
+                            player.play()
+                        } else if (!player.isPlaying && player.playWhenReady) {
+                            player.play()
+                        }
                     }
                 }
             } catch (t: Throwable) {

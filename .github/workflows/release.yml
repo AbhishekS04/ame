@@ -110,7 +110,11 @@ jobs:
         # and gh uploads several files at once in no fixed order.
         run: |
           name="ame-${{ steps.version.outputs.name }}"
-          cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
+          notes_file="$RUNNER_TEMP/release-notes.md"
+          if [ -f "RELEASE_NOTES.md" ]; then
+            cp "RELEASE_NOTES.md" "$notes_file"
+          else
+            cat > "$notes_file" <<'NOTES'
           This release improves audio fidelity resolution and playback reliability.
 
           Highlights
@@ -119,15 +123,20 @@ jobs:
           - Improved external stream caching, prefetching, retry handling, and standard-quality fallback behavior.
           - Improved playback stability across queue transitions and network interruptions.
           NOTES
+          fi
+          prerelease_flag=""
+          if [[ "${{ steps.version.outputs.name }}" == *"-"* ]]; then
+            prerelease_flag="--prerelease"
+          fi
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
             gh release edit "$GITHUB_REF_NAME" \
               --title "v${{ steps.version.outputs.name }}" \
-              --notes-file "$RUNNER_TEMP/release-notes.md"
+              --notes-file "$notes_file" $prerelease_flag
             gh release upload "$GITHUB_REF_NAME" "$name-arm64-v8a.apk" --clobber
           else
-            gh release create "$GITHUB_REF_NAME" "$name-arm64-v8a.apk" --draft \
+            gh release create "$GITHUB_REF_NAME" "$name-arm64-v8a.apk" \
               --title "v${{ steps.version.outputs.name }}" \
-              --notes-file "$RUNNER_TEMP/release-notes.md"
+              --notes-file "$notes_file" $prerelease_flag
           fi
           gh release upload "$GITHUB_REF_NAME" "$name-armeabi-v7a.apk" "$name-universal.apk" --clobber
 

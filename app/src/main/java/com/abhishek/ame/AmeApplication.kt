@@ -186,6 +186,11 @@ class AmeApplication : Application(), ImageLoaderFactory {
         com.abhishek.ame.data.LikedStore(this)
     }
 
+    /** Artists the listener has starred/followed on this device. */
+    val followedArtistsStore: com.abhishek.ame.data.FollowedArtistsStore by lazy {
+        com.abhishek.ame.data.FollowedArtistsStore(this)
+    }
+
     /** Playlists the listener keeps at the top of the library; this device's own. */
     val pinnedPlaylists: com.abhishek.ame.data.PinnedPlaylistStore by lazy {
         com.abhishek.ame.data.PinnedPlaylistStore(this)

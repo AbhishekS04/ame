@@ -128,6 +128,7 @@ class Updater(context: Context) {
         }
         _state.value =
             State.Available(result.version, result.url, result.bytes, result.notes)
+        com.abhishek.ame.notification.AmeNotificationManager.notifyUpdate(app, result.version, result.notes)
     }
 
     /**

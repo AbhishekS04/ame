@@ -37,6 +37,16 @@
     -->
     <queries>
         <package android:name="com.deniscerri.ytdl" />
+        <package android:name="com.instagram.android" />
+        <package android:name="com.snapchat.android" />
+        <intent>
+            <action android:name="com.instagram.share.ADD_TO_STORY" />
+            <data android:mimeType="image/*" />
+        </intent>
+        <intent>
+            <action android:name="com.instagram.share.ADD_TO_STORY" />
+            <data android:mimeType="video/*" />
+        </intent>
         <intent>
             <action android:name="android.intent.action.SEND" />
             <data android:mimeType="text/plain" />
@@ -68,12 +78,6 @@
             android:supportsPictureInPicture="true"
             android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
             android:windowSoftInputMode="adjustResize">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-                <!-- A music player, for whatever lists the phone's music apps. -->
-                <category android:name="android.intent.category.APP_MUSIC" />
-            </intent-filter>
 
             <!--
               Spotify's own scheme. Nothing verifies these, so a phone with both
@@ -118,6 +122,126 @@
             </intent-filter>
         </activity>
 
+        <!-- Dynamic Launcher Activity Alias: Default (White Studio) -->
+        <activity-alias
+            android:name=".ui.MainActivityDefault"
+            android:targetActivity=".ui.MainActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher_round">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- Dynamic Launcher Activity Alias: True Dark (AMOLED Black) -->
+        <activity-alias
+            android:name=".ui.MainActivityDark"
+            android:targetActivity=".ui.MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_dark"
+            android:roundIcon="@mipmap/ic_launcher_dark_round">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- Dynamic Launcher Activity Alias: Orbit -->
+        <activity-alias
+            android:name=".ui.MainActivityOrbit"
+            android:targetActivity=".ui.MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_orbit"
+            android:roundIcon="@mipmap/ic_launcher_orbit_round">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- Dynamic Launcher Activity Alias: Blue Drip -->
+        <activity-alias
+            android:name=".ui.MainActivityBlueDrip"
+            android:targetActivity=".ui.MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_bluedrip"
+            android:roundIcon="@mipmap/ic_launcher_bluedrip_round">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- Dynamic Launcher Activity Alias: Galactic -->
+        <activity-alias
+            android:name=".ui.MainActivityGalactic"
+            android:targetActivity=".ui.MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_galactic"
+            android:roundIcon="@mipmap/ic_launcher_galactic_round">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- Dynamic Launcher Activity Alias: Gothic -->
+        <activity-alias
+            android:name=".ui.MainActivityGothic"
+            android:targetActivity=".ui.MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_gothic"
+            android:roundIcon="@mipmap/ic_launcher_gothic_round">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- Dynamic Launcher Activity Alias: Vinyl Orbit -->
+        <activity-alias
+            android:name=".ui.MainActivityVinyl"
+            android:targetActivity=".ui.MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_vinyl"
+            android:roundIcon="@mipmap/ic_launcher_vinyl_round">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- Dynamic Launcher Activity Alias: Ame Stars -->
+        <activity-alias
+            android:name=".ui.MainActivityStars"
+            android:targetActivity=".ui.MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_stars"
+            android:roundIcon="@mipmap/ic_launcher_stars_round">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+            </intent-filter>
+        </activity-alias>
+
         <!--
           The download of a new version, which has to be allowed to finish:
           see UpdateService.
@@ -136,6 +260,10 @@
             android:name=".update.UpdateService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <receiver
+            android:name=".notification.MusicNotificationReceiver"
+            android:exported="false" />
 
         <!--
           Held while the listener signs in to Spotify in the browser, so the

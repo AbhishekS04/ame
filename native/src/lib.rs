@@ -12,6 +12,7 @@ mod engine;
 mod events;
 mod ffi;
 mod pathfinder;
+pub mod recs;
 mod remote;
 mod sink;
 

@@ -134,6 +134,8 @@ import com.adamglin.phosphoricons.fill.FloppyDisk
 import com.adamglin.phosphoricons.fill.Check
 import com.adamglin.phosphoricons.fill.MagnifyingGlass
 import com.adamglin.phosphoricons.fill.Play
+import com.adamglin.phosphoricons.fill.BookmarkSimple
+import com.adamglin.phosphoricons.regular.BookmarkSimple
 import com.adamglin.phosphoricons.bold.Shuffle
 import com.adamglin.phosphoricons.bold.Info
 import com.adamglin.phosphoricons.bold.ArrowDown
@@ -1394,9 +1396,9 @@ fun PlaylistScreen(
                 CapsuleAction(
                     tint = chromeInk,
                     icon = if (state.saved) {
-                        PhosphorIcons.Bold.Check
+                        PhosphorIcons.Fill.BookmarkSimple
                     } else {
-                        PhosphorIcons.Bold.Plus
+                        PhosphorIcons.Regular.BookmarkSimple
                     },
                     description = stringResource(
                         if (state.saved) R.string.remove_from_library else R.string.add_to_library,

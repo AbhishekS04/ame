@@ -600,6 +600,16 @@ class DownloadStore(context: Context) {
     private fun audioFile(trackId: String): File =
         File(File(root, "audio"), trackId.take(2)).resolve(trackId.drop(2))
 
+    fun audioFileFor(trackUri: String): File? {
+        val record = _files.value[trackUri] ?: return null
+        val file = if (trackUri.startsWith(com.abhishek.ame.backend.youtube.YouTubeBackend.TRACK_PREFIX)) {
+            File(File(root, YOUTUBE_DIR), "${record.trackId}.${record.format}")
+        } else {
+            audioFile(record.trackId)
+        }
+        return if (file.exists()) file else null
+    }
+
     /**
      * Whether a kept song's audio is still on the phone, wherever its source
      * keeps it: the engine's store for Spotify, a file of its own named after

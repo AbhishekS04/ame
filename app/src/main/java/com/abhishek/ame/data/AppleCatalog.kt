@@ -653,7 +653,13 @@ object AppleCatalog {
         val match = results.firstOrNull {
             it.jsonObject["attributes"]?.jsonObject?.get("name")?.jsonPrimitive?.content
                 ?.equals(name, ignoreCase = true) == true
-        } ?: return null
+        } ?: results.firstOrNull {
+            val candidate = it.jsonObject["attributes"]?.jsonObject?.get("name")?.jsonPrimitive?.content.orEmpty().trim()
+            candidate.equals(name.trim(), ignoreCase = true)
+        } ?: results.firstOrNull {
+            val candidate = it.jsonObject["attributes"]?.jsonObject?.get("name")?.jsonPrimitive?.content.orEmpty().trim()
+            candidate.contains(name.trim(), ignoreCase = true) || name.trim().contains(candidate, ignoreCase = true)
+        } ?: results.firstOrNull() ?: return null
 
         val attributes = match.jsonObject["attributes"]?.jsonObject ?: return null
         val editorial = attributes["editorialArtwork"]?.jsonObject

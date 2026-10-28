@@ -512,6 +512,66 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val youtubeHome: StateFlow<YouTubeHomeState> = _youtubeHome.asStateFlow()
     private var youtubeHomeJob: Job? = null
 
+    private val _recommendedQuickPicks = MutableStateFlow<List<CatalogTrack>>(emptyList())
+    val recommendedQuickPicks: StateFlow<List<CatalogTrack>> = _recommendedQuickPicks.asStateFlow()
+    private var recsJob: Job? = null
+
+    fun refreshRecommendedQuickPicks() {
+        recsJob?.cancel()
+        recsJob = viewModelScope.launch(Dispatchers.Default) {
+            val ytRows = _youtubeHome.value.rows
+            val newRows = _sourceNew.value.rows
+            val radioRows = _sourceRadio.value.rows
+            val quickPicksRow = ytRows.firstOrNull {
+                it.title.contains("Quick picks", ignoreCase = true) ||
+                it.title.contains("Top picks", ignoreCase = true)
+            } ?: ytRows.firstOrNull { it.tracks.size >= 4 }
+
+            val candidatePool = mutableListOf<CatalogTrack>()
+            val seenUris = mutableSetOf<String>()
+
+            fun addTracks(tracks: List<CatalogTrack>) {
+                for (t in tracks) {
+                    if (candidatePool.size >= 160) break
+                    if (seenUris.add(t.uri)) {
+                        candidatePool.add(t)
+                    }
+                }
+            }
+
+            if (quickPicksRow != null) {
+                addTracks(quickPicksRow.tracks)
+            }
+            for (row in ytRows) {
+                if (row !== quickPicksRow) addTracks(row.tracks)
+            }
+            for (row in newRows) {
+                addTracks(row.tracks)
+            }
+            for (row in radioRows) {
+                addTracks(row.tracks)
+            }
+            val recent = container.recentStore.tracks.value
+            addTracks(recent)
+
+            if (candidatePool.isEmpty()) {
+                _recommendedQuickPicks.value = emptyList()
+                return@launch
+            }
+
+            val events = container.listeningStore.events.value
+            val liked = container.likedStore.likedTracks.value
+
+            val ranked = com.abhishek.ame.backend.recs.RecommendationEngine.rankQuickPicks(
+                candidates = candidatePool,
+                events = events,
+                likedUris = liked,
+                recentTracks = recent,
+            )
+            _recommendedQuickPicks.value = ranked
+        }
+    }
+
     /** One of the other two tabs when the source is not Spotify; see [MusicBackend.newRows]. */
     data class SourceRowsState(
         val rows: List<HomeRow> = emptyList(),
@@ -654,6 +714,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private var socialSearchJob: kotlinx.coroutines.Job? = null
 
     init {
+        // Re-compute on-device AI recommendations when home feed, recents, or events update
+        viewModelScope.launch {
+            _youtubeHome.collectLatest { ytHome ->
+                if (ytHome.rows.isNotEmpty()) {
+                    refreshRecommendedQuickPicks()
+                }
+            }
+        }
+        viewModelScope.launch {
+            container.listeningStore.events.collectLatest {
+                if (_youtubeHome.value.rows.isNotEmpty()) {
+                    refreshRecommendedQuickPicks()
+                }
+            }
+        }
+        viewModelScope.launch {
+            container.recentStore.tracks.collectLatest {
+                if (_youtubeHome.value.rows.isNotEmpty()) {
+                    refreshRecommendedQuickPicks()
+                }
+            }
+        }
+
         // Sync social relations & listening activity streak on startup
         viewModelScope.launch(Dispatchers.IO) {
             container.socialRepository.syncRelations(container.profileStore.userId)
@@ -799,13 +882,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * The New tab for a source that lays its own out. Read once a session: it
      * is the same page for anyone in the country and moves once a week.
      */
-    fun loadSourceNew() {
+    fun loadSourceNew(force: Boolean = false) {
         if (container.activeBackend.id == BackendId.SPOTIFY) return
-        if (sourceNewJob?.isActive == true || _sourceNew.value.rows.isNotEmpty()) return
+        if (!force && (sourceNewJob?.isActive == true || _sourceNew.value.rows.isNotEmpty())) return
+        if (sourceNewJob?.isActive == true) return
         _sourceNew.value = _sourceNew.value.copy(loading = true)
         sourceNewJob = viewModelScope.launch {
             val rows = runCatching { container.activeBackend.newRows() }.getOrDefault(emptyList())
             _sourceNew.value = SourceRowsState(rows = rows, loading = false)
+            if (rows.isNotEmpty()) {
+                com.abhishek.ame.notification.AmeNotificationManager.notifyMusicDrop(
+                    getApplication(),
+                    "Fresh Releases & Mixes 🎧",
+                    "New trending songs, albums, and curated playlists just landed on your Home Hub.",
+                )
+            }
         }
     }
 
@@ -1503,7 +1594,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val cachedPlaylists = (_state.value as? UiState.Ready)?.playlists.orEmpty()
                 .filter { it.uri.startsWith(com.abhishek.ame.backend.youtube.YouTubeBackend.PLAYLIST_PREFIX) || it.uri.endsWith(":LM") }
                 .filter { !com.abhishek.ame.backend.youtube.YouTubeBackend.isStation(it.uri) }
-            val isLiked = trackUri != null && container.likedStore.isLiked(trackUri)
+            val isLiked = trackUri != null && container.likedStore.isLiked(trackUri, trackTitle)
             _addToPlaylist.value = AddToPlaylistState(
                 open = asSheet,
                 trackUri = trackUri,
@@ -1512,20 +1603,37 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 liked = isLiked,
                 error = if (writable) null else string(R.string.track_cannot_be_added),
             )
-            if (writable) viewModelScope.launch {
-                val lists = runCatching { backend.writablePlaylists() }
-                    .onFailure { android.util.Log.w(TAG, "writable playlists unavailable: ${describe(it)}") }
-                    .getOrDefault(emptyList())
+            if (trackUri != null) viewModelScope.launch {
+                val lists = if (writable) {
+                    runCatching { backend.writablePlaylists() }
+                        .onFailure { android.util.Log.w(TAG, "writable playlists unavailable: ${describe(it)}") }
+                        .getOrDefault(emptyList())
+                } else emptyList()
                 if (_addToPlaylist.value.trackUri == trackUri) {
                     val merged = if (lists.isNotEmpty()) lists else cachedPlaylists
                     val own = merged.map { it.uri }.toSet()
-                    val playing = contextUri?.takeIf { it.startsWith(com.abhishek.ame.backend.youtube.YouTubeBackend.PLAYLIST_PREFIX) }
                     val open = _playlist.value.uri?.takeIf { uri -> _playlist.value.tracks.any { it.uri == trackUri } }
-                    val containing = listOfNotNull(playing, open).filterTo(mutableSetOf()) { it in own }
+                    val id = trackUri.substringAfterLast(':').takeIf { it.isNotBlank() }
+                    val cached = runCatching { container.contextCache.playlistsWith(trackUri, trackTitle) }.getOrDefault(emptySet())
+                    val inMemoryCached = contextCache.entries
+                        .filter { (uri, entry) ->
+                            (com.abhishek.ame.data.ContextCacheStore.isPlaylistUri(uri) || uri in own) &&
+                            entry.tracks.any {
+                                it.uri == trackUri ||
+                                    (id != null && it.uri.substringAfterLast(':') == id) ||
+                                    (trackTitle.isNotBlank() && it.name.trim().equals(trackTitle.trim(), ignoreCase = true))
+                            }
+                        }
+                        .map { it.key }
+                        .toSet()
+                    val containing = (cached + inMemoryCached + listOfNotNull(open)).filterTo(mutableSetOf()) { it in own }
                     _addToPlaylist.value = _addToPlaylist.value.copy(
                         playlists = merged,
                         containing = _addToPlaylist.value.containing + containing,
                     )
+                    if (containing.isNotEmpty()) {
+                        _inPlaylists.value = _inPlaylists.value + setOfNotNull(trackUri, id)
+                    }
                 }
             }
             return
@@ -1846,6 +1954,50 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         },
                     )
                 }
+        }
+    }
+
+    /**
+     * Direct 1-tap addition of an autoplay track to the originating playlist.
+     */
+    fun addTrackToPlaylistDirect(
+        playlistUri: String,
+        playlistName: String,
+        trackUri: String,
+        trackTitle: String,
+        artist: String = "",
+        artworkUrl: String? = null,
+        onDone: (Boolean) -> Unit = {},
+    ) {
+        viewModelScope.launch {
+            val isLikedMusic = playlistUri.endsWith(":LM") || playlistUri.endsWith(":collection")
+            val result = runCatching {
+                container.activeBackend.addToPlaylist(playlistUri, trackUri)
+            }
+            if (result.isSuccess) {
+                val id = trackUri.substringAfterLast(':').takeIf { it.isNotBlank() }
+                _inPlaylists.value = _inPlaylists.value + setOfNotNull(trackUri, id)
+                if (isLikedMusic) {
+                    container.likedStore.add(trackUri, trackTitle, artist)
+                }
+                val cachedEntry = contextCache[playlistUri]
+                if (cachedEntry != null) {
+                    val resolvedTrack = CatalogTrack(
+                        uri = trackUri,
+                        name = trackTitle,
+                        artist = artist,
+                        artworkUrl = artworkUrl,
+                    )
+                    val updatedTracks = cachedEntry.tracks + resolvedTrack
+                    contextCache[playlistUri] = cachedEntry.copy(tracks = updatedTracks)
+                    container.contextCache.write(playlistUri, updatedTracks, cachedEntry.snapshotId)
+                }
+                invalidateContext(playlistUri)
+                onDone(true)
+            } else {
+                android.util.Log.e(TAG, "addTrackToPlaylistDirect failed for $playlistUri", result.exceptionOrNull())
+                onDone(false)
+            }
         }
     }
 
@@ -3205,16 +3357,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         } else published
         val state = withBanner.copy(tracks = withDeviceFiles(withBanner.tracks))
         val current = _playlist.value
+        val isArtist = published.kind == DetailKind.ARTIST || current.kind == DetailKind.ARTIST
+        val artistPortrait = if (isArtist) (current.heroUrl ?: state.heroUrl) else null
         _playlist.value = if (current.uri != state.uri) {
-            state
+            if (isArtist && artistPortrait != null) state.copy(artworkUrl = artistPortrait, heroUrl = artistPortrait) else state
         } else {
             state.copy(
                 name = state.name.ifEmpty { current.name },
-                artworkUrl = if (customBanner != null) customBanner else (state.artworkUrl ?: current.artworkUrl),
+                artworkUrl = if (customBanner != null) customBanner else (artistPortrait ?: state.artworkUrl ?: current.artworkUrl),
                 description = state.description.ifEmpty { current.description },
                 saved = state.saved ?: current.saved,
                 mine = state.mine ?: current.mine,
-                heroUrl = if (customBanner != null) customBanner else (state.heroUrl ?: current.heroUrl),
+                heroUrl = if (customBanner != null) customBanner else (artistPortrait ?: state.heroUrl ?: current.heroUrl),
                 coverUrl = if (customBanner != null) customBanner else (state.coverUrl ?: current.coverUrl),
                 logoUrl = state.logoUrl ?: current.logoUrl,
                 notes = state.notes ?: current.notes,
@@ -3304,7 +3458,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             if (_savedShows.value.isEmpty()) _savedShows.value = runCatching { readSavedShows() }.getOrDefault(emptyList())
             return _savedShows.value.any { it.uri == uri }
         }
-        if (!container.webApi.isReady && !container.tokenStore.isLoggedIn) return null
+        if (!uri.startsWith("spotify:")) {
+            return isPlaylistSaved(uri)
+        }
+        if (!container.webApi.isReady && !container.tokenStore.isLoggedIn) return isPlaylistSaved(uri)
         val id = uri.substringAfterLast(':')
         return runCatching {
             when {
@@ -3314,11 +3471,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 uri.startsWith("spotify:playlist:") ->
                     container.api.playlistIsFollowed(id, container.api.me().id).firstOrNull()
 
-                else -> null
+                else -> isPlaylistSaved(uri)
             }
         }
             .onFailure { android.util.Log.w(TAG, "cannot tell if kept: ${describe(it)}") }
-            .getOrNull()
+            .getOrNull() ?: isPlaylistSaved(uri)
     }
 
     /**
@@ -3331,8 +3488,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun toggleSaved() = viewModelScope.launch {
         val page = _playlist.value
         val uri = page.uri ?: return@launch
-        val was = page.saved ?: return@launch
+        val was = page.saved ?: isPlaylistSaved(uri)
         val id = uri.substringAfterLast(':')
+
+        if (!uri.startsWith("spotify:")) {
+            val isNowSaved = !was
+            _playlist.value = _playlist.value.copy(saved = isNowSaved)
+            if (isNowSaved) {
+                val pl = CatalogPlaylist(
+                    uri = uri,
+                    name = page.name.ifEmpty { "Playlist" },
+                    artworkUrl = page.artworkUrl,
+                )
+                savePublicPlaylist(pl)
+            } else {
+                removePublicPlaylist(uri)
+            }
+            return@launch
+        }
 
         _playlist.value = _playlist.value.copy(saved = !was)
         runCatching {
@@ -3783,8 +3956,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         artworkUrl: String? = null,
         playlistName: String? = null,
     ) {
-        if (trackUri == null || !trackUri.startsWith("spotify:track:")) return
-        val nowLiked = container.likedStore.toggle(trackUri)
+        if (trackUri == null) return
+        val nowLiked = container.likedStore.toggle(trackUri, trackTitle, artist)
         val id = trackUri.substringAfterLast(':')
 
         if (_addToPlaylist.value.trackUri == trackUri) {
@@ -3800,6 +3973,42 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 artist = artist.orEmpty(),
                 artworkUrl = artworkUrl,
             )
+
+        // For YouTube Music: sync with on-device cache and remote YouTube Music Liked Music
+        if (!trackUri.startsWith("spotify:")) {
+            val ytLikedUri = com.abhishek.ame.backend.youtube.YouTubeBackend.LIKED_MUSIC_URI
+            val cachedEntry = contextCache[ytLikedUri]
+            if (cachedEntry != null) {
+                val updatedList = if (nowLiked) {
+                    listOf(resolvedTrack) + cachedEntry.tracks.filterNot { it.uri == trackUri }
+                } else {
+                    cachedEntry.tracks.filterNot { it.uri == trackUri }
+                }
+                contextCache[ytLikedUri] = cachedEntry.copy(tracks = updatedList)
+                viewModelScope.launch {
+                    container.contextCache.write(ytLikedUri, updatedList, cachedEntry.snapshotId)
+                }
+            }
+            if (_playlist.value.uri == ytLikedUri) {
+                val currentTracks = _playlist.value.tracks
+                val updated = if (nowLiked) {
+                    listOf(resolvedTrack) + currentTracks.filterNot { it.uri == trackUri }
+                } else {
+                    currentTracks.filterNot { it.uri == trackUri }
+                }
+                _playlist.value = _playlist.value.copy(tracks = updated)
+            }
+            viewModelScope.launch(Dispatchers.IO) {
+                runCatching {
+                    if (nowLiked) {
+                        container.activeBackend.addToPlaylist(ytLikedUri, trackUri)
+                    } else {
+                        container.activeBackend.removeFromPlaylist(ytLikedUri, trackUri)
+                    }
+                }
+            }
+            return
+        }
 
         // Immediately update Liked Songs in memory and disk cache
         val colUri = runCatching { NativeBridge.collectionUri() }.getOrNull()?.takeIf { it.isNotEmpty() }
@@ -3956,57 +4165,100 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     private var likedListTrusted = false
 
-    fun checkLiked(uri: String?) {
-        if (uri == null || !uri.startsWith("spotify:track:")) return
+    fun checkLiked(uri: String?, title: String? = null, artist: String? = null) {
+        if (uri == null) return
         viewModelScope.launch {
             seedMembership()
-            if (container.likedStore.isLiked(uri) || likedListTrusted) return@launch
-            if (!likedAsked.add(uri)) return@launch
+            if (container.likedStore.isLiked(uri, title, artist)) return@launch
+            if (uri.startsWith("spotify:track:")) {
+                if (likedListTrusted) return@launch
+                if (!likedAsked.add(uri)) return@launch
 
-            likedPending += uri
-            // A skip is not an answer worth having: while the listener is
-            // still moving, the questions pile up and go out together.
-            likedBatch?.cancel()
-            likedBatch = viewModelScope.launch {
-                kotlinx.coroutines.delay(LIKED_BATCH_WAIT_MS)
-                val batch = likedPending.toList()
-                likedPending.clear()
-                askLiked(batch)
+                likedPending += uri
+                likedBatch?.cancel()
+                likedBatch = viewModelScope.launch {
+                    kotlinx.coroutines.delay(LIKED_BATCH_WAIT_MS)
+                    val batch = likedPending.toList()
+                    likedPending.clear()
+                    askLiked(batch)
+                }
             }
         }
     }
 
+    fun checkTrackMembership(trackUri: String?, title: String? = null, artist: String? = null) {
+        if (trackUri == null) return
+        viewModelScope.launch(Dispatchers.IO) {
+            seedMembership()
+            val id = trackUri.substringAfterLast(':').takeIf { it.isNotBlank() }
+            val userPlaylists = (_state.value as? UiState.Ready)?.playlists?.map { it.uri }?.toSet().orEmpty()
+            val inMemoryHas = contextCache.entries.any { (uri, entry) ->
+                (com.abhishek.ame.data.ContextCacheStore.isPlaylistUri(uri) || uri in userPlaylists) &&
+                entry.tracks.any { t ->
+                    t.uri == trackUri ||
+                        (id != null && t.uri.substringAfterLast(':') == id) ||
+                        (!title.isNullOrBlank() && !artist.isNullOrBlank() &&
+                            t.name.trim().equals(title.trim(), ignoreCase = true) &&
+                            t.artist.trim().equals(artist.trim(), ignoreCase = true))
+                }
+            }
+            if (inMemoryHas) {
+                _inPlaylists.value = _inPlaylists.value + setOfNotNull(trackUri, id)
+                return@launch
+            }
+            val containing = container.contextCache.playlistsWith(trackUri, title, artist)
+            if (containing.isNotEmpty()) {
+                _inPlaylists.value = _inPlaylists.value + setOfNotNull(trackUri, id)
+            }
+        }
+    }
+
+    fun isTrackInPlaylists(trackUri: String?, title: String? = null, artist: String? = null): Boolean {
+        if (trackUri == null) return false
+        val inSet = _inPlaylists.value
+        if (trackUri in inSet) return true
+        val id = trackUri.substringAfterLast(':').takeIf { it.isNotBlank() }
+        if (id != null && id in inSet) return true
+        return false
+    }
+
+    fun isLiked(uri: String?, title: String? = null, artist: String? = null): Boolean =
+        container.likedStore.isLiked(uri, title, artist)
+
     /**
      * Fills both marks from what is already on disk, at no cost in requests.
-     *
-     * Both used to start every run empty. The heart then asked Spotify about
-     * each track as it played, and the tick — which nobody can be asked about —
-     * simply went missing: a song from one of the listener's own playlists
-     * showed a plus until that playlist happened to be opened again, even
-     * though the queue it was playing from had just been restored from this
-     * same disk.
      */
     private suspend fun seedMembership() {
         if (membershipSeeded) return
         membershipSeeded = true
 
-        val collection = runCatching { withContext(Dispatchers.IO) { NativeBridge.collectionUri() } }
-            .getOrNull()
-            .orEmpty()
-        val liked = collection.takeIf { it.isNotEmpty() }
-            ?.let { contextCache[it] ?: container.contextCache.read(it) }
-        if (liked != null) {
-            container.likedStore.seed(liked.tracks.map { it.uri })
-            // Never downwards: this run may already have read the list itself,
-            // which is fresher than anything on disk.
-            likedListTrusted = likedListTrusted ||
-                System.currentTimeMillis() - liked.savedAt < LIKED_TRUSTED_MS
+        runCatching {
+            val ytLiked = contextCache[com.abhishek.ame.backend.youtube.YouTubeBackend.LIKED_MUSIC_URI]
+                ?: container.contextCache.read(com.abhishek.ame.backend.youtube.YouTubeBackend.LIKED_MUSIC_URI)
+            if (ytLiked != null) {
+                container.likedStore.seedTracks(ytLiked.tracks)
+            }
         }
 
-        val inPlaylists = runCatching { container.contextCache.tracksInPlaylists() }
-            .onFailure { android.util.Log.i(TAG, "no playlists remembered: ${describe(it)}") }
-            .getOrDefault(emptySet())
-        if (inPlaylists.isNotEmpty()) _inPlaylists.value = _inPlaylists.value + inPlaylists
+        runCatching {
+            val collection = withContext(Dispatchers.IO) {
+                runCatching { NativeBridge.collectionUri() }.getOrNull()
+            }.orEmpty()
+            val liked = collection.takeIf { it.isNotEmpty() }
+                ?.let { contextCache[it] ?: container.contextCache.read(it) }
+            if (liked != null) {
+                container.likedStore.seedTracks(liked.tracks)
+                likedListTrusted = likedListTrusted ||
+                    System.currentTimeMillis() - liked.savedAt < LIKED_TRUSTED_MS
+            }
+        }
+
+        runCatching {
+            val inPlaylists = container.contextCache.tracksInPlaylists()
+            if (inPlaylists.isNotEmpty()) {
+                _inPlaylists.value = _inPlaylists.value + inPlaylists
+            }
+        }
     }
 
     /**
@@ -4056,6 +4308,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             override fun removeEldestEntry(eldest: Map.Entry<String, List<SearchItem>>) =
                 size > 30
         }
+
+    init {
+        // Seed liked tracks and user playlist membership on startup once caches and StateFlows are ready
+        viewModelScope.launch(Dispatchers.IO) {
+            seedMembership()
+        }
+    }
 
     // ------------------------------------------------------------ downloads
 
@@ -4602,12 +4861,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     // Whether the account follows this artist, for the button
                     // on their page. After the tracks, which read the same
                     // page and leave the answer behind for this to pick up.
-                    if (kind == DetailKind.ARTIST) launch {
-                        val following = container.activeBackend.isFollowing(playlist.uri)
-                            ?: return@launch
-                        base = base.copy(following = following)
+                    if (kind == DetailKind.ARTIST) {
+                        val isFollowed = container.followedArtistsStore.isFollowing(playlist.uri, playlist.name)
+                        base = base.copy(following = isFollowed)
                         if (isActive && _playlist.value.uri == playlist.uri) {
-                            _playlist.value = _playlist.value.copy(following = following)
+                            _playlist.value = _playlist.value.copy(following = isFollowed)
                         }
                     }
                     // Another backend's context. Resolved in one call rather
@@ -4625,7 +4883,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                             publishPlaylist(
                                 base.copy(
                                     name = base.name.ifEmpty { artistPage.name },
-                                    artworkUrl = artistPage.artworkUrl ?: base.artworkUrl,
+                                    artworkUrl = _playlist.value.heroUrl ?: base.artworkUrl ?: artistPage.artworkUrl,
+                                    heroUrl = _playlist.value.heroUrl ?: base.heroUrl,
                                     tracks = artistPage.topSongs,
                                     notes = base.notes ?: artistPage.description,
                                     subscribers = artistPage.subscribers,
@@ -5536,7 +5795,33 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         ).show()
     }
 
-    fun isPlaylistSaved(uri: String): Boolean = container.savedPlaylists.isSaved(uri)
+    fun removePublicPlaylist(uri: String) {
+        container.savedPlaylists.remove(uri)
+        val ready = _state.value as? UiState.Ready
+        if (ready != null) {
+            val updated = ready.playlists.filterNot { it.uri == uri }
+            val newReady = ready.copy(playlists = updated)
+            _state.value = newReady
+            viewModelScope.launch {
+                keepLibrarySnapshot(newReady)
+            }
+        }
+        if (_playlist.value.uri == uri) {
+            _playlist.value = _playlist.value.copy(saved = false)
+        }
+        android.widget.Toast.makeText(
+            getApplication(),
+            string(R.string.removed_from_library),
+            android.widget.Toast.LENGTH_SHORT,
+        ).show()
+    }
+
+    fun isPlaylistSaved(uri: String): Boolean {
+        if (container.savedPlaylists.isSaved(uri)) return true
+        val inUserLists = (_state.value as? UiState.Ready)?.playlists?.any { it.uri == uri } == true
+        if (inUserLists) return true
+        return false
+    }
 
     fun setPlaylistCustomBanner(uri: String, imageUri: android.net.Uri) = viewModelScope.launch(Dispatchers.IO) {
         runCatching {
@@ -6300,21 +6585,34 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
         if (kind == DetailKind.ARTIST) {
             val found = com.abhishek.ame.data.AppleCatalog.artist(name)
-            if (found == null) {
+            val ytAvatar = if (found?.heroUrl.isNullOrBlank()) {
+                runCatching {
+                    com.metrolist.innertube.YouTube.search(name, com.metrolist.innertube.YouTube.SearchFilter.FILTER_ARTIST)
+                        .getOrNull()?.items?.filterIsInstance<com.metrolist.innertube.models.ArtistItem>()
+                        ?.firstOrNull()?.thumbnail
+                }.getOrNull()
+            } else null
+            val bestPortrait = found?.heroUrl ?: ytAvatar
+
+            if (found == null && bestPortrait == null) {
                 done()
                 return
             }
             if (_playlist.value.uri != uri) return
             _playlist.value = _playlist.value.copy(
-                heroUrl = found.heroUrl,
-                logoUrl = found.logoUrl,
-                tintHex = found.bgColor,
-                inkHex = found.textHex,
-                heroAspect = found.heroAspect,
-                notes = found.bio,
-                origin = found.origin,
+                artworkUrl = bestPortrait ?: _playlist.value.artworkUrl,
+                heroUrl = bestPortrait ?: _playlist.value.heroUrl,
+                logoUrl = found?.logoUrl ?: _playlist.value.logoUrl,
+                tintHex = found?.bgColor ?: _playlist.value.tintHex,
+                inkHex = found?.textHex ?: _playlist.value.inkHex,
+                heroAspect = found?.heroAspect ?: _playlist.value.heroAspect,
+                notes = found?.bio ?: _playlist.value.notes,
+                origin = found?.origin ?: _playlist.value.origin,
                 heroPending = false,
             )
+            bestPortrait?.let { hero ->
+                container.followedArtistsStore.updateArtwork(uri, name, hero)
+            }
             return
         }
 
@@ -6584,7 +6882,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }.getOrNull()?.takeIf { it.size == webArtist.tracks.size } ?: webArtist.tracks
 
-            val isFollowed = _followedArtists.value.any { it.uri == uri }
+            val isFollowed = container.followedArtistsStore.isFollowing(uri, webArtist?.name ?: knownName)
             _playlist.value = _playlist.value.let {
                 if (it.uri == uri) it.copy(following = isFollowed) else it
             }
@@ -6621,7 +6919,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     .take(5)
 
                 val matchedAlbums = searchRes.albums
-                val isFollowed = _followedArtists.value.any { it.uri == uri }
+                val isFollowed = container.followedArtistsStore.isFollowing(uri, webArtist?.name ?: knownName)
                 _playlist.value = _playlist.value.let {
                     if (it.uri == uri) it.copy(following = isFollowed) else it
                 }
@@ -6652,7 +6950,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             Catalog.tracks(Catalog.contextTrackUris(uri).take(10))
         }.getOrDefault(emptyList()).take(5)
 
-        val isFollowed = _followedArtists.value.any { it.uri == uri }
+        val isFollowed = container.followedArtistsStore.isFollowing(uri, searchName)
         _playlist.value = _playlist.value.let {
             if (it.uri == uri) it.copy(following = isFollowed) else it
         }
@@ -6749,52 +7047,40 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val was = page.following ?: false
         val id = uri.substringAfterLast(':')
 
-        _playlist.value = _playlist.value.copy(following = !was)
+        var bestArt = page.heroUrl
+        if (bestArt.isNullOrBlank()) {
+            bestArt = runCatching { com.abhishek.ame.data.AppleCatalog.artist(page.name)?.heroUrl }.getOrNull()
+        }
+        if (bestArt.isNullOrBlank()) {
+            bestArt = runCatching {
+                com.metrolist.innertube.YouTube.search(page.name, com.metrolist.innertube.YouTube.SearchFilter.FILTER_ARTIST)
+                    .getOrNull()?.items?.filterIsInstance<com.metrolist.innertube.models.ArtistItem>()
+                    ?.firstOrNull()?.thumbnail
+            }.getOrNull()
+        }
+        if (bestArt.isNullOrBlank()) {
+            bestArt = page.artworkUrl
+        }
 
-        // The other source follows through its own account.
+        val artistItem = SearchItem(
+            uri = uri,
+            title = page.name,
+            subtitle = "",
+            artworkUrl = bestArt,
+        )
+        val nowFollowed = container.followedArtistsStore.toggle(artistItem)
+        _playlist.value = _playlist.value.copy(following = nowFollowed)
+
         if (!uri.startsWith("spotify:")) {
-            runCatching { container.activeBackend.setFollowing(uri, !was) }
-                .onSuccess {
-                    resetFollowedReleases()
-                    loadFollowedArtists()
-                }
-                .onFailure {
-                    android.util.Log.e(TAG, "follow failed: ${chain(it)}", it)
-                    if (_playlist.value.uri == uri) {
-                        _playlist.value = _playlist.value.copy(following = was)
-                    }
-                }
+            runCatching { container.activeBackend.setFollowing(uri, nowFollowed) }
             return@launch
         }
 
-        if (!container.webApi.isReady) {
-            val currentList = _followedArtists.value.toMutableList()
-            if (was) {
-                currentList.removeAll { it.uri == uri }
-            } else {
-                currentList.add(SearchItem(uri = uri, title = page.name, subtitle = "", artworkUrl = page.artworkUrl))
+        if (container.webApi.isReady) {
+            runCatching {
+                if (nowFollowed) container.api.followArtists(ids = id) else container.api.unfollowArtists(ids = id)
             }
-            _followedArtists.value = currentList
-            return@launch
         }
-
-        runCatching {
-            if (was) container.api.unfollowArtists(ids = id) else container.api.followArtists(ids = id)
-        }
-            .onSuccess {
-                resetFollowedReleases()
-                loadFollowedArtists()
-            }
-            .onFailure {
-                android.util.Log.e(TAG, "follow failed: ${chain(it)}", it)
-                if (_playlist.value.uri == uri) {
-                    _playlist.value = _playlist.value.copy(following = was)
-                }
-                // Almost always the same cause: an application connected before
-                // this feature existed, whose token carries no permission to
-                // follow anybody. Saying so is more use than the error itself.
-                _webApi.value = _webApi.value.copy(expired = true)
-            }
     }
 
     private val _savedAlbums = MutableStateFlow<List<CatalogPlaylist>>(emptyList())
@@ -6960,41 +7246,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private val _followedArtists = MutableStateFlow<List<SearchItem>>(emptyList())
+    /** The artists this account follows, strictly from on-device starred artists. */
+    val followedArtists: StateFlow<List<SearchItem>> = container.followedArtistsStore.followed
 
-    /** The artists this account follows, for the library. */
-    val followedArtists: StateFlow<List<SearchItem>> = _followedArtists.asStateFlow()
-
-    fun loadFollowedArtists() = viewModelScope.launch {
-        if (container.activeBackend.id != BackendId.SPOTIFY) {
-            _followedArtists.value = runCatching { container.activeBackend.followedArtists().distinctBy { it.uri } }
-                .getOrDefault(emptyList())
-            return@launch
-        }
-        if (!container.webApi.isReady) {
-            _followedArtists.value = emptyList()
-            return@launch
-        }
-        runCatching {
-            followedReleaseRepository.artists().mapNotNull { artist ->
-                SearchItem(
-                    uri = artist.uri ?: return@mapNotNull null,
-                    title = artist.name, subtitle = "",
-                    artworkUrl = artist.images.firstOrNull()?.url,
-                )
-            }.sortedBy { it.title.lowercase() }
-        }
-            .onSuccess { _followedArtists.value = it }
-            .onFailure {
-                android.util.Log.w(TAG, "followed artists unavailable: ${describe(it)}")
-                // 403 here has one cause: an application connected before the
-                // follow permissions were asked for. The token is valid and
-                // will never be allowed to read this, so the way out is the
-                // same one an expired session takes — sign in again, once.
-                if (describe(it).contains("403")) {
-                    _webApi.value = _webApi.value.copy(expired = true)
-                }
+    fun loadFollowedArtists() = viewModelScope.launch(Dispatchers.IO) {
+        val current = container.followedArtistsStore.followed.value
+        for (artist in current) {
+            var portrait = runCatching { com.abhishek.ame.data.AppleCatalog.artist(artist.title)?.heroUrl }.getOrNull()
+            if (portrait.isNullOrBlank()) {
+                portrait = runCatching {
+                    com.metrolist.innertube.YouTube.search(artist.title, com.metrolist.innertube.YouTube.SearchFilter.FILTER_ARTIST)
+                        .getOrNull()?.items?.filterIsInstance<com.metrolist.innertube.models.ArtistItem>()
+                        ?.firstOrNull()?.thumbnail
+                }.getOrNull()
             }
+            if (!portrait.isNullOrBlank() && portrait != artist.artworkUrl) {
+                container.followedArtistsStore.updateArtwork(artist.uri, artist.title, portrait)
+            }
+        }
     }
 
     /**

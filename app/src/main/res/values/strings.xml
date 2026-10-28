@@ -90,6 +90,7 @@
     <string name="good_afternoon">Good afternoon</string>
     <string name="good_evening">Good evening</string>
     <string name="saved_to_library">Saved to library</string>
+    <string name="removed_from_library">Removed from library</string>
     <string name="already_in_library">Already in your library</string>
     <string name="save_to_library">Save to library</string>
     <string name="feed_all">Everything</string>
@@ -752,4 +753,25 @@
     <string name="new_releases_for_you">New releases for you</string>
     <string name="singers_you_follow">Singers you follow</string>
     <string name="new_release_from">New release from</string>
+    <string name="share_story">Share Story</string>
+    <string name="story_studio">Story Studio</string>
+    <string name="share_to_instagram">Instagram Story</string>
+    <string name="share_video_audio">Story with Sound</string>
+    <string name="save_poster">Share / Save Image</string>
+    <string name="style_glass_card">Glass Card</string>
+    <string name="style_vinyl_flex">Vinyl Flex</string>
+    <string name="style_glass_pill">Minimal Pill</string>
+    <string name="style_hero_poster">Hero Cinema</string>
+    <string name="format_story">Story 9:16</string>
+    <string name="format_square">Square 1:1</string>
+    <string name="format_portrait">Portrait 4:5</string>
+    <string name="color_aura">Album Aura</string>
+    <string name="color_truedark">True Dark</string>
+    <string name="color_midnight">Midnight</string>
+    <string name="color_sunset">Sunset</string>
+    <string name="generating_story">Generating Story…</string>
+    <string name="generating_video">Rendering Video with Sound…</string>
+    <string name="share_to_snapchat">Snapchat</string>
+    <string name="snapchat_not_installed">Snapchat is not installed.</string>
+    <string name="instagram_not_installed">Instagram is not installed.</string>
 </resources>

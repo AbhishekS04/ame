@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
      * boolean that is already true the second time would be ignored.
      */
     private var openPlayer by mutableStateOf(0)
+    private var openSettings by mutableStateOf(0)
 
     /**
      * A Spotify link the app was opened with.
@@ -85,7 +86,21 @@ class MainActivity : ComponentActivity() {
         if (intent?.opensPlayer() == true) {
             openPlayer++
         }
+        if (intent?.action == com.abhishek.ame.notification.AmeNotificationManager.ACTION_OPEN_UPDATES ||
+            intent?.getStringExtra(com.abhishek.ame.notification.AmeNotificationManager.EXTRA_OPEN_ROUTE) == "updates"
+        ) {
+            openSettings++
+        }
         intent?.let(::takeLink)
+
+        // Notification channels & reminders
+        com.abhishek.ame.notification.AmeNotificationManager.init(this)
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
+            }
+        }
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -108,6 +123,7 @@ class MainActivity : ComponentActivity() {
                     onEnqueue = ::enqueue,
                     onEnqueueAll = ::enqueueAll,
                     openPlayer = openPlayer,
+                    openSettings = openSettings,
                     link = link,
                 )
             }
@@ -239,6 +255,11 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         if (intent.opensPlayer()) {
             openPlayer++
+        }
+        if (intent.action == com.abhishek.ame.notification.AmeNotificationManager.ACTION_OPEN_UPDATES ||
+            intent.getStringExtra(com.abhishek.ame.notification.AmeNotificationManager.EXTRA_OPEN_ROUTE) == "updates"
+        ) {
+            openSettings++
         }
         takeLink(intent)
     }
@@ -602,3 +623,12 @@ const val EXTRA_EXPLICIT = "com.abhishek.ame.EXPLICIT"
 /** Every credited artist, in order, as two lists that line up. */
 const val EXTRA_ARTIST_NAMES = "com.abhishek.ame.ARTIST_NAMES"
 const val EXTRA_ARTIST_URIS = "com.abhishek.ame.ARTIST_URIS"
+
+/** Whether the track was automatically queued by Spotify-grade endless continuation. */
+const val EXTRA_IS_AUTOPLAY = "com.abhishek.ame.IS_AUTOPLAY"
+
+/** Origin playlist URI that ended before autoplay kicked in. */
+const val EXTRA_ORIGIN_PLAYLIST_URI = "com.abhishek.ame.ORIGIN_PLAYLIST_URI"
+
+/** Origin playlist title for 1-tap add button in the player. */
+const val EXTRA_ORIGIN_PLAYLIST_NAME = "com.abhishek.ame.ORIGIN_PLAYLIST_NAME"

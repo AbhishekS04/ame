@@ -670,4 +670,22 @@ object NativeBridge {
     private external fun nativeDjPrepare(urisJson: String)
     private external fun nativeDjJumped(uri: String)
     private external fun nativeDjAwaitOpening(uri: String, timeoutMs: Long): Boolean
+
+    /**
+     * Ranks candidates using Spotify's on-device BaRT Contextual Multi-Armed Bandit
+     * combined with CoSeRNN session context and implicit feedback weights.
+     */
+    fun rankCandidates(
+        candidatesJson: String,
+        historyJson: String,
+        likedUrisJson: String,
+        contextJson: String,
+    ): String = nativeRankCandidates(candidatesJson, historyJson, likedUrisJson, contextJson)
+
+    private external fun nativeRankCandidates(
+        candidatesJson: String,
+        historyJson: String,
+        likedUrisJson: String,
+        contextJson: String,
+    ): String
 }

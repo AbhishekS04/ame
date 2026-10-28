@@ -84,6 +84,9 @@ data class PlaybackState(
      */
     val artists: List<com.abhishek.ame.data.CatalogArtist> = emptyList(),
     val contextUri: String? = null,
+    val isAutoplay: Boolean = false,
+    val originPlaylistUri: String? = null,
+    val originPlaylistName: String? = null,
 )
 
 /**
@@ -236,6 +239,9 @@ fun rememberPlaybackState(
                     }
                 },
                 contextUri = metadata.extras?.getString(com.abhishek.ame.ui.EXTRA_CONTEXT_URI),
+                isAutoplay = metadata.extras?.getBoolean(com.abhishek.ame.ui.EXTRA_IS_AUTOPLAY) == true,
+                originPlaylistUri = metadata.extras?.getString(com.abhishek.ame.ui.EXTRA_ORIGIN_PLAYLIST_URI),
+                originPlaylistName = metadata.extras?.getString(com.abhishek.ame.ui.EXTRA_ORIGIN_PLAYLIST_NAME),
             )
             if (next.hasItem) {
                 seenItem.value = true
