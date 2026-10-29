@@ -63,7 +63,7 @@ object Lossless {
      *
      * Matching is on title, artist and length, the same identity the other
      * lyrics sources are searched by — the archive is not keyed on any id
-     * Square holds, since a YouTube video id and a Spotify uri each mean
+     * Ame holds, since a YouTube video id and a Spotify uri each mean
      * nothing to the other.
      */
     private fun search(title: String, artist: String, durationMs: Long): List<JSONObject>? {

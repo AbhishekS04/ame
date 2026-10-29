@@ -1,4 +1,4 @@
-"""Send a published Square release to its announcement channel and forum topic."""
+"""Send a published Ame release to its announcement channel and forum topic."""
 import json
 import os
 import re
@@ -89,7 +89,7 @@ def formatted_markdown(markdown):
 def messages(release):
     title = release.get('name') or release['tag_name']
     text, entities = formatted_markdown(
-        f"# Square {title}\n\n[View release on GitHub]({release['html_url']})\n\n"
+        f"# Ame {title}\n\n[View release on GitHub]({release['html_url']})\n\n"
         + (release.get('body') or 'Release notes are available on GitHub.'))
     chunks = []
     start_units = 0
@@ -122,7 +122,7 @@ def apks(release):
     version = release["tag_name"].removeprefix("v")
     result = []
     for abi in ABIS:
-        name = f"square-{version}-{abi}.apk"
+        name = f"ame-{version}-{abi}.apk"
         found = [a for a in release.get("assets", []) if a["name"] == name]
         if len(found) != 1 or found[0].get("state") != "uploaded":
             raise ValueError(f"Missing uploaded APK: {name}")

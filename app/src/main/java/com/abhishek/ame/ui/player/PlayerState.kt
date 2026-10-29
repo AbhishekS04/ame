@@ -346,16 +346,34 @@ fun rememberQueue(player: Player?): State<List<QueueEntry>> {
 }
 
 /**
- * Playback position, polled while playing.
+ * Playback position, synchronized immediately on media item transitions and polled while playing.
  *
- * Separate from [PlaybackState] so only the seek bar reads it. The engine
- * reports position once a second, which on screen would advance in visible
- * steps; polling four times a second smooths it out and costs nothing when
- * paused, because the loop simply does not run.
+ * Separate from [PlaybackState] so only the seek bar reads it. Listens directly to
+ * [Player.Listener.onMediaItemTransition] and [Player.Listener.onPositionDiscontinuity]
+ * to instantly reset position to 0L on song skip, eliminating any stale timeline race conditions.
  */
 @Composable
 fun rememberPositionMs(player: Player?, isPlaying: Boolean): State<Long> {
     val position = remember { mutableLongStateOf(0L) }
+
+    DisposableEffect(player) {
+        if (player == null) return@DisposableEffect onDispose {}
+        val listener = object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                position.longValue = 0L
+            }
+
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int,
+            ) {
+                position.longValue = newPosition.positionMs.coerceAtLeast(0)
+            }
+        }
+        player.addListener(listener)
+        onDispose { player.removeListener(listener) }
+    }
 
     LaunchedEffect(player, isPlaying) {
         if (player == null) {
@@ -372,6 +390,39 @@ fun rememberPositionMs(player: Player?, isPlaying: Boolean): State<Long> {
     }
 
     return position
+}
+
+/**
+ * Buffered chunk position in milliseconds, polled while media is prepared.
+ * Resets instantly on media item transitions.
+ */
+@Composable
+fun rememberBufferedPositionMs(player: Player?): State<Long> {
+    val buffered = remember { mutableLongStateOf(0L) }
+
+    DisposableEffect(player) {
+        if (player == null) return@DisposableEffect onDispose {}
+        val listener = object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                buffered.longValue = 0L
+            }
+        }
+        player.addListener(listener)
+        onDispose { player.removeListener(listener) }
+    }
+
+    LaunchedEffect(player) {
+        if (player == null) {
+            buffered.longValue = 0L
+            return@LaunchedEffect
+        }
+        while (true) {
+            buffered.longValue = player.bufferedPosition.coerceAtLeast(0)
+            delay(400)
+        }
+    }
+
+    return buffered
 }
 
 /** How many of the tracks already heard the queue panel keeps above the playing one. */

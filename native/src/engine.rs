@@ -1850,7 +1850,7 @@ pub fn load_queue(
     // A load activates this device, which is right when the listener has just
     // tapped a track and wrong every other time. Opening the app restores the
     // last queue, paused, and that restore was taking the session away from
-    // whatever was playing in the other room: Square went silent-but-active and
+    // whatever was playing in the other room: Ame went silent-but-active and
     // the music stopped mid-track.
     //
     // Refused rather than quietly dropped, so the caller keeps its queue marked

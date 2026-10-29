@@ -18,7 +18,7 @@ import org.xmlpull.v1.XmlPullParser
  * are usually further split into `<span>`s with their own times, which is what
  * makes karaoke highlighting possible.
  *
- * Square's lyrics model is a flat list of lines, each carrying its text, its own
+ * Ame's lyrics model is a flat list of lines, each carrying its text, its own
  * `begin`, and the words it was built from with their moments. A line with no
  * `begin` of its own takes the first time inside it, so a document that places
  * only its spans still yields placed lines.

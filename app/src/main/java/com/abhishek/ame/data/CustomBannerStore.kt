@@ -18,6 +18,10 @@ import java.security.MessageDigest
  */
 class CustomBannerStore(context: Context) {
 
+    init {
+        migratePrefs(context, LEGACY_FILE_NAME, FILE_NAME)
+    }
+
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
     private val bannersDir = File(appContext.filesDir, "custom_banners").apply { mkdirs() }
@@ -69,6 +73,7 @@ class CustomBannerStore(context: Context) {
     }
 
     private companion object {
-        const val FILE_NAME = "square_custom_banners"
+        const val FILE_NAME = "ame_custom_banners"
+        const val LEGACY_FILE_NAME = "square_custom_banners"
     }
 }

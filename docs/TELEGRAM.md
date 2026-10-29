@@ -9,9 +9,9 @@ and inline code and fenced code blocks retain their formatting.
 ## One-time setup
 
 1. Create a dedicated bot with Telegram's verified `@BotFather` (`/newbot`).
-2. Add it to `Square | Official` as an administrator with **Post messages**.
+2. Add it to `Ame | Official` as an administrator with **Post messages**.
    It does not need permission to add administrators or delete messages.
-3. Add it to `Square | Community` as an administrator, allowing messages and
+3. Add it to `Ame | Community` as an administrator, allowing messages and
    documents and **Manage topics**, so it can post in the closed announcement
    topic. It does not need permission to add administrators or delete messages.
 4. In the repository's Settings → Secrets and variables → Actions, create the

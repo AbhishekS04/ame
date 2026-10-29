@@ -51,7 +51,7 @@ class YouTubeListeningTest {
         assertEquals(1_000L..5_000L, plays.single().window)
     }
 
-    @Test fun squaresOwnPlayIsNotCountedTwice() {
+    @Test fun amesOwnPlayIsNotCountedTwice() {
         val song = track("a")
         val local = ListeningEvent("local:2000:${song.uri}", song, 2_000, qualified = true)
         val merged = ListeningHistory.mergeRemote(listOf(local), song, 5_000, 1_000L..5_000L)

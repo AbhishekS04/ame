@@ -1233,7 +1233,7 @@ private fun SettingsIndex(
 }
 
 /**
- * What Square is keeping, as a bar and a legend.
+ * What Ame is keeping, as a bar and a legend.
  *
  * Three answers to one question — where did the space go — and they are not
  * the same kind of thing: the music is what was asked for, the covers and
@@ -1752,7 +1752,7 @@ private fun QualitySection() {
  * The listener's own Spicy Lyrics key.
  *
  * Optional: without it the source is simply not asked. The key comes from
- * Square's page in Spicy Lyrics' catalogue, which gives each person their own,
+ * Ame's page in Spicy Lyrics' catalogue, which gives each person their own,
  * as the API's terms ask of an app that runs on other people's phones.
  */
 @Composable

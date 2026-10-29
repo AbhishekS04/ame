@@ -33,6 +33,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Spot"
+rootProject.name = "Ame"
 include(":app")
 include(":innertube")

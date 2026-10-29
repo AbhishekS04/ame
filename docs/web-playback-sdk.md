@@ -2,21 +2,21 @@
 
 Branch: `web-playback`.
 
-Square offers additional setup when the native Spotify engine explicitly reports an account-level audio-key refusal. Generic network failures and individual unavailable tracks do not activate this path. Accounts that work with native playback keep using it.
+Ame offers additional setup when the native Spotify engine explicitly reports an account-level audio-key refusal. Generic network failures and individual unavailable tracks do not activate this path. Accounts that work with native playback keep using it.
 
 The recovery player uses the official SDK at `https://sdk.scdn.co/spotify-player.js`, public Spotify Web API commands and app-owned OAuth credentials. It does not intercept open.spotify.com tokens, request DRM licences directly or expose audio samples or keys. The earlier direct-stream experiment remains in the repository but is not used by this fallback.
 
 ## Setup and normal playback
 
-1. When Square detects the refusal, it pauses the failed player and opens **Complete Spotify playback setup** when the app is visible. Setup is also available under **Settings → Playback → Alternative Spotify playback** for affected/configured accounts.
+1. When Ame detects the refusal, it pauses the failed player and opens **Complete Spotify playback setup** when the app is visible. Setup is also available under **Settings → Playback → Alternative Spotify playback** for affected/configured accounts.
 2. Register a Spotify developer application with Web Playback SDK enabled and redirect URI `http://127.0.0.1:5588/login`. Ensure the Premium account has access to that application, including developer-mode access rules.
 3. Enter its Client ID and authorize the same Premium account in the external browser. An existing search application Client ID is offered as a starting value; its tokens are not shared.
 4. **Check compatibility** optionally probes secure-context EME and Widevine availability without Spotify login. **Enable playback** checks DRM and connects the official SDK.
-5. When ready, Square enables recovery, closes setup and resumes the failed selection with its position and queue. Subsequent Spotify selections use the SDK while the account refusal is remembered. Local files and YouTube playback retain their own engines.
+5. When ready, Ame enables recovery, closes setup and resumes the failed selection with its position and queue. Subsequent Spotify selections use the SDK while the account refusal is remembered. Local files and YouTube playback retain their own engines.
 
-The Media3 adapter exposes SDK playback to Square’s normal mini player, full player, notification and lock-screen controls. Square retains item metadata, queue, manual next/previous, seek, repeat and shuffle. It sends up to 100 upcoming tracks to Spotify at a time and handles remaining chunks locally. The SDK device is recognized as playback on this phone, rather than mirrored as an external Connect device.
+The Media3 adapter exposes SDK playback to Ame’s normal mini player, full player, notification and lock-screen controls. Ame retains item metadata, queue, manual next/previous, seek, repeat and shuffle. It sends up to 100 upcoming tracks to Spotify at a time and handles remaining chunks locally. The SDK device is recognized as playback on this phone, rather than mirrored as an external Connect device.
 
-OAuth uses PKCE. Tokens are kept in a dedicated encrypted TokenStore with renewal; no client secret is embedded. Scopes: `streaming`, `user-read-private`, `user-read-email`, `user-read-playback-state`, `user-modify-playback-state`. Disconnecting the SDK or signing out of Square clears SDK tokens and stops its output. A new Client ID requires authorization again.
+OAuth uses PKCE. Tokens are kept in a dedicated encrypted TokenStore with renewal; no client secret is embedded. Scopes: `streaming`, `user-read-private`, `user-read-email`, `user-read-playback-state`, `user-modify-playback-state`. Disconnecting the SDK or signing out of Ame clears SDK tokens and stops its output. A new Client ID requires authorization again.
 
 ## Compatibility and limits
 

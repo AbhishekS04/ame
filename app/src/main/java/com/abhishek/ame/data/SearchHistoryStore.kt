@@ -29,6 +29,10 @@ import kotlinx.serialization.json.Json
  */
 class SearchHistoryStore(context: Context) {
 
+    init {
+        migratePrefs(context, LEGACY_FILE_NAME, FILE_NAME)
+    }
+
     private val prefs = context.applicationContext
         .getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
 
@@ -101,7 +105,8 @@ class SearchHistoryStore(context: Context) {
     private var _tracksMirror: MutableStateFlow<List<CatalogTrack>>? = null
 
     private companion object {
-        const val FILE_NAME = "square_search_history"
+        const val FILE_NAME = "ame_search_history"
+        const val LEGACY_FILE_NAME = "square_search_history"
         const val KEY_TRACKS = "tracks"
         const val KEY_ENTRIES = "entries"
 

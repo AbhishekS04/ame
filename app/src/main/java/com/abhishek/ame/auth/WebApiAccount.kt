@@ -1,6 +1,7 @@
 package com.abhishek.ame.auth
 
 import android.content.Context
+import com.abhishek.ame.data.migratePrefs
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,6 +26,11 @@ import kotlinx.coroutines.flow.asStateFlow
  * "logged in but every request is 401" state.
  */
 class WebApiAccount(context: Context) {
+
+    init {
+        migratePrefs(context, LEGACY_FILE_NAME, FILE_NAME)
+        migratePrefs(context, LEGACY_FILE_NAME_TOKENS, FILE_NAME_TOKENS)
+    }
 
     private val prefs = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
 
@@ -68,8 +74,10 @@ class WebApiAccount(context: Context) {
     }
 
     private companion object {
-        const val FILE_NAME = "spot_webapi"
-        const val FILE_NAME_TOKENS = "spot_webapi_tokens"
+        const val FILE_NAME = "ame_webapi"
+        const val FILE_NAME_TOKENS = "ame_webapi_tokens"
+        const val LEGACY_FILE_NAME = "spot_webapi"
+        const val LEGACY_FILE_NAME_TOKENS = "spot_webapi_tokens"
         const val KEY_CLIENT_ID = "client_id"
     }
 }

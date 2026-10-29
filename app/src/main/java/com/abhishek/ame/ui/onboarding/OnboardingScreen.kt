@@ -54,7 +54,7 @@ import com.abhishek.ame.ui.theme.InkDim
 /**
  * What a new install has to be told before it can play anything.
  *
- * This exists because Square cannot be configured by tapping "sign in" once,
+ * This exists because Ame cannot be configured by tapping "sign in" once,
  * and no amount of design makes that go away: playback authenticates as
  * librespot's shared client id, whose Web API quota is spent by every
  * librespot-based client on earth, so search and everything else that reads the

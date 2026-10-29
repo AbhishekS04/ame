@@ -268,6 +268,7 @@ fun FullScreenVideo(
                 trackColor = Color.White.copy(alpha = 0.28f),
                 backdrop = backdrop,
                 onScrubbing = { scrubMs = it },
+                mediaId = state.mediaId,
             )
             TimeRow(positionMs, state.durationMs, scrubMs = scrubMs)
 

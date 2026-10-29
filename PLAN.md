@@ -1,54 +1,41 @@
-# Plan: User Profile Onboarding, Authentication & Social Experience
+# Implementation Plan: Apple Music-Grade Synchronization & Seamless Playback Engine
 
-## Overview
-Enable full account authentication and session restoration so users never lose their profile upon reinstalling or clearing app data. Introduce dual-tab **[Create Profile]** and **[Log In]** onboarding, password verification with cryptographic salting, streamlined profile logout, warm conversational greetings on the Home screen ("Howdy", "Hola", "Namaste"), and clean preview mode action controls.
+## Phase 2 Objectives
 
----
+1. **Rapid-Skip Out-of-Order Artwork Race Elimination (`MainViewModel.kt`, `HeroBackdrop.kt`)**:
+   - Introduce monotonic atomic request generation counter (`artRequestGeneration`) in `MainViewModel`.
+   - Invalidate any in-flight coroutine or prefetch job whose generation doesn't match active track.
+   - Decouple `HeroBackdrop` from stale bitmaps immediately upon `trackKey` change: dissolve to ambient background blur instead of holding old track's cover when `pending == true`.
+   - Enforce strict queue-item ID matching to eliminate random banners appearing from 3–4 songs ago.
 
-## Technical Versions & Stack
-- Android SDK: Compile 35, Target 35, Min 26
-- Kotlin: 2.3.21 / Compose BOM: 2026.06.01
-- Supabase-kt: 3.8.0 (Postgrest, Storage, Realtime)
-- Jetpack Compose: Material3, Phosphor Icons
-- Cryptography: SHA-256 with application pepper & handle salting
+2. **Fast-Skip Progress Bar Zeroing & Timeline Sync (`PlayerState.kt`, `GlassProgressBar.kt`)**:
+   - In `PlayerState.kt`, register `Player.Listener` for `onMediaItemTransition` and `onPositionDiscontinuity`.
+   - Snap `position.longValue = 0L` the instant a track changes, eliminating the 150–250ms polling delay.
+   - In `GlassProgressBar.kt`, track `mediaId` and clear `committedScrub` immediately on track switch.
+   - Clamp progress calculations so `positionMs > durationMs` never renders at 50%.
 
----
+3. **Smooth Seek-Bar Gliding & Drag Physics (`GlassProgressBar.kt`)**:
+   - Separate raw target progress from rendered visual progress.
+   - Keep 1:1 instantaneous response during active user touch drag.
+   - Apply spring interpolation (`animateFloatAsState` with damping = 0.85f, stiffness = 380f) on programmatic seeks, skips, and track starts.
 
-## Phased Work Breakdown
+4. **3-Color Dynamic Buffered Chunk Indicator (`GlassProgressBar.kt`, `PlayerState.kt`, `PlayerScreen.kt`)**:
+   - Track `bufferedPositionMs` from ExoPlayer (`player.bufferedPosition`).
+   - Calculate `bufferedFraction = (bufferedPositionMs / durationMs).coerceIn(0f, 1f)`.
+   - Render 3-layer progressive seek bar:
+     1. Unbuffered liquid glass rail.
+     2. 3-Color Buffered Chunk Gradient: Ambient Cover Tint -> Electric Ultraviolet/Cyan Shimmer -> Specular White Edge.
+     3. Active Elapsed Track with pristine glowing white thumb.
 
-- [x] **Phase 1: Database & Data Layer Hardening (`SocialModels.kt`, `ProfileStore.kt`, `SocialRepository.kt`)**
-  - [x] Add `@Transient` to non-persisted client fields (`isFollowing`, `publicPlaylists`) in `SocialProfile`.
-  - [x] Remove hardcoded fallbacks and mock accounts.
-  - [x] Add atomic `createProfile` and remote debounced availability check.
+5. **Lossless Audio Chunk Buffering & Next-Track Upstream Warmup (`PlaybackService.kt`, `YouTubePlayerFactory.kt`)**:
+   - Verify `DefaultLoadControl` chunk buffer settings (`minBufferMs = 50s`, `maxBufferMs = 120s`, `bufferForPlaybackMs = 1.2s`).
+   - Warm up next track's audio stream chunk in queue before current track ends.
 
-- [x] **Phase 2: Zero-Flicker Social Navigation & Dynamic Followers Sheet**
-  - [x] Pre-seed visited profile to eliminate navigation flickering.
-  - [x] Dynamic wrap-content height for `FollowersListSheet` to remove bottom void.
-  - [x] Compress avatar and banners to WebP with auto-healing cloud sync.
+6. **Zero-Flicker Handover for Motion Covers (`MotionCover.kt`, `HeroBackdrop.kt`)**:
+   - Keep high-resolution static artwork visible behind `TextureView`.
+   - Crossfade video only after `onRenderedFirstFrame` fires to eliminate black frame flashes.
 
-- [x] **Phase 3: Database Schema & Authentication Engine (`SocialModels.kt`, `ProfileStore.kt`)**
-  - [x] Add `password_hash` column to `SocialProfile` data model and Supabase table.
-  - [x] Implement `PasswordHasher` (SHA-256 with application pepper and username salting).
-  - [x] Update `createProfile` to accept and hash `password`.
-  - [x] Implement `loginProfile(username, password): Result<SocialProfile>` to query Supabase, verify password hash, and restore all session state and cached assets.
-  - [x] Implement `logoutProfile()` to clear local preferences, wipe cached images, and reset to fresh unauthenticated state.
-
-- [x] **Phase 4: ViewModel & App Integration (`MainViewModel.kt`, `AmeApp.kt`)**
-  - [x] Expose `loginProfile` and `logoutProfile` in `MainViewModel`.
-  - [x] Connect `loginProfile` and `logoutProfile` callbacks in `AmeApp.kt` to `ProfileScreen`.
-
-- [x] **Phase 5: UI Polish: Dual-Tab Auth, Logout & Preview Mode Clean-up (`ProfileScreen.kt`)**
-  - [x] Replace single create view with dual-tab **[Create Account]** and **[Log In]** segmented selector.
-  - [x] **Log In View**: Handle input, password input with show/hide toggle, error banner, and primary action button.
-  - [x] **Create Account View**: Avatar picker, Display Name, Username (with live remote check), Password (min 6 chars), Bio, Private Account switch, and primary action button.
-  - [x] Add **Log Out** button: inside `EditProfileDialog` and in the floating top navigation bar with confirmation dialog.
-  - [x] Remove top-right "Visitor Mode • Exit" pill (preview exit is handled inline beside the follow button).
-
-- [x] **Phase 6: Playful & Joyful Greetings (`HomeScreen.kt`)**
-  - [x] Replace time-of-day greetings ("Good morning", etc.) with lively, conversational greetings: `"Howdy"`, `"Hola"`, `"Namaste"`, `"Hey there"`, `"Hello"`, `"Welcome back"`.
-  - [x] Combine greeting with user's first name/handle for a warm, personalized app experience.
-
-- [x] **Phase 7: Verification, Compilation & Device Deployment**
-  - [x] Compile Release APK via `./gradlew :app:assembleRelease`.
-  - [x] Verify keystore integrity (`ame-release.jks`, MD5: `1023458fc11e2cde98fdefa6dc9e2d1c`).
-  - [x] Stream and install onto Samsung Galaxy S24 FE via ADB and verify in Logcat.
+7. **Verification & Testing**:
+   - Build release APK (`./gradlew :app:assembleRelease`).
+   - Verify keystore MD5 `1023458fc11e2cde98fdefa6dc9e2d1c`.
+   - Deploy to Samsung Galaxy S24 FE (`RZCY41WALYB`) via ADB and verify.

@@ -11,6 +11,10 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 class DeletedPlaylistStore(context: Context) {
 
+    init {
+        migratePrefs(context, LEGACY_FILE_NAME, FILE_NAME)
+    }
+
     private val prefs = context.applicationContext
         .getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
 
@@ -47,7 +51,8 @@ class DeletedPlaylistStore(context: Context) {
     }
 
     private companion object {
-        const val FILE_NAME = "square_deleted_playlists"
+        const val FILE_NAME = "ame_deleted_playlists"
+        const val LEGACY_FILE_NAME = "square_deleted_playlists"
         const val KEY_DELETED = "deleted_uris"
     }
 }

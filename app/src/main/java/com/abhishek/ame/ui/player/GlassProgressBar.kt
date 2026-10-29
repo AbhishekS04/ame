@@ -9,6 +9,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -87,12 +88,20 @@ fun GlassProgressBar(
     backdrop: Backdrop? = null,
     onScrubbing: ((Long?) -> Unit)? = null,
     isBuffering: Boolean = false,
+    mediaId: String? = null,
+    bufferedPositionMs: State<Long>? = null,
 ) {
     var scrubbing by remember { mutableStateOf<Float?>(null) }
     var committedScrub by remember { mutableStateOf<Float?>(null) }
 
     val latestOnSeek by rememberUpdatedState(onSeek)
     val latestOnScrubbing by rememberUpdatedState(onScrubbing)
+
+    // Clear committed scrub and active scrubbing whenever the track changes
+    LaunchedEffect(mediaId) {
+        committedScrub = null
+        scrubbing = null
+    }
 
     // Clear committed scrub once engine position catches up or track changes
     LaunchedEffect(positionMs.value, durationMs) {
@@ -105,7 +114,31 @@ fun GlassProgressBar(
     }
 
     val isDragging = scrubbing != null
-    val progress = scrubbing ?: committedScrub ?: progressOf(positionMs.value, durationMs)
+    val rawProgress = scrubbing ?: committedScrub ?: progressOf(positionMs.value, durationMs)
+
+    // Smooth gliding seek thumb animation:
+    // When actively dragging with finger: 1:1 instantaneous raw tracking with zero lag.
+    // When skipping, seeking programmatically, or track loads: glide smoothly to the target position
+    // using a critically damped spring instead of snapping jarringly.
+    val animatedProgress by animateFloatAsState(
+        targetValue = rawProgress,
+        animationSpec = if (isDragging) {
+            snap()
+        } else {
+            spring(dampingRatio = 0.85f, stiffness = 380f)
+        },
+        label = "progressBarGliding",
+    )
+    val progress = if (isDragging) rawProgress else animatedProgress
+
+    // Buffered chunk fraction tracking (lossless audio chunks pulled into cache/RAM)
+    val bufferedMs = bufferedPositionMs?.value ?: 0L
+    val targetBufferedFraction = if (durationMs > 0) (bufferedMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) else 0f
+    val animatedBufferedFraction by animateFloatAsState(
+        targetValue = targetBufferedFraction,
+        animationSpec = spring(dampingRatio = 0.90f, stiffness = 320f),
+        label = "bufferedFractionAnim",
+    )
 
     // Liquid glass thumb orb animates in with a tactile spring on drag, and dissolves away on release
     val dragProgress by animateFloatAsState(
@@ -174,14 +207,42 @@ fun GlassProgressBar(
                 .layerBackdrop(trackBackdrop),
             contentAlignment = Alignment.CenterStart,
         ) {
-            // Inactive background track
+            // Inactive background track (translucent liquid glass rail)
             Box(
                 Modifier
                     .fillMaxSize()
                     .clip(RoundedCornerShape(50))
                     .background(trackColor)
             )
-            // Active elapsed track
+
+            // Dynamic 3-Color Buffered Chunk Track: indicates lossless chunks buffered into memory/disk
+            if (animatedBufferedFraction > 0.005f) {
+                val clampedProgress = progress.coerceIn(0f, 1f)
+                val startPx = (trackWidth * clampedProgress).coerceAtLeast(0f)
+                val endPx = (trackWidth * animatedBufferedFraction).coerceAtLeast(startPx + 1f)
+                val bufferGradient = Brush.horizontalGradient(
+                    colors = listOf(
+                        Color(0xFF00E5FF).copy(alpha = 0.85f), // Color 1: Vivid Electric Cyan (ahead of thumb)
+                        Color(0xFFA855F7).copy(alpha = 0.90f), // Color 2: Electric Ultraviolet / Purple
+                        Color.White.copy(alpha = 0.98f),       // Color 3: High-luminance specular tip
+                    ),
+                    startX = startPx,
+                    endX = endPx,
+                )
+                Box(
+                    Modifier
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(50))
+                        .background(bufferGradient)
+                        .layout { measurable, constraints ->
+                            val placeable = measurable.measure(constraints)
+                            val w = (constraints.maxWidth * animatedBufferedFraction).roundToInt()
+                            layout(w, placeable.height) { placeable.place(0, 0) }
+                        }
+                )
+            }
+
+            // Active elapsed track (Solid white leading up to the pure white thumb)
             Box(
                 Modifier
                     .fillMaxHeight()

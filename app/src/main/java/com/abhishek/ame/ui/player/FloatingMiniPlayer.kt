@@ -24,6 +24,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -32,6 +33,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -108,6 +111,7 @@ fun FloatingMiniPlayer(
     /** Folded: the strip has room for the song and one button, nothing else. */
     inline: Boolean = false,
     collapseProgress: Float? = null,
+    bufferedPositionMs: State<Long>? = null,
     onClick: () -> Unit,
     onTogglePlay: () -> Unit,
     onNext: () -> Unit,
@@ -335,22 +339,61 @@ fun FloatingMiniPlayer(
             }
         }
 
-        // The old bar's own hairline, back where the wave was: a coloured line
-        // along the bottom of the pill. It says where the track is without
-        // asking to be read, which on a strip this size is the whole job.
-        androidx.compose.material3.LinearProgressIndicator(
-            progress = {
-                val duration = state.durationMs
-                if (duration > 0) (positionMs.value.toFloat() / duration).coerceIn(0f, 1f) else 0f
-            },
+        // 3-Color Dynamic Buffered Chunk Gradient & Smooth Spring Gliding Hairline
+        val duration = state.durationMs
+        val rawElapsed = if (duration > 0) (positionMs.value.toFloat() / duration).coerceIn(0f, 1f) else 0f
+        val animatedElapsed by animateFloatAsState(
+            targetValue = rawElapsed,
+            animationSpec = spring(dampingRatio = 0.85f, stiffness = 380f),
+            label = "miniProgressGliding",
+        )
+        val bufferedMs = bufferedPositionMs?.value ?: 0L
+        val targetBuffered = if (duration > 0) (bufferedMs.toFloat() / duration).coerceIn(0f, 1f) else 0f
+        val animatedBuffered by animateFloatAsState(
+            targetValue = targetBuffered,
+            animationSpec = spring(dampingRatio = 0.90f, stiffness = 320f),
+            label = "miniBufferedGliding",
+        )
+
+        Box(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
                 .padding(horizontal = 14.dp)
-                .height(2.dp),
-            color = MaterialTheme.colorScheme.primary,
-            trackColor = contentColor.copy(alpha = 0.18f),
-            drawStopIndicator = {},
-        )
+                .height(2.5.dp)
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(50)),
+        ) {
+            // Layer 1: Base rail
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(contentColor.copy(alpha = 0.15f))
+            )
+
+            // Layer 2: 3-Color Dynamic Buffered Chunk Gradient
+            if (animatedBuffered > 0.005f) {
+                val miniBufferGradient = androidx.compose.ui.graphics.Brush.horizontalGradient(
+                    colors = listOf(
+                        androidx.compose.ui.graphics.Color(0xFF00E5FF), // Color 1: Vivid Electric Cyan
+                        androidx.compose.ui.graphics.Color(0xFFA855F7), // Color 2: Neon Ultraviolet Purple
+                        androidx.compose.ui.graphics.Color(0xFFFFFFFF), // Color 3: High-luminance specular tip
+                    )
+                )
+                Box(
+                    Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(animatedBuffered.coerceIn(0f, 1f))
+                        .background(miniBufferGradient)
+                )
+            }
+
+            // Layer 3: Active Elapsed Track with Spring Gliding
+            Box(
+                Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(animatedElapsed.coerceIn(0f, 1f))
+                    .background(MaterialTheme.colorScheme.primary)
+            )
+        }
     }
 }

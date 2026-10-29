@@ -1,6 +1,7 @@
 package com.abhishek.ame.playback
 
 import android.content.Context
+import com.abhishek.ame.data.migratePrefs
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -75,6 +76,7 @@ object AudioEffects {
 
     fun load(context: Context) {
         if (prefs != null) return
+        migratePrefs(context, LEGACY_FILE_NAME, FILE_NAME)
         val store = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
         prefs = store
         _reverb.value = store.getFloat(KEY_REVERB, 0f)
@@ -82,7 +84,7 @@ object AudioEffects {
         _pitch.value = store.getFloat(KEY_PITCH, 1f)
         _karaoke.value = store.getFloat(KEY_KARAOKE, 0f)
         android.util.Log.i(
-            "SpotAudio",
+            "AmeEffects",
             "effects restored: reverb=${_reverb.value} speed=${_speed.value} pitch=${_pitch.value}",
         )
     }
@@ -120,7 +122,8 @@ object AudioEffects {
             .commit()
     }
 
-    private const val FILE_NAME = "spot_audio_effects"
+    private const val FILE_NAME = "ame_audio_effects"
+    private const val LEGACY_FILE_NAME = "spot_audio_effects"
     private const val KEY_REVERB = "reverb"
     private const val KEY_SPEED = "speed"
     private const val KEY_PITCH = "pitch"

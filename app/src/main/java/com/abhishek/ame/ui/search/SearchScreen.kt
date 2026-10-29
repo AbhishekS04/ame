@@ -35,6 +35,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -311,13 +314,10 @@ fun SearchScreen(
                                 highlighted = track.uri == nowPlayingUri,
                                 round = false,
                                 onClick = { onPlayTrack(tracks, index) },
-                                // Only tracks have one: an artist row opens a
-                                // page, and there is nothing to queue, add or
-                                // share about it that the page does not do
-                                // better.
                                 onMenu = { onTrackMenu(track) },
                                 badge = stringResource(R.string.lyrics_match)
                                     .takeIf { track.uri in state.results.lyricMatches },
+                                highlightQuery = state.query,
                             )
                         }
                     }
@@ -342,24 +342,25 @@ fun SearchScreen(
                                 // Played as a video: the picture is what they are.
                                 onClick = { onPlayTrack(videos, index) },
                                 onMenu = { onTrackMenu(video) },
+                                highlightQuery = state.query,
                             )
                         }
                     }
                 }
 
                 if (all || kind == Kind.ARTISTS) {
-                    section(R.string.artists, state.results.artists, all, round = true, onOpenContext)
+                    section(R.string.artists, state.results.artists, all, round = true, state.query, onOpenContext)
                 }
                 if (all || kind == Kind.ALBUMS) {
-                    section(R.string.albums, state.results.albums, all, round = false, onOpenContext)
+                    section(R.string.albums, state.results.albums, all, round = false, state.query, onOpenContext)
                 }
                 if (all || kind == Kind.PLAYLISTS) {
-                    section(R.string.playlists, state.results.playlists, all, round = false, onOpenContext)
+                    section(R.string.playlists, state.results.playlists, all, round = false, state.query, onOpenContext)
                 }
 
                 // Shows open as their episodes; an episode plays where it is.
                 if (all || kind == Kind.PODCASTS) {
-                    section(R.string.podcasts, state.results.podcasts, all, round = false, onOpenContext)
+                    section(R.string.podcasts, state.results.podcasts, all, round = false, state.query, onOpenContext)
                 }
                 val episodes = state.results.episodes.let { if (all) it.take(TOP_RESULTS) else it }
                 if ((all || kind == Kind.PODCASTS) && episodes.isNotEmpty()) {
@@ -379,6 +380,7 @@ fun SearchScreen(
                                 round = false,
                                 onClick = { onPlayTrack(episodes, index) },
                                 onMenu = { onTrackMenu(episode) },
+                                highlightQuery = state.query,
                             )
                         }
                     }
@@ -462,6 +464,7 @@ private fun LazyListScope.section(
     /** True on the combined page, where each kind shows only its best few. */
     trimmed: Boolean,
     round: Boolean,
+    highlightQuery: String = "",
     onOpen: (SearchItem) -> Unit,
 ) {
     if (items.isEmpty()) return
@@ -481,6 +484,7 @@ private fun LazyListScope.section(
             round = round,
             onClick = { onOpen(item) },
             onMenu = null,
+            highlightQuery = highlightQuery,
         )
     }
 }
@@ -521,6 +525,43 @@ private fun SectionTitle(text: String) {
     )
 }
 
+private fun buildMatchedAnnotatedString(
+    text: String,
+    query: String,
+    baseColor: Color,
+    highlightColor: Color = baseColor,
+): AnnotatedString {
+    val trimmed = query.trim()
+    if (trimmed.isEmpty() || !text.contains(trimmed, ignoreCase = true)) {
+        return AnnotatedString(text)
+    }
+    val lowerText = text.lowercase()
+    val lowerQuery = trimmed.lowercase()
+    val builder = AnnotatedString.Builder()
+    var start = 0
+    while (start < text.length) {
+        val matchIndex = lowerText.indexOf(lowerQuery, start)
+        if (matchIndex < 0) {
+            builder.append(text.substring(start))
+            break
+        }
+        if (matchIndex > start) {
+            builder.append(text.substring(start, matchIndex))
+        }
+        val matchEnd = matchIndex + lowerQuery.length
+        builder.pushStyle(
+            SpanStyle(
+                fontWeight = FontWeight.ExtraBold,
+                color = highlightColor,
+            )
+        )
+        builder.append(text.substring(matchIndex, matchEnd))
+        builder.pop()
+        start = matchEnd
+    }
+    return builder.toAnnotatedString()
+}
+
 @Composable
 private fun ResultRow(
     title: String,
@@ -530,15 +571,23 @@ private fun ResultRow(
     round: Boolean,
     onClick: () -> Unit,
     onMenu: (() -> Unit)?,
-    /**
-     * Why this row is here, when the title does not say it.
-     *
-     * Shown before the artist rather than under it: a row is two lines tall
-     * everywhere in the app, and a third line for some rows and not others
-     * makes a list that was even into a list that jumps.
-     */
     badge: String? = null,
+    highlightQuery: String = "",
 ) {
+    val currentInk = Ink
+    val styledTitle = remember(title, highlightQuery, highlighted, currentInk) {
+        if (highlightQuery.isNotBlank() && !highlighted) {
+            buildMatchedAnnotatedString(
+                text = title,
+                query = highlightQuery,
+                baseColor = currentInk.copy(alpha = 0.70f),
+                highlightColor = currentInk,
+            )
+        } else {
+            AnnotatedString(title)
+        }
+    }
+
     Row(
         Modifier
             .fillMaxWidth()
@@ -561,7 +610,7 @@ private fun ResultRow(
                 .weight(1f),
         ) {
             Text(
-                title,
+                styledTitle,
                 style = MaterialTheme.typography.titleMedium,
                 color = if (highlighted) MaterialTheme.colorScheme.primary else Ink,
                 maxLines = 1,

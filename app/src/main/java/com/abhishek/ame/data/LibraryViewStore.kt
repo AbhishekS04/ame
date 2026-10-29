@@ -12,6 +12,10 @@ import android.content.Context
  */
 class LibraryViewStore(context: Context) {
 
+    init {
+        migratePrefs(context, LEGACY_FILE_NAME, FILE_NAME)
+    }
+
     private val prefs = context.applicationContext
         .getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
 
@@ -37,7 +41,8 @@ class LibraryViewStore(context: Context) {
         }
 
     private companion object {
-        const val FILE_NAME = "square_library_view"
+        const val FILE_NAME = "ame_library_view"
+        const val LEGACY_FILE_NAME = "square_library_view"
         const val KEY_GRID = "grid"
         const val KEY_ORDER = "order"
         const val KEY_DESC = "descending"

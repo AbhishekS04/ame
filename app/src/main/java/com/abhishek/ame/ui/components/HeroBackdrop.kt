@@ -172,9 +172,24 @@ fun HeroBackdrop(
     LaunchedEffect(artworkUrl, thumbnailUrl, activeKey, zoom, extended, pending) {
         val target = artworkUrl ?: thumbnailUrl
         if (target == null) {
-            if (!pending) art = null
+            art = null
             currentKey = activeKey
             return@LaunchedEffect
+        }
+
+        if (art?.url == target && currentKey == activeKey) return@LaunchedEffect
+
+        // When track changes, decouple from old track's bitmap so stale art never freezes on screen
+        if (currentKey != activeKey && art?.url != target) {
+            val immediate = loadArtSet(context, target, extended, zoom)
+                ?: (if (thumbnailUrl != null && thumbnailUrl != target) loadArtSet(context, thumbnailUrl, extended, zoom) else null)
+            if (immediate != null) {
+                art = immediate
+                currentKey = activeKey
+                return@LaunchedEffect
+            } else {
+                art = null
+            }
         }
 
         // Direct crossfade without dipping to empty null avoids jarring brightness flicker on track change
@@ -184,7 +199,7 @@ fun HeroBackdrop(
         if (loaded != null) {
             art = loaded
             currentKey = activeKey
-        } else if (!pending) {
+        } else if (!pending || currentKey != activeKey) {
             art = null
             currentKey = activeKey
         }

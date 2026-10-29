@@ -62,7 +62,7 @@ class LoginKeepAlive : Service() {
         fun start(context: Context) {
             runCatching {
                 context.startForegroundService(Intent(context, LoginKeepAlive::class.java))
-            }.onFailure { android.util.Log.w("SpotOAuth", "sign-in keep-alive not started: $it") }
+            }.onFailure { android.util.Log.w("AmeOAuth", "sign-in keep-alive not started: $it") }
         }
 
         /** Allowed from the background, unlike starting one. */

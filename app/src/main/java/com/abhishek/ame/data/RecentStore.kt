@@ -20,6 +20,10 @@ import kotlinx.serialization.json.Json
  */
 class RecentStore(context: Context) {
 
+    init {
+        migratePrefs(context, LEGACY_FILE_NAME, FILE_NAME)
+    }
+
     private val prefs = context.applicationContext
         .getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
 
@@ -59,7 +63,8 @@ class RecentStore(context: Context) {
     }
 
     private companion object {
-        const val FILE_NAME = "square_recent"
+        const val FILE_NAME = "ame_recent"
+        const val LEGACY_FILE_NAME = "square_recent"
         const val KEY_TRACKS = "tracks"
         const val LIMIT = 20
     }

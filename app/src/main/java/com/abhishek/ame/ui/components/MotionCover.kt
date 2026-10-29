@@ -60,28 +60,18 @@ fun MotionCover(
     // The surface the frames are read from, once the view exists.
     val surface = remember { arrayOfNulls<android.view.TextureView>(1) }
 
-    val player = remember(url) {
-        ExoPlayer.Builder(context).build().apply {
-            // Explicitly not asking for focus: what is playing keeps playing.
-            setAudioAttributes(AudioAttributes.DEFAULT, false)
-            volume = 0f
-            repeatMode = Player.REPEAT_MODE_ALL
-            setMediaItem(MediaItem.fromUri(url))
-            playWhenReady = true
-            prepare()
-        }
-    }
+    val player = remember { com.abhishek.ame.ui.motion.ActiveMotionManager.getPlayer(context) }
 
-    // Stopped while the app is away. A loop nobody is looking at is a radio
-    // that costs battery and data for a picture on a screen that is off.
     val wanted = rememberUpdatedState(playing)
-    LaunchedEffect(player, playing) { player.playWhenReady = playing }
+    LaunchedEffect(url, playing) {
+        com.abhishek.ame.ui.motion.ActiveMotionManager.setMedia(context, url, playing)
+    }
 
     // Faded in on its first frame rather than appearing in one: until then the
     // still underneath is what shows, and the change from one to the other is
     // the cover beginning to move, not a second picture arriving on top.
     var firstFrame by remember(url) { mutableStateOf(false) }
-    DisposableEffect(player) {
+    DisposableEffect(player, url) {
         val listener = object : Player.Listener {
             override fun onRenderedFirstFrame() {
                 firstFrame = true
@@ -112,19 +102,19 @@ fun MotionCover(
     )
 
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(lifecycle, player) {
+    DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_STOP -> player.pause()
-                Lifecycle.Event.ON_START -> if (wanted.value) player.play()
-                Lifecycle.Event.ON_RESUME -> if (wanted.value) player.play()
+                Lifecycle.Event.ON_STOP -> com.abhishek.ame.ui.motion.ActiveMotionManager.pause()
+                Lifecycle.Event.ON_START, Lifecycle.Event.ON_RESUME -> {
+                    if (wanted.value) com.abhishek.ame.ui.motion.ActiveMotionManager.resume(context)
+                }
                 else -> Unit
             }
         }
         lifecycle.addObserver(observer)
         onDispose {
             lifecycle.removeObserver(observer)
-            player.release()
         }
     }
 

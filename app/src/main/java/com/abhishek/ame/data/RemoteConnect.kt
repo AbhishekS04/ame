@@ -10,7 +10,7 @@ import org.json.JSONObject
 /**
  * What the account is playing on its other devices.
  *
- * Square is a Connect device, so it is already told: Spotify pushes a cluster
+ * Ame is a Connect device, so it is already told: Spotify pushes a cluster
  * update to every device of an account whenever anything changes anywhere, and
  * the engine surfaces one as an event. Nothing here polls, and nothing here
  * asks the Web API.
@@ -76,7 +76,7 @@ object RemoteConnect {
      *
      * The mirror image of [playback], and it exists because being handed
      * playback is something that happens *to* this app: another client presses
-     * "Square" in its own device list, Spotify sends the engine a transfer, and
+     * "Ame" in its own device list, Spotify sends the engine a transfer, and
      * the engine starts playing a track the app knows nothing about. This is
      * where it finds out what it is playing and, more importantly, what queue it
      * came from.
@@ -307,7 +307,7 @@ object RemoteConnect {
         if (deviceId == ownId) {
             // Coming back here is not a request to the server. A device cannot
             // address a command to itself: it goes out to the access point and
-            // comes back refused, which is why choosing Square in the list did
+            // comes back refused, which is why choosing Ame in the list did
             // nothing at all.
             runCatching { NativeBridge.takeOver() }
                 .onFailure { android.util.Log.w(TAG, "could not take playback back", it) }

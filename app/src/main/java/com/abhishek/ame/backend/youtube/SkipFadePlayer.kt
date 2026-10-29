@@ -14,7 +14,7 @@ class SkipFadePlayer(
     private val fadeMs: () -> Int,
 ) : ForwardingPlayer(player) {
 
-    private fun changing(change: () -> Unit) = fades.changeWith(fadeMs(), change)
+    private fun changing(change: () -> Unit) = fades.changeWith(fadeMs().coerceAtLeast(60), change)
 
     override fun release() {
         fades.release()

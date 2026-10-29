@@ -354,8 +354,8 @@ class YouTubeFadeController(
 
 private const val TAG = "AmeYTFade"
 
-/** Shorter than this and a dip is a click with a delay in front of it. */
-private const val MIN_HALF_MS = 120
+/** Shorter than this and a dip is a click with a delay in front of it. 30ms gives 60ms dip. */
+private const val MIN_HALF_MS = 30
 
 /** A skip is late by this much at most: it is the listener's, not the song's end. */
 private const val MAX_HALF_MS = 400

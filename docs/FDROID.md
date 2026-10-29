@@ -55,6 +55,6 @@ existing documentation.
 - https://f-droid.org/docs/Anti-Features/
 
 After the review questions and build checks are resolved, submit a merge
-request to fdroid/fdroiddata with `metadata/dev.lelonio.square.yml` and the
+request to fdroid/fdroiddata with `metadata/com.abhishek.ame.yml` and the
 verified build instructions. Upstream metadata must be present in the chosen
 release tag; the existing v2.4.5 tag predates these listing files.

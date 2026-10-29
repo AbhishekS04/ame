@@ -13,7 +13,7 @@ import java.util.Locale
  * The page is not a log. It lists each song once, where it was last played,
  * newest first, under headings rather than times ("Today", "Last week", a
  * month). So two things are read out of it here: the day a heading stands for,
- * for a first reading of what came before Square was there to watch; and,
+ * for a first reading of what came before Ame was there to watch; and,
  * between one reading and the next, which songs came back to the top, which is
  * what a song played again does.
  */

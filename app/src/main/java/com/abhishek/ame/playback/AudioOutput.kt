@@ -99,7 +99,7 @@ class AudioOutput {
      * track is flushed.
      */
     private val fadeExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { task ->
-        Thread(task, "SpotFade").apply { isDaemon = true }
+        Thread(task, "AmeFade").apply { isDaemon = true }
     }
 
     fun setSpeedAndPitch(speed: Float, pitch: Float) {
@@ -804,7 +804,7 @@ class AudioOutput {
     }
 
     private companion object {
-        const val TAG = "SpotAudio"
+        const val TAG = "AmeAudio"
         const val BUFFER_MULTIPLIER = 4
 
         const val MIN_RATE = 0.25f

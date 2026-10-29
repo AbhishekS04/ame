@@ -4,7 +4,7 @@
  * Its animation is ported from Spicy Lyrics (LyricsAnimator.ts) by Spikerko,
  * https://github.com/Spikerko/spicy-lyrics, which is licensed under the GNU
  * Affero General Public License v3.0. This file is therefore distributed under
- * AGPL-3.0, combined with the rest of Square (GPL-3.0) as section 13 of both
+ * AGPL-3.0, combined with the rest of Ame (GPL-3.0) as section 13 of both
  * licences allows.
  */
 package com.abhishek.ame.ui.player

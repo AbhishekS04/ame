@@ -72,6 +72,8 @@ import com.adamglin.phosphoricons.fill.XCircle
 import com.adamglin.phosphoricons.fill.BookmarkSimple
 import com.adamglin.phosphoricons.regular.BookmarkSimple
 import com.adamglin.phosphoricons.regular.Waveform
+import com.adamglin.phosphoricons.bold.Waveform
+import com.adamglin.phosphoricons.fill.Waveform
 import com.abhishek.ame.ui.glass.floatingtabbar.FloatingTabBar
 import com.abhishek.ame.ui.glass.floatingtabbar.sharedSearchTab
 import com.abhishek.ame.ui.glass.floatingtabbar.FloatingTabBarDefaults
@@ -169,6 +171,7 @@ import com.abhishek.ame.ui.player.MiniPlayerHeight
 import com.abhishek.ame.ui.player.NowPlayingSheet
 import com.abhishek.ame.ui.player.PlayerScreen
 import com.abhishek.ame.ui.player.progressOf
+import com.abhishek.ame.ui.player.rememberBufferedPositionMs
 import com.abhishek.ame.ui.player.rememberPlaybackState
 import com.abhishek.ame.ui.player.rememberPositionMs
 import com.abhishek.ame.ui.player.rememberQueue
@@ -233,6 +236,7 @@ object Routes {
     const val NEW = "new"
     const val RADIO = "radio"
     const val SEARCH = "search"
+    const val IDENTIFY = "identify"
     const val LIBRARY = "library"
     const val PLAYLIST = "playlist"
     const val SETTINGS = "settings"
@@ -431,7 +435,7 @@ private val BarHeight = 61.dp
 
 /** The pages that are somewhere you are, rather than somewhere you went. */
 private val TAB_ROUTES =
-    setOf(Routes.HOME, Routes.LIBRARY, Routes.SEARCH, Routes.SETTINGS)
+    setOf(Routes.HOME, Routes.LIBRARY, Routes.IDENTIFY, Routes.SEARCH, Routes.SETTINGS)
 
 /** How many stations the radio tab offers. Enough to scroll, few enough to read. */
 private const val RADIO_SEEDS = 36
@@ -590,8 +594,10 @@ fun AmeApp(
     // Held as State, not read here: reading the position at this level would
     // recompose the whole app — lists included — several times a second.
     val localPosition = rememberPositionMs(player, local.isPlaying)
+    val localBufferedPosition = rememberBufferedPositionMs(player)
     val remotePosition = rememberRemotePositionMs(remote)
     val positionMs = if (remote != null) remotePosition else localPosition
+    val bufferedPositionMs = localBufferedPosition
     val queueSource = rememberQueue(player)
     val videoOn by YouTubeVideoMode.enabled.collectAsStateWithLifecycle()
     val videoUnavailable by YouTubeVideoMode.unavailable.collectAsStateWithLifecycle()
@@ -691,10 +697,10 @@ fun AmeApp(
     val nowPlayingArtUri by viewModel.nowPlayingArtUri.collectAsStateWithLifecycle()
     val canvasEnabled by preferences.canvasEnabled.collectAsStateWithLifecycle()
     val coverSource by preferences.animatedCoverSource.collectAsStateWithLifecycle()
-    val currentTrackArt = nowPlayingArt.takeIf {
-        nowPlayingArtUri == playback.mediaId && coverSource.usesAppleArtwork
-    }
-    val appleArtPending = nowPlayingArtPending && nowPlayingArtUri == playback.mediaId
+    val currentTrackArt = (nowPlayingArt.takeIf { nowPlayingArtUri == playback.mediaId }
+        ?: viewModel.getCachedArt(playback.mediaId, playback.title, playback.album, playback.artist))
+        ?.takeIf { coverSource.usesAppleArtwork }
+    val appleArtPending = nowPlayingArtPending && nowPlayingArtUri == playback.mediaId && currentTrackArt == null
 
     // The app's one accent, taken from the same picture the pages are tinted
     // by.
@@ -792,27 +798,6 @@ fun AmeApp(
             artist = playback.artist,
             source = coverSource,
         )
-
-        // And the one after it, while there is time to spare. Read off the
-        // player's own timeline rather than the queue list: the media item
-        // carries the record's name, which is what the other catalogue is
-        // searched by, and the list does not. See prefetchArt.
-        val next = runCatching {
-            val at = player?.nextMediaItemIndex ?: androidx.media3.common.C.INDEX_UNSET
-            if (at == androidx.media3.common.C.INDEX_UNSET) null
-            else player?.getMediaItemAt(at)
-        }.getOrNull()
-        if (next != null) {
-            val meta = next.mediaMetadata
-            viewModel.prefetchArt(
-                title = meta.title?.toString().orEmpty(),
-                album = meta.albumTitle?.toString().orEmpty(),
-                artist = meta.artist?.toString().orEmpty(),
-                nextArtworkUrl = meta.artworkUri?.toString(),
-                nextMediaId = next.mediaId,
-                source = coverSource,
-            )
-        }
     }
 
     // Everything the account has actually touched, one station per artist.
@@ -882,6 +867,78 @@ fun AmeApp(
     val queue = if (spotifyVideoOn) queuedBeforeVideo else liveQueue
     LaunchedEffect(spotifyVideoOn, liveQueue) {
         if (!spotifyVideoOn) queuedBeforeVideo = liveQueue
+    }
+
+    // Proactively prefetch the next and previous tracks in queue immediately on track start
+    LaunchedEffect(playback.mediaId, queue, coverSource) {
+        val curIdx = queue.indexOfFirst { it.isCurrent }
+        val nextInQueue = if (curIdx in 0 until queue.lastIndex) queue[curIdx + 1] else null
+        val prevInQueue = if (curIdx > 0) queue[curIdx - 1] else null
+
+        if (nextInQueue != null) {
+            viewModel.prefetchArt(
+                title = nextInQueue.title,
+                album = nextInQueue.contextLabel,
+                artist = nextInQueue.artist,
+                nextMediaId = nextInQueue.uri,
+                source = coverSource,
+            )
+        } else {
+            val next = runCatching {
+                val at = player?.nextMediaItemIndex ?: androidx.media3.common.C.INDEX_UNSET
+                if (at == androidx.media3.common.C.INDEX_UNSET) null
+                else player?.getMediaItemAt(at)
+            }.getOrNull()
+            if (next != null) {
+                val meta = next.mediaMetadata
+                viewModel.prefetchArt(
+                    title = meta.title?.toString().orEmpty(),
+                    album = meta.albumTitle?.toString().orEmpty(),
+                    artist = meta.artist?.toString().orEmpty(),
+                    nextArtworkUrl = meta.artworkUri?.toString(),
+                    nextMediaId = next.mediaId,
+                    source = coverSource,
+                )
+            }
+        }
+
+        if (prevInQueue != null) {
+            viewModel.prefetchArt(
+                title = prevInQueue.title,
+                album = prevInQueue.contextLabel,
+                artist = prevInQueue.artist,
+                nextMediaId = prevInQueue.uri,
+                source = coverSource,
+            )
+        }
+    }
+
+    // 10-15s Countdown Prefetch: Proactively pre-cache upcoming track banner, colors, and motion video
+    // before the current track ends, guaranteeing instant zero-flicker transitions.
+    var countdownPrefetchedTrack by remember { mutableStateOf<String?>(null) }
+    val remainingMs = playback.durationMs - positionMs.value
+    LaunchedEffect(playback.mediaId) {
+        countdownPrefetchedTrack = null
+    }
+    LaunchedEffect(positionMs.value, playback.durationMs, playback.mediaId) {
+        if (playback.mediaId != null &&
+            playback.durationMs > 20_000L &&
+            remainingMs in 1L..15_000L &&
+            countdownPrefetchedTrack != playback.mediaId
+        ) {
+            countdownPrefetchedTrack = playback.mediaId
+            val curIdx = queue.indexOfFirst { it.isCurrent }
+            val nextInQueue = if (curIdx in 0 until queue.lastIndex) queue[curIdx + 1] else null
+            if (nextInQueue != null) {
+                viewModel.prefetchArt(
+                    title = nextInQueue.title,
+                    album = nextInQueue.contextLabel,
+                    artist = nextInQueue.artist,
+                    nextMediaId = nextInQueue.uri,
+                    source = coverSource,
+                )
+            }
+        }
     }
 
     // And whether there is anywhere to skip to, which is the same question.
@@ -1583,6 +1640,10 @@ fun AmeApp(
                     if (playlist.uri == com.abhishek.ame.data.Catalog.DJ_URI) startDj()
                     else navController.openPlaylist(viewModel, playlist)
                 }
+                val appContext = androidx.compose.ui.platform.LocalContext.current
+                val shazamRecognizer = remember(appContext, scope) {
+                    com.abhishek.ame.recognition.ShazamRecognizer(appContext, scope)
+                }
                 val currentEntry by navController.currentBackStackEntryAsState()
                 val route = currentEntry?.destination?.route
 
@@ -2228,6 +2289,23 @@ fun AmeApp(
                             )
                         }
 
+                        composable(Routes.IDENTIFY) {
+                            com.abhishek.ame.ui.recognition.IdentifyScreen(
+                                recognizer = shazamRecognizer,
+                                contentPadding = listPadding,
+                                backdrop = artBackdrop,
+                                onPlayTrack = { track ->
+                                    viewModel.playRecognizedTrack(track, onPlay)
+                                },
+                                isLiked = { title, artist ->
+                                    viewModel.isLiked(null, title, artist)
+                                },
+                                onToggleLike = { title, artist ->
+                                    viewModel.toggleLikeTrackByMetadata(title, artist)
+                                },
+                            )
+                        }
+
                         composable(Routes.SETTINGS) {
                             SettingsScreen(
                                 state = state,
@@ -2694,6 +2772,7 @@ fun AmeApp(
                                 state = if (djSpeaking) playerState else playback,
                                 djSpeaking = djSpeaking,
                                 positionMs = positionMs,
+                                bufferedPositionMs = bufferedPositionMs,
                                 remoteLabel = remote?.takeIf { showConnectedDevice }?.let { remoteLabel },
                                 modifier = accessoryModifier
                                     .fillMaxWidth()
@@ -2970,6 +3049,7 @@ fun AmeApp(
                                 listOf(
                                     Routes.HOME,
                                     Routes.LIBRARY,
+                                    Routes.IDENTIFY,
                                     Routes.SEARCH,
                                     Routes.SETTINGS,
                                 )
@@ -3033,6 +3113,16 @@ fun AmeApp(
                                 ) {
                                     viewModel.clearPageHistory()
                                     navController.switchTab(Routes.LIBRARY)
+                                }
+                                BarTab(
+                                    R.string.identify,
+                                    PhosphorIcons.Fill.Waveform,
+                                    activeTab == Routes.IDENTIFY,
+                                    tabAccent,
+                                    barInk,
+                                ) {
+                                    viewModel.clearPageHistory()
+                                    navController.switchTab(Routes.IDENTIFY)
                                 }
                                 BarTab(
                                     R.string.search,
@@ -3168,6 +3258,39 @@ fun AmeApp(
                             onClick = {
                                 viewModel.clearPageHistory()
                                 navController.switchTab(Routes.LIBRARY)
+                            },
+                        )
+                        tab(
+                            key = Routes.IDENTIFY,
+                            title = {
+                                Text(
+                                    stringResource(R.string.identify),
+                                    fontSize = 9.sp,
+                                    lineHeight = 11.sp,
+                                    style = LocalTextStyle.current.copy(
+                                        platformStyle = androidx.compose.ui.text.PlatformTextStyle(
+                                            includeFontPadding = false,
+                                        ),
+                                        lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+                                            alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+                                            trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.Both,
+                                        ),
+                                    ),
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (activeTab == Routes.IDENTIFY) tabAccent else barInk,
+                                )
+                            },
+                            icon = {
+                                Icon(
+                                    PhosphorIcons.Fill.Waveform,
+                                    contentDescription = stringResource(R.string.identify),
+                                    tint = if (activeTab == Routes.IDENTIFY) tabAccent else barInk,
+                                    modifier = Modifier.size(TabIcon),
+                                )
+                            },
+                            onClick = {
+                                viewModel.clearPageHistory()
+                                navController.switchTab(Routes.IDENTIFY)
                             },
                         )
                         // Search is one of the places, so it is registered like
@@ -3392,6 +3515,7 @@ fun AmeApp(
                                         }
                                     },
                                 positionMs = positionMs,
+                                bufferedPositionMs = bufferedPositionMs,
                                 videoFileId = videoFileId,
                                 videoMode = spotifyVideoOn,
                                 onToggleVideo = {
@@ -4390,7 +4514,7 @@ private fun BottomBar(
     // do something and come back — and giving it the same weight as the places
     // made all of them read as places.
     val routes = remember {
-        listOf(Routes.HOME, Routes.LIBRARY, Routes.SETTINGS)
+        listOf(Routes.HOME, Routes.LIBRARY, Routes.IDENTIFY, Routes.SETTINGS)
     }
 
     // The last tab that was actually on screen, held across screens that are not
@@ -4452,10 +4576,16 @@ private fun BottomBar(
                 routeIndex >= 0 && selected == 1,
             ) { onSelect(Routes.LIBRARY) }
             BottomItem(
+                stringResource(R.string.identify),
+                PhosphorIcons.Fill.Waveform,
+                PhosphorIcons.Bold.Waveform,
+                routeIndex >= 0 && selected == 2,
+            ) { onSelect(Routes.IDENTIFY) }
+            BottomItem(
                 stringResource(R.string.settings),
                 PhosphorIcons.Fill.GearSix,
                 PhosphorIcons.Bold.GearSix,
-                routeIndex >= 0 && selected == 2,
+                routeIndex >= 0 && selected == 3,
             ) { onSelect(Routes.SETTINGS) }
             }
         }

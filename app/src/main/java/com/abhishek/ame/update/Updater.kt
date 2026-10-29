@@ -24,7 +24,7 @@ import java.io.File
 /**
  * Updates the app from its own GitHub releases.
  *
- * Square cannot go on the Play Store — it re-implements a protocol whose terms
+ * Ame cannot go on the Play Store — it re-implements a protocol whose terms
  * forbid it — so there is nothing to deliver an update but the app itself. The
  * releases page is already the distribution channel; this reads it.
  *

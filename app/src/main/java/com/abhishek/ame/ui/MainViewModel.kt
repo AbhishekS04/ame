@@ -1393,7 +1393,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      *
      * Not a transfer: a device cannot address a command to itself, and taking
      * the session on its own only makes this one active and silent, which is
-     * exactly what choosing Square in the list used to do. A handover has to
+     * exactly what choosing Ame in the list used to do. A handover has to
      * carry the music with it, so the context the other device was playing is
      * reopened here, at the track it was on, at the position it had reached.
      *
@@ -1405,7 +1405,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         //
         // Reading only the "somewhere else" half meant the request quietly did
         // nothing whenever the engine had already decided this phone was
-        // active: choosing Square answered with silence and no explanation.
+        // active: choosing Ame answered with silence and no explanation.
         val remote = com.abhishek.ame.data.RemoteConnect.playback.value
             ?: com.abhishek.ame.data.RemoteConnect.here.value
         if (remote == null) {
@@ -2226,6 +2226,41 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     android.util.Log.e(TAG, "search page failed: ${chain(it)}", it)
                     _search.value = _search.value.copy(loadingMore = false, exhausted = true)
                 }
+        }
+    }
+
+    /**
+     * Resolves an identified song via active backend and triggers immediate lossless playback.
+     */
+    fun playRecognizedTrack(
+        track: com.abhishek.ame.recognition.RecognizedTrack,
+        onPlay: (List<CatalogTrack>, Int, String?, Boolean, String, Long) -> Unit,
+    ) {
+        viewModelScope.launch {
+            val query = "${track.title} ${track.artist}"
+            val labels = SearchLabels(
+                artist = string(R.string.artist),
+                album = string(R.string.album),
+                playlist = string(R.string.playlist),
+                podcast = string(R.string.podcast),
+            )
+            val searchRes = runCatching {
+                container.activeBackend.search(query, labels, offset = 0)
+            }.getOrNull()
+
+            val found = searchRes?.tracks?.firstOrNull()
+            if (found != null) {
+                onPlay(listOf(found), 0, null, false, "Identified Song", 0L)
+            } else {
+                val fallback = CatalogTrack(
+                    uri = "yt:${track.title}",
+                    name = track.title,
+                    artist = track.artist,
+                    album = track.album,
+                    artworkUrl = track.coverUrl,
+                )
+                onPlay(listOf(fallback), 0, null, false, "Identified Song", 0L)
+            }
         }
     }
 
@@ -4224,6 +4259,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun isLiked(uri: String?, title: String? = null, artist: String? = null): Boolean =
         container.likedStore.isLiked(uri, title, artist)
+
+    fun toggleLikeTrackByMetadata(title: String, artist: String): Boolean {
+        val uri = "yt:${title.trim()}"
+        return container.likedStore.toggle(uri, title, artist)
+    }
 
     /**
      * Fills both marks from what is already on disk, at no cost in requests.
@@ -6240,6 +6280,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private var nowPlayingArtJob: Job? = null
     private var prefetchArtJob: Job? = null
+    private var artRequestGeneration = 0L
     private val nowPlayingArtCache = android.util.LruCache<String, com.abhishek.ame.data.AppleCatalog.Album>(200)
 
     private fun artCacheKeys(uri: String?, title: String, album: String, artist: String): List<String> {
@@ -6256,10 +6297,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 keys.add("$plainTitle|$leadArtist")
             }
         }
-        if (alb.isNotBlank() && a.isNotBlank()) {
+        val isGenericAlbum = alb in setOf("single", "ep", "remix", "deluxe", "live", "unknown", "various artists", "va", "greatest hits")
+        if (alb.isNotBlank() && a.isNotBlank() && !isGenericAlbum) {
             keys.add("$alb|$a")
         }
         return keys
+    }
+
+    /**
+     * Looks up, and downloads, the artwork of the song that comes next.
+     *
+     * The wait a listener notices is not the picture arriving — thirty
+     * kilobytes on a wifi is nothing — it is everything before it: a search of
+     * the other catalogue, then a fetch, then a decode of a picture sixteen
+     * hundred across, all of it started at the moment the song changed. Done
+     * for the *next* song while the current one plays, all three are over
+     * before the change, and the answer is waiting in the caches the real
+     * lookup reads.
+     *
+     * Fails quietly and cancels freely: nothing on screen depends on it.
+     */
+    fun getCachedArt(uri: String?, title: String, album: String, artist: String): com.abhishek.ame.data.AppleCatalog.Album? {
+        val keys = artCacheKeys(uri, title, album, artist)
+        return keys.firstNotNullOfOrNull { nowPlayingArtCache.get(it) }
     }
 
     /**
@@ -6284,8 +6344,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         source: PreferencesStore.CoverSource,
     ) {
         if (!source.usesAppleArtwork || artist.isBlank() || com.abhishek.ame.playback.OfflineMode.active.value) return
+        val expectedGen = artRequestGeneration
         prefetchArtJob?.cancel()
-        prefetchArtJob = viewModelScope.launch {
+        prefetchArtJob = viewModelScope.launch(Dispatchers.IO) {
             val context = getApplication<AmeApplication>()
             if (nextArtworkUrl != null) {
                 runCatching {
@@ -6317,22 +6378,31 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 coverUrl = null,
             )).let { if (it.coverUrl == null && cover != null) it.copy(coverUrl = cover) else it }
 
+            if (artRequestGeneration != expectedGen) return@launch
+
             if (resolved.heroUrl != null || resolved.coverUrl != null) {
                 artCacheKeys(nextMediaId, title, album, artist).forEach { k ->
                     nowPlayingArtCache.put(k, resolved)
                 }
             }
-            // The bytes and the decode as well as the answer: Coil keeps what it
-            // has already read, and this is the half that takes the longest.
-            // At the size the player will ask for, not at the picture's own.
-            // Coil files what it has decoded under the size it decoded it at, so
-            // a copy read at sixteen hundred across is not the copy the screen
-            // wants and the decode happens again in front of the listener. The
-            // header fills the width at three by four.
+
+            // Pre-cache HLS motion video stream in background disk cache
+            found?.motionUrl?.let { motionUrl ->
+                com.abhishek.ame.ui.motion.ActiveMotionManager.preload(context, motionUrl)
+            }
+
+            // Pre-cache bitmap at the exact size HeroBackdrop decodes (1080px) to hit Coil memory cache in 0ms
             val width = context.resources.displayMetrics.widthPixels
             val height = width * DETAIL_TALL / DETAIL_WIDE
             listOfNotNull(found?.heroUrl, cover).forEach { url ->
                 runCatching {
+                    context.imageLoader.enqueue(
+                        coil.request.ImageRequest.Builder(context)
+                            .data(url)
+                            .size(1080)
+                            .allowHardware(true)
+                            .build(),
+                    )
                     context.imageLoader.enqueue(
                         coil.request.ImageRequest.Builder(context)
                             .data(url)
@@ -6433,7 +6503,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         artist: String,
         source: PreferencesStore.CoverSource,
     ) {
+        val generation = ++artRequestGeneration
         nowPlayingArtJob?.cancel()
+        prefetchArtJob?.cancel()
         _nowPlayingArtUri.value = uri
 
         if (!source.usesAppleArtwork || artist.isBlank()) {
@@ -6462,6 +6534,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // nobody to ask, and online this is the same answer without the
             // round trip.
             keptArt(uri)?.let {
+                if (generation != artRequestGeneration) return@launch
                 _nowPlayingArt.value = it.album
                 _nowPlayingArtPending.value = false
                 it.album?.let { alb ->
@@ -6499,6 +6572,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     found = com.abhishek.ame.data.AppleCatalog.album(title, artist)
                 }
             }
+
+            if (generation != artRequestGeneration) return@launch
 
             _nowPlayingArt.value = found
             _nowPlayingArtPending.value = false

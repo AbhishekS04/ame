@@ -37,10 +37,10 @@ object YouTubePlayerFactory {
     fun create(host: PlaybackHost): Player {
         fun loadControl() = androidx.media3.exoplayer.DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs = */ 30_000,
-                /* maxBufferMs = */ 60_000,
-                /* bufferForPlaybackMs = */ 500,
-                /* bufferForPlaybackAfterRebufferMs = */ 1_500,
+                /* minBufferMs = */ 45_000,
+                /* maxBufferMs = */ 90_000,
+                /* bufferForPlaybackMs = */ 800,
+                /* bufferForPlaybackAfterRebufferMs = */ 2_000,
             )
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()

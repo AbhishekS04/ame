@@ -139,7 +139,12 @@ class PlaybackService : MediaLibraryService() {
     private var lastAutoplayTrackUri: String? = null
 
     private val buttonsListener = object : androidx.media3.common.Player.Listener {
-        override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) = redrawButtons()
+        override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+            redrawButtons()
+            if (shuffleModeEnabled) {
+                applyBalancedShuffle(player)
+            }
+        }
 
         override fun onRepeatModeChanged(repeatMode: Int) = redrawButtons()
 
@@ -813,6 +818,33 @@ class PlaybackService : MediaLibraryService() {
     }
 
     /**
+     * Applies Spotify-inspired Balanced Distribution Shuffle.
+     * Uniformly spaces tracks by the same artist across the queue so that
+     * artists never clump together in consecutive runs.
+     */
+    private fun applyBalancedShuffle(targetPlayer: androidx.media3.common.Player) {
+        val exo = exoOf(targetPlayer) ?: return
+        val count = targetPlayer.mediaItemCount
+        if (count <= 1) return
+        val current = targetPlayer.currentMediaItemIndex.coerceIn(0, count - 1)
+        val seed = System.currentTimeMillis()
+        val balancedOrder = BalancedShuffle.createBalancedOrder(
+            totalCount = count,
+            currentIndex = current,
+            seed = seed,
+            isQueued = { idx ->
+                targetPlayer.getMediaItemAt(idx).mediaMetadata.extras?.getBoolean(com.abhishek.ame.ui.EXTRA_PLAY_NEXT) == true
+            },
+            artistOf = { idx ->
+                targetPlayer.getMediaItemAt(idx).mediaMetadata.artist?.toString() ?: ""
+            }
+        )
+        exo.setShuffleOrder(
+            androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder(balancedOrder, seed)
+        )
+    }
+
+    /**
      * Note on starting with the local player, which this deliberately does not
      * do: the Spotify engine is started by the player that needs it, and
      * everything the catalogue does needs it too. Coming up with the local
@@ -1292,7 +1324,7 @@ class PlaybackService : MediaLibraryService() {
     /**
      * Fills in the queue behind a track the engine was handed.
      *
-     * Only when this side does not already know the track: playing from Square
+     * Only when this side does not already know the track: playing from Ame
      * puts it in the queue first, and re-resolving the context then would throw
      * away the order the listener is looking at.
      */

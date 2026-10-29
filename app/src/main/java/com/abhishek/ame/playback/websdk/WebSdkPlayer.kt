@@ -8,7 +8,7 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.*
 
-/** Media3 adapter: Square owns the queue and UI, the official SDK owns audio. */
+/** Media3 adapter: Ame owns the queue and UI, the official SDK owns audio. */
 @UnstableApi
 class WebSdkPlayer(private val context: Context, looper: Looper) : SimpleBasePlayer(looper) {
     private data class Entry(val uid: Long, val item: MediaItem)

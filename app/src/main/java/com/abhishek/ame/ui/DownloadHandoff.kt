@@ -9,7 +9,7 @@ import com.abhishek.ame.data.CatalogPlaylist
 /**
  * Downloading, handed to whoever the user already trusts with it.
  *
- * Square does not fetch the file. Two attempts went the other way and both are
+ * Ame does not fetch the file. Two attempts went the other way and both are
  * worth recording, because the reasons are the argument for this one.
  *
  * The first fetched the audio stream itself. It worked and it was not worth

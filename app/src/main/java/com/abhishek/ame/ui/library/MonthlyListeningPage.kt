@@ -76,7 +76,7 @@ import java.util.Locale
 @Composable
 fun MonthlyListeningPage(
     events: List<ListeningEvent>,
-    /** Which note goes at the bottom: what Square can and cannot count. */
+    /** Which note goes at the bottom: what Ame can and cannot count. */
     fromSpotify: Boolean,
     backdrop: Backdrop,
     contentPadding: PaddingValues,

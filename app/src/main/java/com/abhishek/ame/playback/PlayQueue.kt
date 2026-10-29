@@ -79,6 +79,16 @@ class PlayQueue {
      */
     class Entry(val id: Long, val track: Track)
 
+    companion object {
+        const val MAX_USER_QUEUE_ITEMS = 100
+    }
+
+    var queueRevision: Long = 0L
+        private set
+
+    var shuffleSeed: Long = 0L
+        private set
+
     private var nextId = 1L
     private val _entries = mutableListOf<Entry>()
     val entries: List<Entry> get() = _entries
@@ -134,6 +144,7 @@ class PlayQueue {
         val playing = _entries.getOrNull(currentIndex)?.id
         val was = currentIndex
         change()
+        queueRevision++
         cachedItems = null
         val found = playing?.let { id -> _entries.indexOfFirst { it.id == id } } ?: -1
         currentIndex = (if (found >= 0) found else was).coerceIn(0, maxOf(0, _entries.lastIndex))
@@ -172,14 +183,19 @@ class PlayQueue {
      * a "previous" the listener never heard. Tracks queued by hand stay right
      * after it either way: they were asked for next, and shuffle is about the
      * playlist, not about them.
+     *
+     * Applies Spotify-inspired BalancedShuffle to distribute tracks uniformly by artist,
+     * eradicating clumps where the same artist plays multiple times in a row.
      */
-    fun setShuffled(shuffled: Boolean) {
+    fun setShuffled(shuffled: Boolean, seed: Long = System.currentTimeMillis()) {
         if (shuffled == isShuffled || _entries.isEmpty()) return
         if (shuffled) {
+            shuffleSeed = seed
             val order = _entries.map { it.id }
             val current = _entries[currentIndex.coerceIn(0, _entries.lastIndex)]
             val queued = queuedRun()
-            val rest = _entries.filter { it !== current && it !in queued }.shuffled()
+            val candidates = _entries.filter { it !== current && it !in queued }
+            val rest = BalancedShuffle.balancedShuffle(candidates, seed) { it.track.artist }
             edit {
                 _entries.clear()
                 _entries.add(current)
@@ -268,11 +284,22 @@ class PlayQueue {
      * queued, so the second goes *after* the first rather than in front of it:
      * the insertion point is the end of the run of already-queued tracks
      * following the current one, which is why [Track.queued] exists.
+     *
+     * Enforces [MAX_USER_QUEUE_ITEMS] cap with clean truncation logging.
      */
     fun insertNext(tracks: List<Track>) {
         if (tracks.isEmpty()) return
+        val currentQueuedCount = _entries.count { it.track.queued }
+        val allowedCount = (MAX_USER_QUEUE_ITEMS - currentQueuedCount).coerceAtLeast(0)
+        val validTracks = if (tracks.size > allowedCount) {
+            android.util.Log.w("PlayQueue", "QueueFacade: user_queue_truncated to $MAX_USER_QUEUE_ITEMS items")
+            tracks.take(allowedCount)
+        } else {
+            tracks
+        }
+        if (validTracks.isEmpty()) return
         val at = nextInsertIndex()
-        edit { _entries.addAll(at, tracks.map { entryOf(it.copy(queued = true)) }) }
+        edit { _entries.addAll(at, validTracks.map { entryOf(it.copy(queued = true)) }) }
 
         // The queue is no longer the context in its own order, so it must not
         // be handed to the engine as one: played that way Spotify supplies the

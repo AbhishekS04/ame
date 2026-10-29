@@ -153,7 +153,7 @@ fun AmeBottomBar(
 }
 
 /**
- * Drives [SquareBottomBar] from whatever is being scrolled.
+ * Drives [AmeBottomBar] from whatever is being scrolled.
  *
  * Folds on the way down and unfolds at the top of the page, and nowhere else:
  * scrolling back up is a request for what is further up, not for the bar, and a

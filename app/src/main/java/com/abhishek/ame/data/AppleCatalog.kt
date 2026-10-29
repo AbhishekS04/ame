@@ -388,31 +388,47 @@ object AppleCatalog {
         val results = search("${lead(artist)} $plain", "songs", storefront)
             ?: search("${lead(artist)} $name", "songs", storefront)
         if (results != null) {
-            val matches = results.mapNotNull { it.jsonObject["attributes"]?.jsonObject }
-                .filter {
-                    val filed = it["name"]?.jsonPrimitive?.content.orEmpty()
+            val items = results.mapNotNull { it.jsonObject }
+                .filter { item ->
+                    val attrs = item["attributes"]?.jsonObject ?: return@filter false
+                    val filed = attrs["name"]?.jsonPrimitive?.content.orEmpty()
                     filed.equals(name, ignoreCase = true) ||
                         plain(filed).equals(plain, ignoreCase = true)
                 }
-                .filter { row ->
-                    val filed = row["artistName"]?.jsonPrimitive?.content.orEmpty()
+                .filter { item ->
+                    val attrs = item["attributes"]?.jsonObject ?: return@filter false
+                    val filed = attrs["artistName"]?.jsonPrimitive?.content.orEmpty()
                     filed.equals(artist, ignoreCase = true) ||
                         credited.any { filed.contains(it, ignoreCase = true) } ||
                         credited.any { it.contains(filed, ignoreCase = true) }
                 }
 
-            val match = matches.firstOrNull { row ->
-                val filed = row["albumName"]?.jsonPrimitive?.content.orEmpty()
+            val matchItem = items.firstOrNull { item ->
+                val attrs = item["attributes"]?.jsonObject ?: return@firstOrNull false
+                val filed = attrs["albumName"]?.jsonPrimitive?.content.orEmpty()
                 album.isNotBlank() && sameTitle(filed, album)
-            } ?: matches.firstOrNull { row ->
-                val filed = row["albumName"]?.jsonPrimitive?.content.orEmpty()
+            } ?: items.firstOrNull { item ->
+                val attrs = item["attributes"]?.jsonObject ?: return@firstOrNull false
+                val filed = attrs["albumName"]?.jsonPrimitive?.content.orEmpty()
                 filed.isNotBlank() && !sameTitle(filed, name)
-            } ?: matches.firstOrNull()
+            } ?: items.firstOrNull()
 
-            if (match != null) {
+            if (matchItem != null) {
+                val match = matchItem["attributes"]?.jsonObject ?: JsonObject(emptyMap())
                 val ampCover = match["artwork"]?.jsonObject?.template()?.let { size(it, COVER_PX, COVER_PX) }
                 val albumName = match["albumName"]?.jsonPrimitive?.content.orEmpty()
                 val albumArtist = match["artistName"]?.jsonPrimitive?.content.orEmpty().ifBlank { artist }
+
+                // Check direct parent album relationship from Apple Music catalog
+                val albumId = matchItem["relationships"]?.jsonObject?.get("albums")?.jsonObject?.get("data")?.jsonArray
+                    ?.firstOrNull()?.jsonObject?.get("id")?.jsonPrimitive?.content
+                if (!albumId.isNullOrBlank()) {
+                    val fullAlbum = lookUpAlbumById(albumId, storefront)
+                    if (fullAlbum != null) {
+                        return fullAlbum.copy(coverUrl = fullAlbum.coverUrl ?: ampCover)
+                    }
+                }
+
                 if (albumName.isNotBlank()) {
                     val fullAlbum = lookUpAlbum(albumName, albumArtist, storefront)
                         ?: lookUpAlbum(albumName, lead(albumArtist), storefront)
@@ -645,8 +661,16 @@ object AppleCatalog {
      * "(Special Edition)", "- Remastered" — and an exact comparison throws away
      * the right record over a bracket.
      */
-    private fun sameTitle(a: String, b: String): Boolean =
-        a.equals(b, ignoreCase = true) || plain(a).equals(plain(b), ignoreCase = true)
+    private fun sameTitle(a: String, b: String): Boolean {
+        if (a.equals(b, ignoreCase = true)) return true
+        val pa = plain(a)
+        val pb = plain(b)
+        if (pa.equals(pb, ignoreCase = true)) return true
+        if (pa.length >= 3 && pb.length >= 3) {
+            if (pa.startsWith(pb, ignoreCase = true) || pb.startsWith(pa, ignoreCase = true)) return true
+        }
+        return false
+    }
 
     private suspend fun lookUpArtist(name: String, storefront: String): Artist? {
         val results = search(name, "artists", storefront) ?: return null
@@ -751,6 +775,53 @@ object AppleCatalog {
         )
     }
 
+    private fun parseAlbumAttributes(attributes: JsonObject): Album? {
+        val tall = attributes.tall()
+        val cover = attributes["artwork"]?.jsonObject?.template()
+        val motion = attributes.motion()
+        val motionUrl = motion?.stringValue("video")
+            ?: motion?.stringValue("hlsPlaylistUrl")
+            ?: motion?.stringValue("hlsUrl")
+            ?: motion?.stringValue("url")
+        val remoteMotion = motionUrl?.takeIf(::isRemoteUrl)
+        val motionStill = motion?.templateValue("previewFrame")
+        val notes = attributes["editorialNotes"]?.jsonObject
+            ?.let { it["standard"] ?: it["short"] }
+            ?.jsonPrimitive?.content
+
+        val pageArt = attributes["editorialArtwork"]?.jsonObject
+            ?.get("staticDetailTall")?.jsonObject
+            ?: attributes["artwork"]?.jsonObject
+
+        if (tall != null || cover != null || remoteMotion != null) {
+            val highResCover = cover?.let { size(it, COVER_PX, COVER_PX) }
+            return Album(
+                heroUrl = (tall ?: motionStill)?.let { size(it, DETAIL_W, DETAIL_H) },
+                motionUrl = remoteMotion,
+                bgColor = pageArt?.get("bgColor")?.jsonPrimitive?.content,
+                textHex = pageArt?.get("textColor1")?.jsonPrimitive?.content,
+                inkPalette = inkPaletteOf(pageArt),
+                coverUrl = highResCover,
+                notes = notes,
+            )
+        }
+        return null
+    }
+
+    private suspend fun lookUpAlbumById(id: String, storefront: String): Album? {
+        if (id.isBlank()) return null
+        val bearer = token() ?: return null
+        val url = "$API/$storefront/albums/$id?extend=editorialArtwork,editorialVideo,editorialNotes"
+        val body = get(url, bearer) ?: return null
+        val item = runCatching {
+            json.parseToJsonElement(body)
+                .jsonObject["data"]?.jsonArray
+                ?.firstOrNull()?.jsonObject
+        }.getOrNull() ?: return null
+        val attrs = item["attributes"]?.jsonObject ?: return null
+        return parseAlbumAttributes(attrs)
+    }
+
     private suspend fun lookUpAlbum(name: String, artist: String, storefront: String): Album? {
         val query = "${lead(artist)} ${plain(name)}".trim().ifBlank { name }
         val results = search(query, "albums", storefront)
@@ -758,57 +829,53 @@ object AppleCatalog {
 
         if (results != null) {
             val credited = credited(artist)
-            val candidates = results.mapNotNull { it.jsonObject["attributes"]?.jsonObject }
-                .filter { sameTitle(it["name"]?.jsonPrimitive?.content.orEmpty(), name) }
-                .filter { row ->
-                    val filed = row["artistName"]?.jsonPrimitive?.content.orEmpty()
-                    filed.equals(artist, ignoreCase = true) ||
-                        credited.any { filed.contains(it, ignoreCase = true) } ||
-                        credited.any { it.contains(filed, ignoreCase = true) }
-                }
+            data class Candidate(val id: String, val attributes: JsonObject)
+            val candidates = results.mapNotNull {
+                val obj = it.jsonObject
+                val id = obj["id"]?.jsonPrimitive?.content.orEmpty()
+                val attrs = obj["attributes"]?.jsonObject ?: return@mapNotNull null
+                Candidate(id, attrs)
+            }.filter { sameTitle(it.attributes["name"]?.jsonPrimitive?.content.orEmpty(), name) }
+            .filter { cand ->
+                val filed = cand.attributes["artistName"]?.jsonPrimitive?.content.orEmpty()
+                filed.equals(artist, ignoreCase = true) ||
+                    credited.any { filed.contains(it, ignoreCase = true) } ||
+                    credited.any { it.contains(filed, ignoreCase = true) }
+            }
 
-            fun single(row: kotlinx.serialization.json.JsonObject): Boolean =
+            fun single(row: JsonObject): Boolean =
                 row["isSingle"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() == true ||
                     row["trackCount"]?.jsonPrimitive?.content?.toIntOrNull() == 1
 
-            fun exact(row: kotlinx.serialization.json.JsonObject): Boolean =
+            fun exact(row: JsonObject): Boolean =
                 row["name"]?.jsonPrimitive?.content.orEmpty()
                     .substringBefore(" - ")
                     .trim()
                     .equals(name.substringBefore(" - ").trim(), ignoreCase = true)
 
-            val match = candidates.maxByOrNull { row ->
+            val match = candidates.maxByOrNull { cand ->
+                val row = cand.attributes
                 (if (row.tall() != null || row.motion() != null) 4 else 0) +
                     (if (exact(row)) 2 else 0) +
                     (if (single(row)) 0 else 1)
             }
             if (match != null) {
-                val tall = match.tall()
-                val cover = match["artwork"]?.jsonObject?.template()
-                val motion = match.motion()
-                val motionUrl = motion?.stringValue("video")
-                    ?.takeIf(::isRemoteUrl)
-                val motionStill = motion?.templateValue("previewFrame")
-                val notes = match["editorialNotes"]?.jsonObject
-                    ?.let { it["standard"] ?: it["short"] }
-                    ?.jsonPrimitive?.content
-
-                val pageArt = match["editorialArtwork"]?.jsonObject
-                    ?.get("staticDetailTall")?.jsonObject
-                    ?: match["artwork"]?.jsonObject
-
-                if (tall != null || cover != null) {
-                    val highResCover = cover?.let { size(it, COVER_PX, COVER_PX) }
-                    android.util.Log.i(TAG, "Apple Music Storefront matched album '$name' (motion=${motionUrl != null}): cover=$highResCover")
-                    return Album(
-                        heroUrl = (tall ?: motionStill)?.let { size(it, DETAIL_W, DETAIL_H) },
-                        motionUrl = motionUrl,
-                        bgColor = pageArt?.get("bgColor")?.jsonPrimitive?.content,
-                        textHex = pageArt?.get("textColor1")?.jsonPrimitive?.content,
-                        inkPalette = inkPaletteOf(pageArt),
-                        coverUrl = highResCover,
-                        notes = notes,
-                    )
+                var album = parseAlbumAttributes(match.attributes)
+                // If search result attributes did not bundle editorialVideo, query the album directly by ID to get full motion video
+                if ((album == null || album.motionUrl == null) && match.id.isNotBlank()) {
+                    val full = lookUpAlbumById(match.id, storefront)
+                    if (full != null) {
+                        album = if (album == null) full else album.copy(
+                            heroUrl = full.heroUrl ?: album.heroUrl,
+                            motionUrl = full.motionUrl ?: album.motionUrl,
+                            coverUrl = album.coverUrl ?: full.coverUrl,
+                            notes = full.notes ?: album.notes,
+                        )
+                    }
+                }
+                if (album != null) {
+                    android.util.Log.i(TAG, "Apple Music Storefront matched album '$name' (motion=${album.motionUrl != null}): cover=${album.coverUrl}")
+                    return album
                 }
             }
         }
@@ -833,14 +900,23 @@ object AppleCatalog {
             .mapNotNull { art?.get(it)?.jsonPrimitive?.content }
 
     /**
-     * A record's moving cover, the tall one first and the square one after it,
-     * which is the same order the still pictures are chosen in: the header is
-     * a portrait.
+     * A record's moving cover, the tall one first and the square one after it.
+     * Checks all known Apple Music motion variants.
      */
     private fun kotlinx.serialization.json.JsonObject.motion(): kotlinx.serialization.json.JsonObject? =
-        listOf("motionDetailTall", "motionTallVideo3x4", "motionDetailSquare")
-            .mapNotNull { get("editorialVideo")?.jsonObject?.get(it)?.jsonObject }
-            .firstOrNull { it.stringValue("video")?.let(::isRemoteUrl) == true }
+        listOf(
+            "motionDetailTall",
+            "motionTallVideo3x4",
+            "motionDetailSquare",
+            "motionSquareVideo1x1",
+            "motionSquare",
+            "motionHero",
+            "motion",
+        ).mapNotNull { get("editorialVideo")?.jsonObject?.get(it)?.jsonObject }
+            .firstOrNull {
+                val v = it.stringValue("video") ?: it.stringValue("hlsPlaylistUrl") ?: it.stringValue("url")
+                v != null && isRemoteUrl(v)
+            }
 
     /** Apple has returned both a string and an object containing `url` here. */
     private fun JsonObject.stringValue(key: String): String? = runCatching {
@@ -856,17 +932,13 @@ object AppleCatalog {
 
     /**
      * The full-height picture a record's page opens with, where it has one.
-     *
-     * Two keys, because the catalogue does not always file both: the detail
-     * picture is the one their own record page opens with, and the hero is what
-     * a wide screen shows — on plenty of records, including some very well known
-     * ones, only the second exists. Reading just the first was why a record
-     * could open as its sleeve while an edition of it opened as a photograph.
      */
     private fun kotlinx.serialization.json.JsonObject.tall(): String? =
         get("editorialArtwork")?.jsonObject?.let { art ->
             art["staticDetailTall"]?.jsonObject?.template()
                 ?: art["superHeroTall"]?.jsonObject?.template()
+                ?: art["bannerTall"]?.jsonObject?.template()
+                ?: art["detailTall"]?.jsonObject?.template()
         }
 
     private suspend fun search(
@@ -880,7 +952,8 @@ object AppleCatalog {
             // Enough rows to see past a title's singles, remixes and live
             // takes to the record itself; ten was not always.
             "&types=$types&limit=25" +
-            "&extend=editorialArtwork,editorialVideo,editorialNotes,artistBio,bornOrFormed"
+            "&extend=editorialArtwork,editorialVideo,editorialNotes,artistBio,bornOrFormed" +
+            (if (types.contains("songs")) "&include[songs]=albums" else "")
 
         val body = get(url, bearer) ?: return null
         return json.parseToJsonElement(body)
@@ -1044,7 +1117,7 @@ object AppleCatalog {
         // made of is flattened onto white and the artist name arrives as a white
         // slab — so the segment is rewritten rather than filled in.
         return filled.replace(
-            Regex("/\\d+x\\d+[a-z]{2}\\.(jpg|png|webp)$"),
+            Regex("/\\d+x\\d+[a-z]{0,2}\\.(jpg|png|webp)$"),
             "/" + width + "x" + height + crop + "." + format,
         )
     }
@@ -1059,32 +1132,23 @@ object AppleCatalog {
     private const val TOKEN_MARGIN_MS = 24L * 60 * 60 * 1000
 
     /**
-     * Sized for the screen it lands on, not for the header it was written for.
-     *
-     * These pictures are cropped to fill — a phone is far taller and narrower
-     * than the 3:4 the catalogue files them in — so the width that reaches the
-     * screen is only a fraction of what is asked for, and the rest is scaled up.
-     * At 900 across, a picture filling a 1080-wide screen was already being
-     * enlarged before the crop took its share, which is what made it grainy.
+     * Sized calibrated to screen tiers as documented in the Apple Music
+     * reverse-engineering specification: high-resolution 1080p safe zones
+     * with fast WebP decoding and minimal GC memory overhead.
      */
-    private const val HERO_W = 1400
-    private const val HERO_H = 1867
+    private const val HERO_W = 900
+    private const val HERO_H = 1200
 
     /** The name is wide and short, and has to stay legible at full width. */
     private const val LOGO_W = 900
     private const val LOGO_H = 276
 
-    /** A sleeve, large enough for the header and for the page's colour. */
-    private const val COVER_PX = 3000
+    /** A sleeve, right-sized for high-density displays (1000px WebP) without 3000px bloat. */
+    private const val COVER_PX = 1000
 
     /**
-     * A record's own full-height picture, at the shape Apple files it in.
-     *
-     * Large, for the reason above and one more: the player draws this over the
-     * whole screen, so the crop throws away most of its width. Not the source's
-     * full 2048x2732 — the decoder is asked for the size the screen needs, and
-     * a file twice as large only costs the download.
+     * A record's own full-height picture, calibrated for phone portrait screens.
      */
-    private const val DETAIL_W = 1600
-    private const val DETAIL_H = 2134
+    private const val DETAIL_W = 900
+    private const val DETAIL_H = 1200
 }

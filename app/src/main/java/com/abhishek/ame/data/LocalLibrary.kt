@@ -13,7 +13,7 @@ import kotlinx.coroutines.withContext
 /**
  * The audio already on the phone.
  *
- * Square hands downloading to whatever app the user has for it, so what comes
+ * Ame hands downloading to whatever app the user has for it, so what comes
  * back is a file somewhere on the device rather than anything this app placed.
  * MediaStore is therefore the only sensible way to find it: it answers "what
  * audio is on this phone", which is the actual question, while a hardcoded

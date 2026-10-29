@@ -75,6 +75,7 @@
     <string name="streak_empty_hint">Play songs to build your streak!</string>
     <string name="home">Home</string>
     <string name="library">Library</string>
+    <string name="identify">Identify</string>
     <string name="switch_to_video">Switch to video</string>
     <string name="switch_to_audio">Switch to audio</string>
     <string name="library_all">Everything</string>

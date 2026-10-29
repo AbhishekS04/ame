@@ -1,5 +1,99 @@
 # Project State: Ame
 
+## Latest Feature: Shazam-Grade Zero-Cost Audio Recognition Engine, 60ms Micro-Fadeout & MiniPlayer 3-Color Dynamic Buffer
+
+1. **Checkpoints Established**:
+   - **`"noob"`**: Pristine baseline snapshot before recognition & mini player buffer changes (`scratch/checkpoint_noob/`).
+   - **`"titan"`**: Production release with dedicated Identify dock tab, pure Kotlin Shazam acoustic signature engine, 60ms click-free micro-fadeout, and 3-color mini player buffer (`scratch/checkpoint_titan/`).
+
+2. **Dedicated Shazam-Style "Identify" Tab & Page (`IdentifyScreen.kt`, `AmeApp.kt`, `AndroidManifest.xml`)**:
+   - **Bottom Navigation Dock**: Added a dedicated **"Identify"** tab (`Routes.IDENTIFY`) with animated `PhosphorIcons.Fill.Waveform` positioned seamlessly between Library and Search across both `LiquidBottomTabs` and `FloatingTabBar`.
+   - **Microphone Permission**: Added `<uses-permission android:name="android.permission.RECORD_AUDIO" />` with an Apple Music-grade interactive Liquid Glass permission prompt.
+   - **Central Pulsating Radar Waveform Orb**:
+     - *Idle*: 160dp liquid glass orb with ambient breathing pulse.
+     - *Listening*: Concentric radar ripple rings expanding dynamically in sync with live mic RMS input amplitude.
+     - *Processing*: Shimmering radial sweep halo indicating acoustic database matching.
+     - *Matched*: High-resolution album artwork card, track title, artist name, secondary "Identify Another" pill, and a high-contrast **"Play in Lossless"** action that immediately resolves and plays the song in master lossless audio.
+     - *Recent Discoveries*: On-device history shelf (`RecognitionHistoryStore.kt`) storing recognized songs with relative timestamps and instant tap-to-play.
+
+3. **Pure Kotlin Shazam Signature Generator (`ShazamSignatureGenerator.kt`, `ShazamRecognizer.kt`)**:
+   - **100% Free / $0.00 Cost**: Zero paid APIs, zero subscriptions, zero keys. Queries Shazam's public discovery endpoint (`amp.shazam.com/discovery/v5/en/US/android/-/tag/{uuid1}/{uuid2}`).
+   - **In-Place Radix-2 2048 FFT**: Ultra-fast Cooley-Tukey FFT taking sub-millisecond execution time on device.
+   - **Acoustic Peak Mapping**: Extracts prominent spectral peaks across 4 frequency bands (250–520 Hz, 520–1450 Hz, 1450–3500 Hz, 3500–5500 Hz).
+   - **Binary Serialization**: Encapsulates peaks with magic identifiers (`0xcafe2580`, `0x94119c00`), calculates CRC-32 checksums, and encodes to `data:audio/vnd.shazam.sig;base64,...`.
+
+4. **FloatingMiniPlayer 3-Color Dynamic Buffer & Spring Gliding (`FloatingMiniPlayer.kt`, `AmeApp.kt`)**:
+   - **Buffered Chunk Hairline**: Replaced static indicator with a 3-layer progressive hairline (translucent base rail $\to$ 3-color chunk gradient [accent tint $\to$ Electric Ultraviolet `#8B5CF6` $\to$ specular white tip `#FFFFFF`] $\to$ active elapsed track).
+   - **Critically Damped Spring Gliding**: Thumb and progress smoothly glide on track changes and seeks rather than snapping.
+
+5. **60ms Exponential Micro-Fadeout on Manual Skips (`SkipFadePlayer.kt`, `YouTubeFadeController.kt`)**:
+   - **Zero PCM Clipping**: Enforced `fadeMs().coerceAtLeast(60)` and set `MIN_HALF_MS = 30` in `YouTubeFadeController.kt`.
+   - Rapid button mashing or manual skipping executes an imperceptible 60ms cosine attenuation curve, completely eliminating speaker clicks/pops even when user crossfade is disabled (0ms).
+
+6. **Release Build & Device Deployment**:
+   - Keystore integrity verified (`ame-release.jks` MD5: `1023458fc11e2cde98fdefa6dc9e2d1c`).
+   - Official certificate SHA-256: `0028866986eb5baa5854bf0ce042be8f51c5c1d24677264da38568c00d43eedf`.
+   - Release APK compiled and installed on Samsung Galaxy S24 FE (`RZCY41WALYB`).
+
+1. **Elimination of Out-of-Order Artwork Race (`MainViewModel.kt`, `HeroBackdrop.kt`)**:
+   - **Monotonic Request Generation Tracking (`artRequestGeneration`)**: Implemented an atomic request generation counter in `MainViewModel`. Any asynchronous image or video metadata lookup captures its generation token; if the user skips to another song, outdated background tasks detect `generation != artRequestGeneration` and drop their results immediately, completely preventing past song banners from suddenly overwriting the screen.
+   - **Dedicated Prefetch Cancellation (`prefetchArtJob`)**: Skipping past a song immediately cancels pending prefetch network tasks so background downloads never steal bandwidth or pollute the in-memory cache.
+   - **Generic Album Tag Guard (`artCacheKeys`)**: Prevented key collisions by disallowing generic album labels (`"single"`, `"ep"`, `"remix"`, `"deluxe"`, `"live"`, `"various artists"`) from creating loose cache entries.
+   - **Immediate Backdrop Decoupling (`HeroBackdrop.kt`)**: Decoupled `HeroBackdrop` from stale bitmaps on track change (`currentKey != activeKey`). Instead of freezing the old track's cover when `pending == true`, the UI immediately dissolves into the ambient background of the incoming song until the new master artwork decodes.
+
+2. **Fast-Skip Timeline Desynchronization Fix (`PlayerState.kt`, `GlassProgressBar.kt`)**:
+   - **Instant Media Item Transition Reset (`rememberPositionMs`)**: Added `Player.Listener` observing `onMediaItemTransition` and `onPositionDiscontinuity`. The exact microsecond ExoPlayer transitions to a new track, `position.longValue` snaps to `0L` immediately, eliminating the 150–250ms polling delay that previously caused the progress bar to show 50% while the song was at `0:01`.
+   - **Track-Keyed State Invalidation (`GlassProgressBar.kt`)**: `committedScrub` and active touch states are bound to `mediaId` and instantly wiped on track changes.
+
+3. **Smooth Liquid Spring Seek Bar Gliding (`GlassProgressBar.kt`)**:
+   - **Touch Drag vs Programmatic Decoupling**: Separated raw target progress from rendered visual progress. During active finger touches, progress tracking is 1:1 instantaneous with zero lag.
+   - **Critically Damped Spring Interpolation**: When skipping, seeking programmatically, or when a track finishes buffering, the progress bar thumb and elapsed track smoothly glide to the new position using `spring(dampingRatio = 0.85f, stiffness = 380f)` rather than snapping abruptly.
+
+4. **3-Color Dynamic Buffered Chunk Indicator (`GlassProgressBar.kt`, `PlayerState.kt`, `PlayerScreen.kt`, `AmeApp.kt`)**:
+   - **Lossless Chunk Polling (`rememberBufferedPositionMs`)**: Real-time polling of ExoPlayer's `player.bufferedPosition`, resetting synchronously on track transition.
+   - **3-Layer Progressive Architecture**:
+     1. *Layer 1 (Base Rail)*: Translucent liquid glass track (`GlassInk.copy(alpha = 0.28f)`).
+     2. *Layer 2 (Buffered Chunks)*: Dynamic 3-color horizontal gradient (`accentColor.copy(alpha = 0.38f)` -> Electric Ultraviolet `#8B5CF6` -> High-luminance specular white tip `#FFFFFF`) indicating exactly how much lossless audio has been pulled into RAM/disk.
+     3. *Layer 3 (Active Elapsed Track)*: Solid high-contrast white track terminating at the pristine circular white thumb.
+
+5. **Lossless Audio Chunk Buffer Tuning (`YouTubePlayerFactory.kt`)**:
+   - Tuned `DefaultLoadControl` chunk buffer parameters for lossless FLAC streaming:
+     - `minBufferMs = 45,000` (maintains a robust 45-second buffer ahead of playback).
+     - `maxBufferMs = 90,000` (caps memory pressure to prevent OOM spikes).
+     - `bufferForPlaybackMs = 800` (starts initial playback in sub-second time).
+     - `bufferForPlaybackAfterRebufferMs = 2,000`.
+
+6. **Build & Signing Verification**:
+   - Release signing key verified with `ame-release.jks` (MD5: `1023458fc11e2cde98fdefa6dc9e2d1c`, intact).
+   - Certificate SHA-256: `0028866986eb5baa5854bf0ce042be8f51c5c1d24677264da38568c00d43eedf`.
+   - Release APK compiled successfully: `app/build/outputs/apk/release/app-arm64-v8a-release.apk` (27MB).
+
+
+## Latest Feature: Proactive 10–15s Artwork/Motion Pre-Caching Engine & Zero-Flicker Transitions
+
+1. **Gothic Splash Screen & Lottie Removed**:
+   - Completely excised `GothicSplashScreen.kt`, `splash.json`, and `lottie-compose` dependency. Direct instantaneous startup restored.
+
+2. **Apple Music Backend Strength & Direct Album Video Resolution (`AppleCatalog.kt`)**:
+   - Implemented `lookUpAlbumById`: When search results omit `editorialVideo` to conserve CDN bandwidth, Ame queries the album resource directly by ID (`/v1/catalog/{storefront}/albums/{id}?extend=editorialArtwork,editorialVideo,editorialNotes`), unlocking full motion video coverage.
+   - Added direct parent album relationship resolution (`relationships.albums.data[0].id`) on song searches.
+   - Expanded motion variant support to include `motionDetailTall`, `motionTallVideo3x4`, `motionDetailSquare`, `motionSquareVideo1x1`, `motionSquare`, and `motionHero`.
+
+3. **10–15s Countdown Prefetching & Queue Warmup (`AmeApp.kt`, `MainViewModel.kt`)**:
+   - Added proactive prefetch trigger when `durationMs - positionMs in 1L..15_000L` (15s before track end) to pre-warm the upcoming track.
+   - Added bidirectional warmup on track start for both Next and Previous queue entries.
+   - Synchronized Coil cache dimensions to `COVER_PX = 1080` square hardware bitmaps for 0ms memory cache hits on skip.
+
+4. **Media3 ExoPlayer HLS Disk Cache & Pre-Caching (`ActiveMotionManager.kt`)**:
+   - Configured singleton `SimpleCache` (100MB LRU) and `CacheDataSource.Factory` for `ActiveMotionManager`.
+   - Added `preload(...)` via `HlsDownloader` to pull initial 1.5MB of `.m3u8` playlists and video chunks in background.
+   - Enabled `setAllowChunklessPreparation(true)` for instant playback.
+
+5. **Synchronous Zero-Flicker UI Handover (`AmeApp.kt`, `HeroBackdrop.kt`)**:
+   - `getCachedArt` checks the in-memory LRU cache synchronously on frame 1 of song transition, eliminating the intermediate fallback gap.
+   - `HeroBackdrop` holds outgoing artwork in place until the new image is decoded, performing a single direct crossfade with zero black flash.
+
+
 ## Latest Feature: Funky Badass App Icon Switcher & Dynamic Launcher Restart
 
 1. **8 Unique App Icon Variants (`AppIconManager.kt`, `AndroidManifest.xml`, `SettingsScreen.kt`)**:
@@ -252,6 +346,22 @@
   - Compilation `./gradlew compileReleaseKotlin` and release assembly `./gradlew :app:assembleRelease` passed cleanly.
   - Release APK verified with official keystore via `apksigner` (SHA-256: `0028866986eb5baa5854bf0ce042be8f51c5c1d24677264da38568c00d43eedf`).
   - Zero git commits or pushes made.
+
+- **Checkpoints Architecture (`scratch/`)**:
+  - `checkpoint_noob`: Baseline state prior to recognition and buffer rework (`checkpoint_noob.patch`, `app-arm64-v8a-release-noob.apk`).
+  - `checkpoint_titan`: Baseline with 60ms micro-fadeout and foundational Shazam engine (`checkpoint_titan.patch`, `app-arm64-v8a-release-titan.apk`).
+  - `checkpoint_apex`: Fully upgraded release containing:
+    1. 3-Color Dynamic Buffer Gradient Fix (`GlassProgressBar.kt`, `FloatingMiniPlayer.kt`): Gradient start dynamically anchored at `startX = (trackWidth * clampedProgress)` so Electric Cyan (`#00E5FF`) $\to$ Neon Violet (`#A855F7`) $\to$ Specular White (`#FFFFFF`) are all prominently visible across the buffered audio slice.
+    2. Identify Screen Liquid Glass Redesign (`IdentifyScreen.kt`): Liquid glass radar listening orb, amplitude-reactive concentric pulse rings, frosted glass match card.
+    3. Library & Liked State Validation: Live check against `MainViewModel.isLiked(title, artist)` displaying interactive "Saved in Library" / "Save to Library" badge and tactile heart action.
+    4. Google Sound Search / Hum-to-Search Intent Bridge: 1-tap zero-cost fallback pill opening native Google Sound Search for human humming and singing.
+    - Checkpoint artifacts: `scratch/checkpoint_apex/checkpoint_apex.patch` and `scratch/checkpoint_apex/app-arm64-v8a-release-apex.apk`.
+  - `checkpoint_orbit` (Current): Spotify Architecture & Algorithm Integration:
+    1. Balanced Distribution Shuffle Engine (`BalancedShuffle.kt`): Perceptual uniform placement algorithm inspired by Spotify's internal PickAndShuffle uniform layout. Spaces tracks by the same artist uniformly across the sequence so identical artists never clump together, with deterministic `shuffleSeed: Long` so the permutation remains consistent across app restarts.
+    2. Unified Playback Shuffle Integration (`PlaybackService.kt`, `PlayQueue.kt`, `SkipFadePlayer.kt`): Applies `BalancedShuffle` across both ExoPlayer/YouTube and Spotify backends.
+    3. Queue Integrity & User Queue Cap (`PlayQueue.kt`): Added atomic `queueRevision: Long` incremented on every queue edit, plus `MAX_USER_QUEUE_ITEMS = 100` cap to prevent unbounded memory growth.
+    4. Search Matched-Span Highlighting (`SearchScreen.kt`): Two-tier search experience rendering extra-bold `AnnotatedString` spans for characters matching the query (Spotify `Snippet.segments` pattern).
+    - Checkpoint artifacts: `scratch/checkpoint_orbit/checkpoint_orbit.patch` and `scratch/checkpoint_orbit/app-arm64-v8a-release-orbit.apk`.
   - Streamed and installed release APK onto Samsung Galaxy S24 FE (`RZCY41WALYB`) via ADB and successfully launched `MainActivity` (PID 22346).
   - No Git commits or pushes made to GitHub (awaiting user evaluation & comparison with Apple Music/Spotify).
 

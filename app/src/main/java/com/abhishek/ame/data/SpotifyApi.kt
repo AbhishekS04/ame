@@ -273,7 +273,7 @@ interface SpotifyApi {
     /**
      * Replaces a playlist's cover with a JPEG, sent as base64 text of at most
      * 256 KB. Needs `ugc-image-upload`, which an application connected before
-     * Square asked for it does not have: that answers 401 or 403.
+     * Ame asked for it does not have: that answers 401 or 403.
      */
     @PUT("v1/playlists/{id}/images")
     @retrofit2.http.Headers("Content-Type: image/jpeg")

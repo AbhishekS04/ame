@@ -203,7 +203,7 @@ android {
 
     buildFeatures {
         compose = true
-        // Off by default since AGP 8; SquareApplication reads BuildConfig.DEBUG.
+        // Off by default since AGP 8; AmeApplication reads BuildConfig.DEBUG.
         buildConfig = true
     }
 

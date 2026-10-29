@@ -268,7 +268,7 @@ object NativeBridge {
 
     // --- The account's other devices ---
     //
-    // Square is a Connect device, and this is the other half of the same
+    // Ame is a Connect device, and this is the other half of the same
     // protocol: what the official client does when it shows you a speaker
     // playing in another room and lets you press pause on it.
     //

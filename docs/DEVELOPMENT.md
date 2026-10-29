@@ -1,6 +1,6 @@
-# Developing Square
+# Developing Ame
 
-Everything about building Square and finding your way around its code. For
+Everything about building Ame and finding your way around its code. For
 what the app does and how to install it, see the [README](../README.md).
 
 - [Architecture](#architecture)
@@ -50,7 +50,7 @@ On the Spotify side the catalogue comes from the access point
 requests per application, and there is no streaming endpoint there at all. The
 Web API is used only where the access point has nothing to offer: search, the
 account's top tracks, the Connect device list and editing playlists. That is why
-Square asks you to register an application of your own.
+Ame asks you to register an application of your own.
 
 The player keeps no copy of the engine's state: `LibrespotPlayer` reports only
 what the engine has confirmed by event. That is why the seek bar never runs
@@ -87,15 +87,15 @@ beside the project, and with the debug key otherwise. The file and the keystore
 are both ignored by git and must stay that way.
 
 ```bash
-keytool -genkey -v -keystore square-release.jks -keyalg RSA \
-        -keysize 2048 -validity 10000 -alias square
+keytool -genkey -v -keystore ame-release.jks -keyalg RSA \
+        -keysize 2048 -validity 10000 -alias ame
 ```
 
 ```properties
 # keystore.properties, never commit this
-storeFile=square-release.jks
+storeFile=ame-release.jks
 storePassword=…
-keyAlias=square
+keyAlias=ame
 keyPassword=…
 ```
 

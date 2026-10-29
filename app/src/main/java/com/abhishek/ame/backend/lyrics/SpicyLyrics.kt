@@ -15,7 +15,7 @@ import org.json.JSONObject
  * Lyrics from Spicy Lyrics, for listeners who have a key of their own.
  *
  * Optional, and off until a key is entered in the settings: the API asks each
- * person running an app to have their own key, which they get from Square's
+ * person running an app to have their own key, which they get from Ame's
  * page in Spicy Lyrics' catalogue. Asked by the Spotify track id, which is the
  * only thing it takes, so only for Spotify's tracks.
  *
@@ -44,7 +44,7 @@ object SpicyLyrics {
         val request = Request.Builder()
             .url("$API_URL/$id")
             .header("Authorization", "Bearer $secret")
-            // The key handed out through Square's catalogue page allows this
+            // The key handed out through Ame's catalogue page allows this
             // origin; a phone has none of its own to send.
             .header("Origin", ORIGIN)
             .header("Accept", "application/json")

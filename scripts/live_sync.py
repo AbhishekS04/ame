@@ -73,7 +73,7 @@ def trigger_rebuild_and_launch(changed_file):
 
 def main():
     print("=" * 60, flush=True)
-    print("  Square LiveSync: Watching app/src for instant updates", flush=True)
+    print("  Ame LiveSync: Watching app/src for instant updates", flush=True)
     print("  Device: Pixel 10 (emulator-5554)", flush=True)
     print("=" * 60, flush=True)
     

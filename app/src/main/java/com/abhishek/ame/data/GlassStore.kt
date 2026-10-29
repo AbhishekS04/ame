@@ -79,6 +79,10 @@ enum class GlassProfile(
  */
 class GlassStore(private val context: Context) {
 
+    init {
+        migratePrefs(context, LEGACY_FILE_NAME, FILE_NAME)
+    }
+
     private val prefs = context.applicationContext
         .getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
 
@@ -226,7 +230,7 @@ class GlassStore(private val context: Context) {
             playerEnabled = prefs.getBoolean(KEY_PLAYER, base.playerEnabled),
             miniPlayerEnabled = prefs.getBoolean(KEY_MINI_PLAYER, base.miniPlayerEnabled),
             navBarEnabled = prefs.getBoolean(KEY_NAV_BAR, base.navBarEnabled),
-            // Square has one appearance, and it is dark glass over artwork. The
+            // Ame has one appearance, and it is dark glass over artwork. The
             // library's own default asks the Material scheme whether it is light
             // or dark and washes the selection puck accordingly, which here
             // answered "light" and put a solid white slab under the chosen tab.
@@ -256,7 +260,8 @@ class GlassStore(private val context: Context) {
     }
 
     private companion object {
-        const val FILE_NAME = "square_glass"
+        const val FILE_NAME = "ame_glass"
+        const val LEGACY_FILE_NAME = "square_glass"
         const val KEY_PROFILE = "profile"
         const val KEY_VIBRANCY = "vibrancy"
         const val KEY_BLUR = "blur"

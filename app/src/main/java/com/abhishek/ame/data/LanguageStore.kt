@@ -133,7 +133,7 @@ class LanguageStore(context: Context) {
 }
 
 /**
- * The languages Square is translated into.
+ * The languages Ame is translated into.
  *
  * Kept next to the store rather than in the screen that draws them: the same
  * list has to match res/xml/locales_config.xml, and one list is easier to keep

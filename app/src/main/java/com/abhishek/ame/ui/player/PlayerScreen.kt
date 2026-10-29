@@ -321,6 +321,7 @@ fun PlayerScreen(
     djSpeaking: Boolean = false,
     /** Read only inside the waveform, to keep position updates off the rest. */
     positionMs: State<Long>,
+    bufferedPositionMs: State<Long>? = null,
     onCollapse: () -> Unit,
     onTogglePlay: () -> Unit,
     onNext: () -> Unit,
@@ -1716,6 +1717,8 @@ fun PlayerScreen(
                                 backdrop = lowerBackdrop,
                                 onScrubbing = { scrubMs = it },
                                 isBuffering = state.isBuffering,
+                                mediaId = state.mediaId,
+                                bufferedPositionMs = bufferedPositionMs,
                             )
                             TimeRow(positionMs, state.durationMs, scrubMs = scrubMs)
 
@@ -1753,6 +1756,7 @@ fun PlayerScreen(
                                 SongCard(
                                     state = state,
                                     positionMs = positionMs,
+                                    bufferedPositionMs = bufferedPositionMs,
                                     onSeek = onSeek,
                                     onTogglePlay = onTogglePlay,
                                     onNext = onNext,
@@ -3013,6 +3017,7 @@ private fun SungLine(
 private fun SongCard(
     state: PlaybackState,
     positionMs: State<Long>,
+    bufferedPositionMs: State<Long>? = null,
     onSeek: (Long) -> Unit,
     onTogglePlay: () -> Unit,
     onNext: () -> Unit,
@@ -3073,6 +3078,8 @@ private fun SongCard(
                 accentColor = GlassInk,
                 trackColor = GlassInk.copy(alpha = 0.28f),
                 isBuffering = state.isBuffering,
+                mediaId = state.mediaId,
+                bufferedPositionMs = bufferedPositionMs,
             )
             TimeRow(positionMs, state.durationMs)
         }

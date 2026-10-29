@@ -57,7 +57,7 @@ object ListeningHistory {
     /**
      * A play read from an account that keeps no times; see [YouTubeListening].
      *
-     * Square's own measurement of the same song inside [window] is that play,
+     * Ame's own measurement of the same song inside [window] is that play,
      * once: it is marked as seen by the account and nothing is added. Otherwise
      * the play is added at [at].
      */

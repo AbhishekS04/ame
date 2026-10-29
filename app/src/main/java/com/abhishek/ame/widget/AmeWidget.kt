@@ -30,7 +30,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 /**
- * Square on the home screen: what is playing, its controls, the playlists last
+ * Ame on the home screen: what is playing, its controls, the playlists last
  * opened, and the mark that opens the app.
  *
  * Drawn by the launcher from RemoteViews, so it is redrawn by being told:
@@ -127,7 +127,7 @@ open class AmeWidget : AppWidgetProvider() {
             refresh(context)
         }
 
-        /** Draws every Square widget again from what is kept. */
+        /** Draws every Ame widget again from what is kept. */
         fun refresh(context: Context) {
             val app = context.applicationContext
             val manager = AppWidgetManager.getInstance(app)
