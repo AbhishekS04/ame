@@ -33,7 +33,7 @@
 > ### 🛑 Disclaimer: Read Before You Vibe
 > **This app is an indie passion project crafted for a small, tight-knit circle.**
 > 
-> Think of Ame as that eccentric open-source cousin of Spotify and Apple Music who refuses to run ads, obsesses over 24-bit FLAC audio and liquid glass shaders, and occasionally pushes updates at 3 AM. If something breaks, please don't sue us—we're probably just vibing to music. 🎧
+> Think of Ame as that eccentric open-source cousin of Spotify and Apple Music who refuses to run ads, obsesses over 24-bit FLAC audio and liquid glass shaders, and occasionally pushes updates at 3 AM. If something breaks, please don't sue me I'm probably just vibing to music. 🎧
 > 
 > **Full Respect & Credits**: Immense gratitude goes to the brilliant open-source pioneers, upstream developers, and library maintainers whose incredible foundational work made this possible. All licenses, protocol drivers, and architectural credits are fully preserved and honored in our [Development Docs](docs/DEVELOPMENT.md).
 
