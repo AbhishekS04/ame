@@ -1,0 +1,860 @@
+package com.abhishek.ame.ui.library
+
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.annotation.StringRes
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import com.abhishek.ame.ui.glass.backdrop.Backdrop
+import com.abhishek.ame.R
+import com.abhishek.ame.data.CatalogPlaylist
+import com.abhishek.ame.data.sortedByRecentlyOpened
+import com.abhishek.ame.data.withLocalFilesFirst
+import com.abhishek.ame.data.withLikedSecond
+import com.abhishek.ame.data.withPinnedFirst
+import com.abhishek.ame.ui.MainViewModel
+import com.abhishek.ame.ui.components.Artwork
+import com.abhishek.ame.ui.glass.LiquidButton
+import com.abhishek.ame.ui.glass.pressable
+import com.abhishek.ame.ui.player.GlassFilm
+import com.abhishek.ame.ui.theme.Ink
+import com.abhishek.ame.ui.theme.InkDim
+import com.abhishek.ame.ui.theme.softShadow
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInRoot
+import com.abhishek.ame.ui.components.CHOICE_MENU_WIDTH
+import com.abhishek.ame.ui.components.GlassChoiceItem
+import com.abhishek.ame.ui.components.GlassMenuRule
+import com.abhishek.ame.ui.components.GlassChoiceMenu
+import com.abhishek.ame.ui.glass.backdrop.backdrops.layerBackdrop
+import com.abhishek.ame.ui.glass.backdrop.backdrops.rememberCombinedBackdrop
+import com.abhishek.ame.ui.glass.backdrop.backdrops.rememberLayerBackdrop
+import com.abhishek.ame.ui.glass.backdrop.backdrops.rememberBackdropFreeze
+import com.adamglin.PhosphorIcons
+import com.adamglin.phosphoricons.Fill
+import com.adamglin.phosphoricons.fill.PushPin
+import com.adamglin.phosphoricons.Regular
+import com.adamglin.phosphoricons.regular.ArrowsDownUp
+import com.adamglin.phosphoricons.regular.ListBullets
+import com.adamglin.phosphoricons.regular.ChartBar
+import com.adamglin.phosphoricons.regular.Plus
+import com.adamglin.phosphoricons.regular.SquaresFour
+import com.adamglin.phosphoricons.regular.FolderSimple
+
+/** What the library is sorted by. */
+private enum class Order(val key: String, @StringRes val label: Int) {
+    RECENT("recent", R.string.recently_opened),
+    NAME("name", R.string.name),
+    ADDED("added", R.string.spotify_order),
+}
+
+/**
+ * Which kind of thing the library is showing.
+ *
+ * The chips used to be the sort, which put the three least-used controls in the
+ * most prominent place on the screen and left no way at all to say "only
+ * albums". The sort is a menu now; the chips answer the question a library is
+ * actually asked, which is what am I looking at.
+ */
+private enum class Filter(@StringRes val label: Int, @StringRes val count: Int) {
+    ALL(R.string.library_all, R.string.item_count),
+    PLAYLISTS(R.string.playlists, R.string.playlist_count),
+    ARTISTS(R.string.artists, R.string.artist_count),
+    ALBUMS(R.string.albums, R.string.album_count),
+    PODCASTS(R.string.podcasts, R.string.podcast_count),
+}
+
+/**
+ * Every playlist on the account.
+ *
+ * Rewritten alongside the home page and for the same reason: this was a plain
+ * Material list with a divider between every row, which is the one thing on
+ * screen that cannot be made of glass. It is now the same material as the rest —
+ * and, being the screen you come to when you know what you are looking for, it
+ * gets the controls the home page has no room for: a grid, and a sort.
+ */
+@Composable
+fun LibraryScreen(
+    state: MainViewModel.UiState,
+    contentPadding: PaddingValues,
+    onLogIn: () -> Unit,
+    onRetry: () -> Unit,
+    /** Off the network by choice, from the wait; see ConnectingState. */
+    onGoOffline: () -> Unit = {},
+    onLogOut: () -> Unit,
+    onOpenPlaylist: (CatalogPlaylist) -> Unit,
+    /** URIs most recently opened first; see PlaylistOrderStore. */
+    playlistOrder: List<String>,
+    /** URIs the listener pinned to the top; see PinnedPlaylistStore. */
+    pinned: List<String> = emptyList(),
+    /** False when the source cannot be written to; see MusicBackend. */
+    canEdit: Boolean = false,
+    onCreatePlaylist: () -> Unit = {},
+    /** Long press: rename and delete live in a sheet, like a track's actions. */
+    onPlaylistMenu: (CatalogPlaylist) -> Unit = {},
+    /** The artists the account follows; empty leaves the shelf out entirely. */
+    artists: List<com.abhishek.ame.data.SearchItem> = emptyList(),
+    onOpenArtist: (com.abhishek.ame.data.SearchItem) -> Unit = {},
+    /** The albums the account has saved; see MainViewModel.savedAlbums. */
+    albums: List<CatalogPlaylist> = emptyList(),
+    /** The podcasts the account follows; none leaves their chip out. */
+    podcasts: List<CatalogPlaylist> = emptyList(),
+    /** Tries the servers again from the offline banner; null hides the button. */
+    onRetryOnline: (suspend () -> Boolean)? = null,
+    /**
+     * Suggest signing in to the source's account: the library is the page an
+     * account fills, so it is the first place its absence shows.
+     */
+    signInHint: Boolean = false,
+    onSignIn: () -> Unit = {},
+    /** Signed out of Spotify: the other source, and the settings; see SignedOutOptions. */
+    onUseYouTube: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
+    listeningEvents: List<com.abhishek.ame.data.ListeningEvent>? = null,
+    /** Whether those were played from Spotify, rather than YouTube Music. */
+    listeningFromSpotify: Boolean = true,
+    currentPlayingUri: String? = null,
+    backdrop: Backdrop,
+) {
+    when (state) {
+        // The same page the home tab shows signed out, mark and all: the two
+        // are one state reached from two tabs, and a plain title here made
+        // them read as two different apps.
+        MainViewModel.UiState.LoggedOut -> Centered {
+            com.abhishek.ame.ui.components.AppGlyph(64.dp)
+            com.abhishek.ame.ui.components.AmeWordmark(height = 28.dp)
+            Text(
+                stringResource(R.string.unofficial_client),
+                style = MaterialTheme.typography.bodyMedium,
+                color = InkDim,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 40.dp),
+            )
+            GlassAction(stringResource(R.string.log_in_with_spotify), backdrop, onLogIn)
+            com.abhishek.ame.ui.components.SignedOutOptions(onUseYouTube, onOpenSettings)
+        }
+
+        MainViewModel.UiState.Connecting,
+        MainViewModel.UiState.Loading,
+        -> com.abhishek.ame.ui.components.ConnectingState(backdrop, onGoOffline)
+
+        is MainViewModel.UiState.Failed -> Centered {
+            Text(
+                state.message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = InkDim,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 40.dp),
+            )
+            GlassAction(stringResource(R.string.retry), backdrop, onRetry)
+            GlassAction(stringResource(R.string.log_out), backdrop, onLogOut)
+        }
+
+        is MainViewModel.UiState.Ready -> {
+            // Both are the listener's own decision about their library rather
+            // than a mode of this screen, so they are read from where they were
+            // left and written as they change; see LibraryViewStore.
+            val appContext = LocalContext.current.applicationContext
+            val view = remember(appContext) {
+                (appContext as com.abhishek.ame.AmeApplication).libraryView.apply { grid = true }
+            }
+            var order by remember {
+                mutableStateOf(Order.entries.firstOrNull { it.key == view.order } ?: Order.RECENT)
+            }
+            var filter by remember { mutableStateOf(Filter.ALL) }
+            var sortOpen by remember { mutableStateOf(false) }
+            var recapOpen by remember { mutableStateOf(false) }
+            // Recorded so the menu has the tiles behind it to blur, rather than
+            // the page colour: over a flat fill glass has nothing to bend and
+            // comes out looking like a hole. Safe to record — the menu is drawn
+            // outside the grid, so nothing in this layer samples it.
+            val listBackdrop = rememberLayerBackdrop()
+            val listBackdropFreeze = rememberBackdropFreeze()
+            val gridState = rememberLazyGridState()
+            var descending by remember { mutableStateOf(view.descending) }
+            val onOrderChosen: (Order) -> Unit = {
+                order = it
+                view.order = it.key
+            }
+            var sortAnchor by remember { mutableStateOf(androidx.compose.ui.unit.IntOffset.Zero) }
+            val density = androidx.compose.ui.platform.LocalDensity.current
+
+            val artistItems = remember(artists) {
+                artists.map { artist ->
+                    CatalogPlaylist(
+                        uri = artist.uri,
+                        name = artist.title,
+                        artworkUrl = artist.artworkUrl,
+                    )
+                }
+            }
+
+            // What the chips are asking for, before any sorting.
+            val shown = remember(state.playlists, albums, artistItems, podcasts, filter) {
+                when (filter) {
+                    Filter.ALL -> (state.playlists + albums + podcasts).distinctBy { it.uri }
+                    Filter.PODCASTS -> podcasts.distinctBy { it.uri }
+                    Filter.PLAYLISTS -> state.playlists.distinctBy { it.uri }
+                    Filter.ALBUMS -> albums.distinctBy { it.uri }
+                    Filter.ARTISTS -> artistItems.distinctBy { it.uri }
+                }
+            }
+
+            // What the field at the top of the list is asking for, on top of the
+            // chips: the same act as the field inside a record, narrowing what
+            // is already here rather than fetching anything.
+            var query by remember { mutableStateOf("") }
+            val matching = remember(shown, query) {
+                if (query.isBlank()) shown
+                else shown.filter { it.name.contains(query.trim(), ignoreCase = true) }
+            }
+
+            val playlists = remember(matching, playlistOrder, pinned, order, descending) {
+                when (order) {
+                    Order.RECENT -> matching.sortedByRecentlyOpened(playlistOrder)
+                    Order.NAME -> matching.sortedWith(
+                        compareBy(String.CASE_INSENSITIVE_ORDER) { it.name },
+                    )
+                    // The order the account added them, which is what the
+                    // rootlist arrives in.
+                    Order.ADDED -> matching
+                }
+                    // The direction belongs to the sort rather than beside it:
+                    // reversing "recently opened" is "least recently", and a
+                    // separate control for that would be a second sort.
+                    .let { if (descending) it.reversed() else it }
+                    // The phone's own music and what is kept on it outrank
+                    // the sort: they are not playlists competing for a place
+                    // but fixed shelves of the library, and one nobody has
+                    // opened yet would otherwise sit sixtieth among lists.
+                    .withLocalFilesFirst()
+                    // And pinning outranks even those: it is the one
+                    // instruction the listener gave about this list
+                    // themselves, and a shelf they never asked for standing
+                    // above the lists they chose to keep at the top is the app
+                    // overruling them (#25).
+                    .withPinnedFirst(pinned)
+                    // Once more at the end, because every row below is keyed
+                    // on its address and a list that holds one twice does not
+                    // draw, it crashes. Spotify can hand the same playlist back
+                    // twice, and a paged list can repeat an item across pages.
+                    .distinctBy { it.uri }
+            }
+
+            // The month in music takes the library's place while it is open,
+            // and gives it back as it was: the scroll positions and choices
+            // above are held outside this.
+            AnimatedContent(
+                targetState = recapOpen && listeningEvents != null,
+                transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(160)) },
+                label = "libraryRecap",
+            ) { showRecap ->
+            if (showRecap) {
+                MonthlyListeningPage(
+                    events = listeningEvents.orEmpty(),
+                    fromSpotify = listeningFromSpotify,
+                    backdrop = backdrop,
+                    contentPadding = contentPadding,
+                    onBack = { recapOpen = false },
+                )
+            } else {
+            Box(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize()) {
+                // On its side the screen is short, and the heading held still
+                // over the list covered half of it: there it scrolls away with
+                // the list instead, as the first thing in it.
+                val sideways = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
+                    android.content.res.Configuration.ORIENTATION_LANDSCAPE
+                val heading: @Composable () -> Unit = {
+                    Header(
+                        count = playlists.size,
+                        order = order,
+                        filter = filter,
+                        query = query,
+                        onQuery = { query = it },
+                        hasPodcasts = podcasts.isNotEmpty(),
+                        backdrop = backdrop,
+                        topPadding = contentPadding.calculateTopPadding(),
+                        onOrder = { onOrderChosen(it) },
+                        onFilter = { filter = it },
+                        onSort = { sortOpen = true },
+                        onSortAnchor = { sortAnchor = it },
+                        canEdit = canEdit,
+                        onCreatePlaylist = onCreatePlaylist,
+                        onOpenRecap = if (listeningEvents != null) ({ recapOpen = true }) else null,
+                    )
+                }
+                if (!sideways) heading()
+
+                LazyVerticalGrid(
+                    state = gridState,
+                    columns = GridCells.Fixed(3),
+                    contentPadding = PaddingValues(
+                        start = 14.dp,
+                        end = 14.dp,
+                        top = 6.dp,
+                        bottom = contentPadding.calculateBottomPadding() + 80.dp,
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .nestedScroll(listBackdropFreeze.connection)
+                        .layerBackdrop(
+                            listBackdrop,
+                            frozen = { listBackdropFreeze.frozen() || gridState.isScrollInProgress },
+                        ),
+                ) {
+                    if (sideways) {
+                        item(span = { GridItemSpan(maxLineSpan) }, key = "heading") {
+                            Box(Modifier.bleed(20.dp)) { heading() }
+                        }
+                    }
+
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "offline") {
+                        com.abhishek.ame.ui.components.OfflineNotice(onRetry = onRetryOnline)
+                    }
+
+                    if (signInHint) {
+                        item(span = { GridItemSpan(maxLineSpan) }, key = "sign-in") {
+                            com.abhishek.ame.ui.components.SignInHint(onSignIn = onSignIn)
+                        }
+                    }
+
+                    itemsIndexed(
+                        items = playlists,
+                        key = { _, item: CatalogPlaylist -> "grid_${item.uri}" },
+                    ) { index, playlist ->
+                        CdJewelCard(
+                            playlist = playlist,
+                            pinned = playlist.uri in pinned,
+                            isCurrentlyPlaying = playlist.uri == currentPlayingUri,
+                            onClick = { open(playlist, artists, onOpenPlaylist, onOpenArtist) },
+                            onLongClick = if (canEdit) {
+                                { onPlaylistMenu(playlist) }
+                            } else {
+                                null
+                            },
+                        )
+                    }
+                }
+            }
+
+
+            // The app's own menu rather than Material's card: see GlassMenu.
+            // The same one the track sort on a playlist page opens, for the
+            // same reason — a menu that arrives from another design system is
+            // the one surface on screen that says so.
+            GlassChoiceMenu(
+                visible = sortOpen,
+                anchor = sortAnchor.leftOf(density),
+                backdrop = rememberCombinedBackdrop(backdrop, listBackdrop),
+                onDismiss = { sortOpen = false },
+            ) {
+                Order.entries.forEach { entry ->
+                    GlassChoiceItem(
+                        stringResource(entry.label),
+                        selected = entry == order,
+                    ) {
+                        sortOpen = false
+                        onOrderChosen(entry)
+                    }
+                }
+                GlassMenuRule()
+
+                // Deliberately leaves the menu open: the direction is the one
+                // choice people flip back and forth to compare, and reopening
+                // for each flip makes a sort feel heavy.
+                GlassChoiceItem(
+                    stringResource(R.string.sort_descending),
+                    selected = descending,
+                ) {
+                    descending = !descending
+                    view.descending = descending
+                }
+            }
+            }
+            }
+            }
+        }
+    }
+}
+
+/** Where a menu hanging off the sort button's right edge goes. */
+private fun androidx.compose.ui.unit.IntOffset.leftOf(
+    density: androidx.compose.ui.unit.Density,
+): androidx.compose.ui.unit.IntOffset {
+    val width = with(density) {
+        CHOICE_MENU_WIDTH.roundToPx()
+    }
+    val gap = with(density) { 8.dp.roundToPx() }
+    return androidx.compose.ui.unit.IntOffset((x - width + gap).coerceAtLeast(gap), y + gap)
+}
+
+/**
+ * Opens whatever the tile stands for.
+ *
+ * The grid holds playlists, albums and, under the artists chip, artists. The
+ * first two are track lists and open the same way; an artist is a page of its
+ * own, and the only thing that knows which is which is the URI.
+ */
+private fun open(
+    item: CatalogPlaylist,
+    artists: List<com.abhishek.ame.data.SearchItem>,
+    onOpenPlaylist: (CatalogPlaylist) -> Unit,
+    onOpenArtist: (com.abhishek.ame.data.SearchItem) -> Unit,
+) {
+    val artist = artists.firstOrNull { it.uri == item.uri }
+    if (artist != null) onOpenArtist(artist) else onOpenPlaylist(item)
+}
+
+@Composable
+private fun Header(
+    count: Int,
+    order: Order,
+    filter: Filter,
+    query: String,
+    onQuery: (String) -> Unit,
+    /** Whether the podcast chip has anything under it. */
+    hasPodcasts: Boolean = false,
+    backdrop: Backdrop,
+    topPadding: Dp,
+    onOrder: (Order) -> Unit,
+    onFilter: (Filter) -> Unit,
+    onSort: () -> Unit,
+    onSortAnchor: (androidx.compose.ui.unit.IntOffset) -> Unit,
+    canEdit: Boolean,
+    onCreatePlaylist: () -> Unit,
+    onOpenRecap: (() -> Unit)? = null,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = topPadding),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 24.dp, end = 20.dp, top = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(stringResource(R.string.library), style = MaterialTheme.typography.displayLarge)
+                // Counting whatever the chips are showing, and saying so: the
+                // same number labelled "playlists" under the albums chip is a
+                // line that contradicts the screen it sits on.
+                Text(
+                    stringResource(filter.count, count),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = InkDim,
+                )
+            }
+
+            if (onOpenRecap != null) {
+                LiquidButton(
+                    onClick = onOpenRecap, backdrop = backdrop,
+                    modifier = Modifier.padding(end = 8.dp).size(42.dp),
+                    contentHeight = 42.dp, contentPadding = 0.dp,
+                ) {
+                    Icon(PhosphorIcons.Regular.ChartBar,
+                        contentDescription = stringResource(R.string.recap_title),
+                        tint = Ink, modifier = Modifier.size(20.dp))
+                }
+            }
+
+            // Only where a playlist can actually be made: on a source with no
+            // account signed in, a plus that always failed would be worse than
+            // no plus at all.
+            if (canEdit) {
+                LiquidButton(
+                    onClick = onCreatePlaylist,
+                    backdrop = backdrop,
+                    modifier = Modifier
+                        .padding(end = 8.dp)
+                        .size(42.dp),
+                    contentHeight = 42.dp,
+                    contentPadding = 0.dp,
+                ) {
+                    Icon(
+                        PhosphorIcons.Regular.Plus,
+                        contentDescription = stringResource(R.string.new_playlist),
+                        tint = Ink,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+
+            // 4-Squares Grid icon button matching inspo-ame/library.png
+            LiquidButton(
+                onClick = {},
+                backdrop = backdrop,
+                modifier = Modifier.size(42.dp),
+                contentHeight = 42.dp,
+                contentPadding = 0.dp,
+            ) {
+                Icon(
+                    PhosphorIcons.Regular.SquaresFour,
+                    contentDescription = null,
+                    tint = Ink,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+
+        // The chips say what is being shown, the whole width to themselves:
+        // the sort went up beside the other buttons, since it is a choice made
+        // once and then left alone, and the chips need the room.
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(top = 14.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Scrolled sideways rather than squeezed, edge to edge.
+            Row(
+                Modifier
+                    .weight(1f)
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+            Filter.entries.filter { it != Filter.ARTISTS && (it != Filter.PODCASTS || hasPodcasts) }.forEach { entry ->
+                com.abhishek.ame.ui.components.FilterChip(
+                    label = stringResource(entry.label),
+                    selected = entry == filter,
+                    onClick = { onFilter(entry) },
+                )
+            }
+            }
+        }
+
+        // The order, named, just above what it orders: read with the list
+        // rather than hunted for among the buttons, and out of the chips' way.
+        Row(
+            Modifier
+                .padding(start = 14.dp, top = 2.dp, bottom = 4.dp)
+                .clip(RoundedCornerShape(50))
+                .clickable(onClick = onSort)
+                .onGloballyPositioned {
+                    val bounds = it.boundsInRoot()
+                    onSortAnchor(
+                        androidx.compose.ui.unit.IntOffset(
+                            bounds.right.toInt(),
+                            bounds.bottom.toInt(),
+                        ),
+                    )
+                }
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(
+                PhosphorIcons.Regular.ArrowsDownUp,
+                contentDescription = stringResource(R.string.sort),
+                tint = InkDim,
+                modifier = Modifier.size(16.dp),
+            )
+            Text(
+                stringResource(order.label),
+                style = MaterialTheme.typography.labelLarge,
+                color = InkDim,
+            )
+
+        }
+
+        // Search bar directly under "Recently opened" (matching inspo-ame/library.png)
+        com.abhishek.ame.ui.components.ListSearchField(
+            query = query,
+            onQuery = onQuery,
+            placeholder = stringResource(R.string.search_library),
+            height = 46.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
+        )
+    }
+}
+
+/*
+// Glassomorphic Folder Cards commented out as requested; preserved for future use:
+@Composable
+private fun GridTile(
+    playlist: CatalogPlaylist,
+    pinned: Boolean,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)?,
+) {
+    FolderTile(
+        playlist = playlist,
+        pinned = pinned,
+        onClick = onClick,
+        onLongClick = onLongClick,
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+@Composable
+private fun LibraryLayoutToggle(
+    layout: Layout,
+    onLayout: (Layout) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .clip(CircleShape)
+            .background(Ink.copy(alpha = 0.08f))
+            .border(1.dp, Ink.copy(alpha = 0.12f), CircleShape)
+            .padding(3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        val isGrid = layout == Layout.GRID
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .then(
+                    if (isGrid) Modifier
+                        .background(Ink.copy(alpha = 0.22f))
+                        .border(1.dp, Color.White.copy(alpha = 0.16f), CircleShape)
+                    else Modifier
+                )
+                .clickable { onLayout(Layout.GRID) },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                PhosphorIcons.Regular.FolderSimple,
+                contentDescription = stringResource(R.string.change_layout),
+                tint = if (isGrid) Ink else InkDim,
+                modifier = Modifier.size(17.dp),
+            )
+        }
+
+        val isList = layout == Layout.LIST
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .then(
+                    if (isList) Modifier
+                        .background(Ink.copy(alpha = 0.22f))
+                        .border(1.dp, Color.White.copy(alpha = 0.16f), CircleShape)
+                    else Modifier
+                )
+                .clickable { onLayout(Layout.LIST) },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                PhosphorIcons.Regular.ListBullets,
+                contentDescription = stringResource(R.string.change_layout),
+                tint = if (isList) Ink else InkDim,
+                modifier = Modifier.size(17.dp),
+            )
+        }
+    }
+}
+*/
+
+@Composable
+private fun ListRow(
+    playlist: CatalogPlaylist,
+    pinned: Boolean,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)?,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .pressable(
+                onClick,
+                shape = RoundedCornerShape(16.dp),
+                pressedScale = 0.98f,
+                onLongClick = onLongClick,
+            )
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Artwork(
+            url = playlist.artworkUrl,
+            title = playlist.name,
+            modifier = Modifier
+                .size(52.dp)
+                .softShadow(RoundedCornerShape(14.dp), elevation = 10.dp),
+            corner = 14.dp,
+            decodeSize = 52.dp,
+        )
+        Text(
+            playlist.name,
+            style = MaterialTheme.typography.titleMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .padding(start = 16.dp)
+                .weight(1f),
+        )
+        if (pinned) PinMark()
+    }
+}
+
+/** The quiet mark on a pinned row. Small: the position is the message. */
+@Composable
+private fun PinMark(modifier: Modifier = Modifier) {
+    Icon(
+        PhosphorIcons.Fill.PushPin,
+        contentDescription = stringResource(R.string.pinned),
+        tint = InkDim,
+        modifier = modifier.size(14.dp),
+    )
+}
+
+/** A glass pill, for the handful of places that need a button at all. */
+@Composable
+private fun GlassAction(label: String, backdrop: Backdrop, onClick: () -> Unit) {
+    LiquidButton(
+        onClick = onClick,
+        backdrop = backdrop,
+        contentHeight = 50.dp,
+        contentPadding = 26.dp,
+    ) {
+        Text(label, style = MaterialTheme.typography.titleMedium, color = Ink)
+    }
+}
+
+@Composable
+private fun Centered(content: @Composable () -> Unit) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) { content() }
+    }
+}
+
+/** A harder film for the chip that is on, matching the home page. */
+private val SelectedFilm = Color.White.copy(alpha = 0.26f)
+
+/**
+ * The artists the account follows, along the top of the library.
+ *
+ * Round, and in a row that scrolls sideways: it is the shape Spotify made mean
+ * "a person" and the one that keeps a long list from pushing the playlists off
+ * the screen. Part of the list rather than pinned above it, so it scrolls away
+ * with everything else — a shelf that will not leave is a shelf in the way.
+ */
+@Composable
+private fun ArtistShelf(
+    artists: List<com.abhishek.ame.data.SearchItem>,
+    onOpen: (com.abhishek.ame.data.SearchItem) -> Unit,
+) {
+    val uniqueArtists = remember(artists) { artists.distinctBy { it.uri } }
+    Column(Modifier.padding(bottom = 18.dp)) {
+        Text(
+            stringResource(R.string.artists_you_follow),
+            style = MaterialTheme.typography.titleSmall,
+            color = Ink,
+            modifier = Modifier.padding(start = 4.dp, bottom = 10.dp),
+        )
+        val uniqueArtists = remember(artists) { artists.distinctBy { it.uri } }
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            items(uniqueArtists, key = { "artist_${it.uri}" }) { artist ->
+                Column(
+                    Modifier
+                        .width(76.dp)
+                        .pressable({ onOpen(artist) }),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Artwork(
+                        url = artist.artworkUrl,
+                        title = artist.title,
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(CircleShape)
+                            .softShadow(CircleShape, elevation = 10.dp),
+                        corner = 36.dp,
+                        decodeSize = 72.dp,
+                    )
+                    Text(
+                        artist.title,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Ink,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Out past [horizontal] of the padding it was laid out in, on both sides. */
+private fun Modifier.bleed(horizontal: androidx.compose.ui.unit.Dp): Modifier =
+    layout { measurable, constraints ->
+        val extra = horizontal.roundToPx()
+        val placeable = measurable.measure(
+            constraints.copy(
+                minWidth = constraints.minWidth + 2 * extra,
+                maxWidth = constraints.maxWidth + 2 * extra,
+            ),
+        )
+        layout(constraints.maxWidth, placeable.height) { placeable.place(-extra, 0) }
+    }

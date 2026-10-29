@@ -1,0 +1,4958 @@
+package com.abhishek.ame.ui
+
+import androidx.annotation.StringRes
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.runtime.setValue
+import com.abhishek.ame.ui.components.FriendsPanel
+import com.abhishek.ame.ui.components.SharedTrackCard
+import com.abhishek.ame.backend.youtube.atSize
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.isSpecified
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
+import com.adamglin.phosphoricons.fill.User
+import com.adamglin.phosphoricons.fill.XCircle
+import com.adamglin.phosphoricons.fill.BookmarkSimple
+import com.adamglin.phosphoricons.regular.BookmarkSimple
+import com.adamglin.phosphoricons.regular.Waveform
+import com.adamglin.phosphoricons.bold.Waveform
+import com.adamglin.phosphoricons.fill.Waveform
+import com.abhishek.ame.ui.glass.floatingtabbar.FloatingTabBar
+import com.abhishek.ame.ui.glass.floatingtabbar.sharedSearchTab
+import com.abhishek.ame.ui.glass.floatingtabbar.FloatingTabBarDefaults
+import com.abhishek.ame.ui.glass.floatingtabbar.rememberFloatingTabBarScrollConnection
+import androidx.compose.ui.unit.sp
+import com.abhishek.ame.ui.glass.liquidGlass
+import com.abhishek.ame.ui.glass.pressable
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import androidx.compose.ui.platform.LocalContext
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import com.abhishek.ame.ui.glass.backdrop.Backdrop
+import com.abhishek.ame.ui.glass.backdrop.backdrops.layerBackdrop
+import com.abhishek.ame.ui.glass.backdrop.backdrops.rememberLayerBackdrop
+import com.abhishek.ame.ui.glass.backdrop.backdrops.rememberCombinedBackdrop
+import com.abhishek.ame.ui.glass.backdrop.drawBackdrop
+import com.abhishek.ame.R
+import com.abhishek.ame.data.CanvasClip
+import com.abhishek.ame.data.Catalog
+import com.abhishek.ame.data.CatalogPlaylist
+import com.abhishek.ame.data.CatalogTrack
+import com.abhishek.ame.data.Lyrics
+import com.abhishek.ame.backend.youtube.YouTubeVideoMode
+import com.abhishek.ame.playback.AudioEffects
+import com.abhishek.ame.ui.glass.LiquidBottomTab
+import com.abhishek.ame.ui.browse.NewScreen
+import com.abhishek.ame.ui.browse.RadioScreen
+import com.abhishek.ame.ui.glass.LiquidBottomTabs
+import com.abhishek.ame.ui.glass.LiquidBottomTab
+import com.abhishek.ame.ui.glass.LiquidButton
+import com.abhishek.ame.ui.home.HomeScreen
+import com.abhishek.ame.ui.library.LibraryScreen
+import com.abhishek.ame.ui.library.PlaylistScreen
+import com.abhishek.ame.ui.player.GlassFilm
+import com.abhishek.ame.ui.player.AddToPlaylistSheet
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.unit.IntOffset
+import com.abhishek.ame.ui.components.TrackSheet
+import com.abhishek.ame.ui.components.TrackSheetAction
+import com.abhishek.ame.ui.components.UpdateSheet
+import com.abhishek.ame.update.Updater
+import com.abhishek.ame.ui.library.openLink
+import com.adamglin.phosphoricons.regular.Download
+import com.adamglin.phosphoricons.regular.Globe
+import com.adamglin.phosphoricons.regular.LinkSimple
+import com.adamglin.phosphoricons.regular.Lock
+import com.adamglin.phosphoricons.regular.PencilSimple
+import com.adamglin.phosphoricons.regular.PushPin
+import com.adamglin.phosphoricons.regular.Plus
+import com.adamglin.phosphoricons.regular.Queue
+import com.adamglin.phosphoricons.regular.SpotifyLogo
+import com.adamglin.phosphoricons.regular.YoutubeLogo
+import com.adamglin.phosphoricons.regular.Export
+import com.adamglin.phosphoricons.regular.ImageSquare
+import com.adamglin.phosphoricons.regular.ArrowCounterClockwise
+import com.adamglin.phosphoricons.regular.Trash
+import com.adamglin.phosphoricons.regular.User
+import com.adamglin.phosphoricons.regular.VinylRecord
+import com.abhishek.ame.data.RemoteConnect
+import com.abhishek.ame.ui.player.asPlaybackState
+import com.abhishek.ame.ui.player.rememberRemotePositionMs
+import kotlinx.coroutines.Dispatchers
+import com.abhishek.ame.ui.player.FloatingMiniPlayer
+import com.abhishek.ame.ui.player.MiniPlayer
+import com.abhishek.ame.ui.player.PlaybackState
+import com.abhishek.ame.ui.player.MiniPlayerHeight
+import com.abhishek.ame.ui.player.NowPlayingSheet
+import com.abhishek.ame.ui.player.PlayerScreen
+import com.abhishek.ame.ui.player.progressOf
+import com.abhishek.ame.ui.player.rememberBufferedPositionMs
+import com.abhishek.ame.ui.player.rememberPlaybackState
+import com.abhishek.ame.ui.player.rememberPositionMs
+import com.abhishek.ame.ui.player.rememberQueue
+import com.abhishek.ame.ui.search.SearchScreen
+import com.abhishek.ame.ui.onboarding.BackendChoiceScreen
+import com.abhishek.ame.ui.onboarding.OnboardingScreen
+import com.abhishek.ame.ui.settings.SettingsScreen
+import com.abhishek.ame.ui.theme.footToneFor
+import com.abhishek.ame.ui.theme.Ink
+import com.abhishek.ame.ui.theme.pageColorFor
+import com.abhishek.ame.ui.theme.pageColorForHex
+import com.abhishek.ame.ui.theme.pageGround
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.togetherWith
+import com.abhishek.ame.ui.theme.AmeTheme
+import com.abhishek.ame.ui.theme.rememberArtworkColor
+import com.abhishek.ame.ui.theme.rememberArtworkFootColor
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import com.adamglin.PhosphorIcons
+import com.adamglin.phosphoricons.fill.ArrowCircleDown
+import com.adamglin.phosphoricons.fill.Check
+import com.adamglin.phosphoricons.fill.Play
+import com.adamglin.phosphoricons.Fill
+import com.adamglin.phosphoricons.Bold
+import com.adamglin.phosphoricons.Regular
+import com.adamglin.phosphoricons.fill.House
+import com.adamglin.phosphoricons.fill.MagnifyingGlass
+import com.adamglin.phosphoricons.fill.MusicNotes
+import com.adamglin.phosphoricons.bold.House
+import com.adamglin.phosphoricons.bold.MusicNotes
+import com.adamglin.phosphoricons.bold.SquaresFour
+import com.adamglin.phosphoricons.bold.Broadcast
+import com.adamglin.phosphoricons.bold.MagnifyingGlass
+import com.adamglin.phosphoricons.fill.SquaresFour
+import com.adamglin.phosphoricons.fill.Broadcast
+import com.adamglin.phosphoricons.regular.SquaresFour
+import com.adamglin.phosphoricons.regular.Broadcast
+import com.adamglin.phosphoricons.regular.House
+import com.adamglin.phosphoricons.regular.MagnifyingGlass
+import com.adamglin.phosphoricons.regular.MusicNotes
+import com.adamglin.phosphoricons.fill.GearSix
+import com.adamglin.phosphoricons.bold.GearSix
+import com.adamglin.phosphoricons.regular.GearSix
+
+/** A name being asked for: null playlist means one that does not exist yet. */
+private data class NamingRequest(val playlist: CatalogPlaylist?)
+
+/** A track menu waiting to be drawn: what it is about, and where it points. */
+private data class TrackMenuRequest(
+    val track: com.abhishek.ame.data.CatalogTrack,
+    val removable: Boolean,
+)
+
+object Routes {
+    const val HOME = "home"
+    const val NEW = "new"
+    const val RADIO = "radio"
+    const val SEARCH = "search"
+    const val IDENTIFY = "identify"
+    const val LIBRARY = "library"
+    const val PLAYLIST = "playlist"
+    const val SETTINGS = "settings"
+    const val PROFILE = "profile"
+}
+
+/** How the player settles when it is not being dragged. */
+private val expandSpec = spring<Float>(
+    dampingRatio = 0.86f,
+    stiffness = Spring.StiffnessMediumLow,
+)
+
+private val BottomBarHeight = 62.dp
+
+/** How long the bar's height has to hold still before the lists follow it. */
+private const val BAR_SETTLE_MS = 120L
+
+/**
+ * White, carrying a colour's hue.
+ *
+ * Mixing plain white with the colour itself is what a first version did, and on
+ * a page whose colour is a deep purple that gives grey: the darkness comes along
+ * with the hue. This takes the hue and the saturation, sets the brightness where
+ * a tint belongs, and only then mixes — so a purple page gives a purple-white and
+ * a green one a green-white, whatever the page's own colour was worth.
+ */
+@Composable
+private fun inkTintedBy(color: Color): Color {
+    val hsv = FloatArray(3)
+    android.graphics.Color.colorToHSV(color.toArgb(), hsv)
+    if (hsv[1] < 0.06f) return Ink
+    hsv[1] = hsv[1].coerceIn(0.5f, 1f)
+    // Bright over a dark page and deep over a light one. Fixed bright was the
+    // whole of this before there was a light side, and there it gave a pale
+    // icon on a white film — the tint was right and the direction was not.
+    hsv[2] = if (com.abhishek.ame.ui.theme.lightPage()) 0.38f else 0.9f
+    return androidx.compose.ui.graphics.lerp(Ink, Color(android.graphics.Color.HSVToColor(hsv)), 0.3f)
+}
+
+/**
+ * The lit tab on a page with a colour of its own: that colour, made to read on
+ * the bar.
+ *
+ * Its hue at full strength, where [inkTintedBy] only leans the ink towards it:
+ * the other tabs whisper the page's colour and the one you are on says it.
+ * Bright over the dark film and deep over the light one, like the ink it takes
+ * the place of. A page with no colour to speak of gets that ink.
+ */
+@Composable
+private fun litTabInk(color: Color): Color {
+    val hsv = FloatArray(3)
+    android.graphics.Color.colorToHSV(color.toArgb(), hsv)
+    if (hsv[1] < 0.06f) return neutralTabInk()
+    hsv[1] = hsv[1].coerceIn(0.55f, 1f)
+    hsv[2] = if (com.abhishek.ame.ui.theme.lightPage()) 0.42f else 1f
+    return Color(android.graphics.Color.HSVToColor(hsv))
+}
+
+/**
+ * The lit tab where the page has no colour: whichever ink reads on the bar's
+ * film, dark on the light one and light on the dark one. The films are the ones
+ * the glass recipe gives the bar on each side; see GlassEffect.
+ */
+@Composable
+private fun neutralTabInk(): Color = com.abhishek.ame.ui.theme.inkOn(
+    if (com.abhishek.ame.ui.theme.lightPage()) Color(0xFFFAFAFA) else Color(0xFF23232A),
+)
+
+/** Roughly what the search circle takes: the row's height, which is its own. */
+private val SearchCircle = 58.dp
+
+/**
+ * The bar's own inset, and the size of a glyph in it.
+ *
+ * Both measured off the reference: at its scale the bar holds its slots 3.9px
+ * clear of its ends and draws a 21px glyph in a 50px-tall bar, which is 5dp and
+ * 25dp at this one.
+ */
+private val BarInset = 6.dp
+private val TabIcon = 26.dp
+
+/**
+ * One place in the bar's tab row.
+ *
+ * A thin wrapper over the catalog's own tab so the four of them are not four
+ * copies of the same eight lines. The colours are the app's: the place you are
+ * takes the accent the cover gave the theme, and the rest are the bar's white
+ * with the page's colour in it.
+ */
+@Composable
+private fun androidx.compose.foundation.layout.RowScope.BarTab(
+    @StringRes label: Int,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    selected: Boolean,
+    accent: Color,
+    ink: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    LiquidBottomTab(onClick = onClick, modifier = modifier) {
+        Icon(
+            icon,
+            contentDescription = stringResource(label),
+            tint = if (selected) accent else ink,
+            modifier = Modifier.size(TabIcon),
+        )
+        Text(
+            stringResource(label),
+            fontSize = 9.sp,
+            lineHeight = 11.sp,
+            style = LocalTextStyle.current.copy(
+                platformStyle = androidx.compose.ui.text.PlatformTextStyle(
+                    includeFontPadding = false,
+                ),
+                lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+                    alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+                    trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.Both,
+                ),
+            ),
+            fontWeight = FontWeight.Bold,
+            color = if (selected) accent else ink,
+        )
+    }
+}
+
+/**
+ * The profile tab in the bar's tab row.
+ *
+ * Displays the user's avatar picture if available, with an accent border when
+ * selected, falling back to a user outline icon.
+ */
+@Composable
+private fun androidx.compose.foundation.layout.RowScope.BarProfileTab(
+    @StringRes label: Int,
+    avatarUrl: String?,
+    name: String?,
+    selected: Boolean,
+    accent: Color,
+    ink: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    LiquidBottomTab(onClick = onClick, modifier = modifier) {
+        if (!avatarUrl.isNullOrBlank()) {
+            com.abhishek.ame.ui.components.ProfilePicture(
+                url = avatarUrl,
+                name = name,
+                size = TabIcon,
+                decodeSize = TabIcon,
+                modifier = Modifier
+                    .size(TabIcon)
+                    .clip(CircleShape)
+                    .then(
+                        if (selected) Modifier.border(1.5.dp, accent, CircleShape)
+                        else Modifier
+                    ),
+            )
+        } else {
+            Icon(
+                PhosphorIcons.Fill.User,
+                contentDescription = stringResource(label),
+                tint = if (selected) accent else ink,
+                modifier = Modifier.size(TabIcon),
+            )
+        }
+        Text(
+            stringResource(label),
+            fontSize = 9.sp,
+            lineHeight = 11.sp,
+            style = LocalTextStyle.current.copy(
+                platformStyle = androidx.compose.ui.text.PlatformTextStyle(
+                    includeFontPadding = false,
+                ),
+                lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+                    alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+                    trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.Both,
+                ),
+            ),
+            fontWeight = FontWeight.Bold,
+            color = if (selected) accent else ink,
+        )
+    }
+}
+
+/**
+ * The folded bar's search button.
+ *
+ * A key of its own rather than the search route's: the route belongs to the tab
+ * now, and a standalone sharing that key would be reported as the selected tab
+ * and light up beside itself.
+ */
+private const val SEARCH_CIRCLE = "search-circle"
+
+/** How tall the open bar stands; measured off the reference. See barMargin. */
+private val BarHeight = 61.dp
+
+/** The pages that are somewhere you are, rather than somewhere you went. */
+private val TAB_ROUTES =
+    setOf(Routes.HOME, Routes.LIBRARY, Routes.IDENTIFY, Routes.SEARCH, Routes.SETTINGS)
+
+/** How many stations the radio tab offers. Enough to scroll, few enough to read. */
+private const val RADIO_SEEDS = 36
+
+/**
+ * How far the radio page's order moves each day.
+ *
+ * A prime, so a list of any length works its way through all of itself rather
+ * than landing on the same few starting points.
+ */
+private const val DAILY_TURN = 7
+
+/**
+ * Decode size of the page backdrop, in pixels.
+ *
+ * Large enough that the blur has something to work with, small enough that
+ * blurring it costs nothing and it never reads as a photograph.
+ */
+/**
+ * The permission that lets the app see the phone's own music.
+ *
+ * Returns what to call to ask for it. Already-granted is answered without a
+ * dialog: the system shows nothing for a permission it has, and the caller
+ * still needs to hear that the answer is yes so the shelf can fill itself in.
+ */
+@Composable
+private fun rememberLocalAudioPermission(onAnswered: () -> Unit): () -> Unit {
+    val context = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { onAnswered() }
+    return {
+        if (com.abhishek.ame.data.LocalLibrary.granted(context)) onAnswered()
+        else launcher.launch(com.abhishek.ame.data.LocalLibrary.permission)
+    }
+}
+
+@UnstableApi
+@Composable
+fun AmeApp(
+    player: Player?,
+    /**
+     * Plays a queue.
+     *
+     * The third argument is the context it came from — a playlist or album URI
+     * — which is what the account's listening history is filed under; null when
+     * the tracks are a selection rather than a place. The fourth says whether
+     * the queue *is* that context in its own order, in which case playback is
+     * handed to Spotify as the context itself.
+     */
+    onPlay: (List<CatalogTrack>, Int, String?, Boolean, String, Long) -> Unit,
+    /** Appends one track to the end of the queue; see the swipe gesture on rows. */
+    onEnqueue: (CatalogTrack) -> Unit,
+    /** Appends multiple tracks to the end of the queue; used by Autoplay. */
+    onEnqueueAll: (List<CatalogTrack>) -> Unit = {},
+    /**
+     * Incremented when something outside the app asks for the player — the
+     * notification, for now. A counter, so a second request while the player is
+     * already open is still a request.
+     */
+    openPlayer: Int = 0,
+    openSettings: Int = 0,
+    /** A Spotify link the app was opened with; see [LinkRequest]. */
+    link: LinkRequest? = null,
+    viewModel: MainViewModel = viewModel(),
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val listeningEvents by viewModel.listeningEvents.collectAsStateWithLifecycle()
+    LaunchedEffect(state is MainViewModel.UiState.Ready) {
+        if (state is MainViewModel.UiState.Ready) while (true) {
+            viewModel.syncListeningHistory()
+            kotlinx.coroutines.delay(300_000)
+        }
+    }
+    val playlist by viewModel.playlist.collectAsStateWithLifecycle()
+    val takenOut by viewModel.takenOut.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val preferences = remember(context) {
+        (context.applicationContext as com.abhishek.ame.AmeApplication).preferences
+    }
+    val updater = remember(context) {
+        (context.applicationContext as com.abhishek.ame.AmeApplication).updater
+    }
+    LaunchedEffect(Unit) {
+        val now = System.currentTimeMillis()
+        if (now - preferences.lastUpdateCheck() >= 6 * 60 * 60 * 1000L) {
+            preferences.setLastUpdateCheck(now)
+            runCatching {
+                updater.check(preferences.updateChannel.value)
+            }
+        }
+    }
+
+    // The session as it was left, so the player has something to draw before
+    // the media controller connects. Read once, off the saved queue.
+    val seed = remember(context) { savedPlaybackSeed(context) }
+    val localState = rememberPlaybackState(player, seed)
+    val local by localState
+
+    /**
+     * Playback on another of the account's devices, when there is any.
+     *
+     * When there is, it is what the player shows and what the buttons drive:
+     * the phone is not playing, so a player drawn from the phone would be an
+     * empty screen next to music the user can hear. This is what the official
+     * client does with a speaker in another room.
+     */
+    val elsewhere by com.abhishek.ame.data.RemoteConnect.playback.collectAsStateWithLifecycle()
+
+    /**
+     * Whether the screen is attached to another device.
+     *
+     * The engine's answer, not a guess. This started as a rule about who was
+     * making sound, because that was all this side could see, and every version
+     * of it was wrong somewhere: attached to a device that was only paused, or
+     * detached the moment the listener paused it, or pointed at the local player
+     * while the music was elsewhere, which left the play button reaching for
+     * nothing and a spinner turning for ever.
+     */
+    val elsewhereActive by com.abhishek.ame.data.RemoteConnect.elsewhereActive
+        .collectAsStateWithLifecycle()
+    val inPlaylists by viewModel.inPlaylists.collectAsStateWithLifecycle()
+    val homeShelves by viewModel.homeShelves.collectAsStateWithLifecycle()
+    val homeShelvesLoading by viewModel.homeShelvesLoading.collectAsStateWithLifecycle()
+    val remote = elsewhere?.takeIf { elsewhereActive }
+    val showConnectedDevice by (context.applicationContext as com.abhishek.ame.AmeApplication)
+        .preferences.showConnectedDevice.collectAsStateWithLifecycle()
+    val remoteLabel = stringResource(R.string.playing_on, remote?.deviceName.orEmpty())
+    val playback = remote?.asPlaybackState(if (showConnectedDevice) remoteLabel else "") ?: local
+
+    // Commands to another device are HTTP requests, so none of them may run on
+    // the main thread; the screen redraws when the cluster update comes back.
+    val remoteScope = rememberCoroutineScope()
+    val onRemote: ((String) -> Unit) -> Unit = { action ->
+        remote?.deviceId?.let { id -> remoteScope.launch(Dispatchers.IO) { action(id) } }
+    }
+
+    // Playback coming back from another device: the queue it was playing is
+    // opened here and then wound forward to where it had got to. The seek is a
+    // second step because starting a queue is always a start, and the position
+    // belongs to the track rather than to the act of playing it.
+    LaunchedEffect(Unit) {
+        viewModel.resumeHere.collect { resume ->
+            onPlay(
+                resume.tracks,
+                resume.index,
+                resume.contextUri,
+                resume.contextUri != null,
+                "",
+                // Straight into the load: the track starts where it was left.
+                resume.positionMs,
+            )
+        }
+    }
+
+    // Held as State, not read here: reading the position at this level would
+    // recompose the whole app — lists included — several times a second.
+    val localPosition = rememberPositionMs(player, local.isPlaying)
+    val localBufferedPosition = rememberBufferedPositionMs(player)
+    val remotePosition = rememberRemotePositionMs(remote)
+    val positionMs = if (remote != null) remotePosition else localPosition
+    val bufferedPositionMs = localBufferedPosition
+    val queueSource = rememberQueue(player)
+    val videoOn by YouTubeVideoMode.enabled.collectAsStateWithLifecycle()
+    val videoUnavailable by YouTubeVideoMode.unavailable.collectAsStateWithLifecycle()
+
+    // Supabase Realtime Jam Presence broadcast (Discord-style Listen Along)
+    LaunchedEffect(local.mediaId, local.isPlaying) {
+        if (local.hasItem && local.isPlaying && local.title.isNotBlank()) {
+            viewModel.broadcastJamPresence(
+                trackTitle = local.title,
+                artistName = local.artist,
+                trackUri = local.mediaId ?: "",
+                artworkUrl = local.artworkUrl,
+                isPlaying = local.isPlaying,
+                positionMs = localPosition.value,
+            )
+        } else if (!local.isPlaying) {
+            viewModel.stopJamPresence()
+        }
+    }
+
+    // Video keeps playing when the app leaves the foreground, surface or no
+    // surface. Switching back to the audio-only stream would be tidier, but the
+    // stream has to reopen to do it and that break is audible — which, for
+    // someone who put the phone down to keep listening, is the one thing
+    // leaving the app must not do.
+
+    // Speed and pitch, written to the player only once the slider settles.
+    //
+    // A drag produces a value every frame, and each one reconfigures the audio
+    // sink: on the ExoPlayer the YouTube source uses, that means a flush every
+    // 8ms, which starves the output — the sound stops and the position falls
+    // back to where it stalled. The wait is short enough not to be felt after
+    // letting go, and the slider draws its own value meanwhile.
+    val effectsScope = rememberCoroutineScope()
+    var effectsJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    // What was last asked for and not yet sent. Speed and pitch travel as a
+    // pair, so the one not being moved is taken from here first: taken from
+    // the player, a pitch moved within the wait undid the speed still waiting.
+    var pendingParameters by remember { mutableStateOf<PlaybackParameters?>(null) }
+    val setPlaybackParameters: (PlaybackParameters) -> Unit = { params ->
+        pendingParameters = params
+        effectsJob?.cancel()
+        effectsJob = effectsScope.launch {
+            kotlinx.coroutines.delay(120)
+            player?.playbackParameters = params
+            pendingParameters = null
+        }
+    }
+    val currentParameters: () -> PlaybackParameters = {
+        pendingParameters ?: player?.playbackParameters ?: PlaybackParameters.DEFAULT
+    }
+    // What was last taken out of the queue, each with the place it had, kept
+    // for a few seconds so it can be put back where it was.
+    var queueUndo by remember {
+        mutableStateOf<List<Pair<Int, androidx.media3.common.MediaItem>>?>(null)
+    }
+    LaunchedEffect(queueUndo) {
+        if (queueUndo != null) {
+            kotlinx.coroutines.delay(5_000)
+            queueUndo = null
+        }
+    }
+    val queueActions = com.abhishek.ame.ui.player.QueueActions(
+        onPlay = { player?.seekTo(it, 0L) },
+        onRemove = { indices ->
+            player?.let { p ->
+                // From the last up, so each index still points at its track.
+                val taken = indices.distinct().sortedDescending()
+                    .filter { it in 0 until p.mediaItemCount }
+                    .map { it to p.getMediaItemAt(it) }
+                taken.forEach { (at, _) -> p.removeMediaItem(at) }
+                if (taken.isNotEmpty()) queueUndo = taken.reversed()
+            }
+        },
+        onMove = { from, to -> player?.moveMediaItem(from, to) },
+        onPlayNext = { indices ->
+            player?.let { p ->
+                // In their order, each just after the one moved before it.
+                // Every one comes after the playing track, so moving one
+                // leaves the places of those still to move as they were.
+                val after = p.currentMediaItemIndex + 1
+                indices.distinct().sorted().forEachIndexed { k, at -> p.moveMediaItem(at, after + k) }
+            }
+        },
+        onUndo = queueUndo?.let { taken ->
+            {
+                // From the first down, so each goes back to the place it had.
+                player?.let { p -> taken.forEach { (at, item) -> p.addMediaItem(minOf(at, p.mediaItemCount), item) } }
+                queueUndo = null
+            }
+        },
+        editable = remote == null,
+    )
+    // The playing record's own artwork, asked for once per track and cached.
+    val nowPlayingArt by viewModel.nowPlayingArt.collectAsStateWithLifecycle()
+    val nowPlayingArtPending by viewModel.nowPlayingArtPending.collectAsStateWithLifecycle()
+    val nowPlayingArtUri by viewModel.nowPlayingArtUri.collectAsStateWithLifecycle()
+    val canvasEnabled by preferences.canvasEnabled.collectAsStateWithLifecycle()
+    val coverSource by preferences.animatedCoverSource.collectAsStateWithLifecycle()
+    val currentTrackArt = (nowPlayingArt.takeIf { nowPlayingArtUri == playback.mediaId }
+        ?: viewModel.getCachedArt(playback.mediaId, playback.title, playback.album, playback.artist))
+        ?.takeIf { coverSource.usesAppleArtwork }
+    val appleArtPending = nowPlayingArtPending && nowPlayingArtUri == playback.mediaId && currentTrackArt == null
+
+    // The app's one accent, taken from the same picture the pages are tinted
+    // by.
+    // Authoritative artwork model for the entire screen (both top hero cover and ambient background).
+    // Provides immediate ambient color & blurred background continuity from the queue's artwork,
+    // seamlessly upgrading to high-res Apple Music master artwork and motion once resolved.
+    val authoritativeArt = currentTrackArt?.heroUrl
+        ?: currentTrackArt?.coverUrl
+        ?: playback.artworkUrl?.atSize(1200)
+    val playingArt = authoritativeArt
+    val playingAccent by rememberArtworkColor(playingArt)
+    val accent = currentTrackArt?.bgColor
+        ?.let { hex ->
+            runCatching { Color(android.graphics.Color.parseColor("#$hex")) }.getOrNull()
+        }
+        ?: playingAccent
+
+    // How bright the page behind the glass is, from the artwork rather than
+    // from the screen.
+    //
+    // The library's own adaptive-luminance demo photographs its backdrop every
+    // frame and reads the pixels back to average them, which on a bar that is
+    // always on screen is a capture and a GPU-to-CPU copy for ever. The colours
+    // of the cover playing are already extracted for the aura and the accent,
+    // and they answer the same question: is what is behind this light or dark.
+    val palette by com.abhishek.ame.ui.theme.rememberArtworkPalette(playingArt)
+    val backdropLuminance by animateFloatAsState(
+        targetValue = remember(palette) {
+            if (palette.isEmpty()) 0f else palette.map { it.luminance() }.average().toFloat()
+        },
+        animationSpec = tween(600),
+        label = "backdropLuminance",
+    )
+    val recent by viewModel.recent.collectAsStateWithLifecycle()
+    val search by viewModel.search.collectAsStateWithLifecycle()
+    val searchHistory by viewModel.searchHistory.collectAsStateWithLifecycle()
+    val searchTrail by viewModel.searchTrail.collectAsStateWithLifecycle()
+    val webApi by viewModel.webApi.collectAsStateWithLifecycle()
+    val reverb by AudioEffects.reverb.collectAsStateWithLifecycle()
+    val presets by viewModel.effectPresets.collectAsStateWithLifecycle()
+    val feed by viewModel.feed.collectAsStateWithLifecycle()
+
+    /**
+     * What the radio tab builds its stations from.
+     *
+     * One song per artist: the account's most played tracks name the same
+     * handful of people over and over, and four cards saying "Radio of X" is
+     * not a page of stations. Spotify tracks only — a station is a context on
+     * Spotify's access point and means nothing on any other backend.
+     */
+    val newPage by viewModel.newPage.collectAsStateWithLifecycle()
+    val followedReleases by viewModel.followedReleases.collectAsStateWithLifecycle()
+    val customBanners by viewModel.customBanners.collectAsStateWithLifecycle()
+    val savedPlaylists by viewModel.savedPlaylists.collectAsStateWithLifecycle()
+    val customProfileBanner by viewModel.profileBanner.collectAsStateWithLifecycle()
+    val customProfileAvatar by viewModel.profileAvatar.collectAsStateWithLifecycle()
+    val customProfileBannerCloud by viewModel.profileBannerCloudUrl.collectAsStateWithLifecycle()
+    val customProfileAvatarCloud by viewModel.profileAvatarCloudUrl.collectAsStateWithLifecycle()
+    val customProfileDisplayName by viewModel.profileDisplayName.collectAsStateWithLifecycle()
+    val customProfileUsername by viewModel.profileUsername.collectAsStateWithLifecycle()
+    val hasCreatedProfile by viewModel.hasCreatedProfile.collectAsStateWithLifecycle()
+    val profileBio by viewModel.profileBio.collectAsStateWithLifecycle()
+    val profileIsPrivate by viewModel.profileIsPrivate.collectAsStateWithLifecycle()
+    val profileFollowers by viewModel.profileFollowers.collectAsStateWithLifecycle()
+    val profileFollowing by viewModel.profileFollowing.collectAsStateWithLifecycle()
+    val publicPlaylists by viewModel.publicPlaylists.collectAsStateWithLifecycle()
+    val activeJams by viewModel.activeJams.collectAsStateWithLifecycle()
+    val socialSearchResults by viewModel.socialSearchResults.collectAsStateWithLifecycle()
+    val visitedSocialProfile by viewModel.visitedSocialProfile.collectAsStateWithLifecycle()
+    val isVisitedProfileLoading by viewModel.isVisitedProfileLoading.collectAsStateWithLifecycle()
+    val followedUserIds by viewModel.followedUserIds.collectAsStateWithLifecycle()
+    val myFollowerIds by viewModel.myFollowerIds.collectAsStateWithLifecycle()
+
+    val dynamicPlayingColor = remember(palette) {
+        val base = palette.firstOrNull() ?: Color(0xFF1ED760)
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(
+            android.graphics.Color.rgb(
+                (base.red * 255).toInt(),
+                (base.green * 255).toInt(),
+                (base.blue * 255).toInt(),
+            ),
+            hsv,
+        )
+        if (hsv[2] < 0.65f) hsv[2] = 0.85f
+        if (hsv[1] < 0.35f) hsv[1] = 0.65f
+        Color(android.graphics.Color.HSVToColor(hsv))
+    }
+
+    LaunchedEffect(playback.mediaId, playback.title, playback.album, playback.artist, coverSource) {
+        viewModel.loadNowPlayingArt(
+            uri = playback.mediaId,
+            title = playback.title,
+            album = playback.album,
+            artist = playback.artist,
+            source = coverSource,
+        )
+    }
+
+    // Everything the account has actually touched, one station per artist.
+    //
+    // It used to be the two lists of top tracks and nothing else, and those are
+    // computed monthly at best: the page was the same fourteen names for weeks
+    // at a time. These sources move at different speeds — what was played this
+    // hour, what was searched for, what came out this week, what is on repeat
+    // this month, what has been on repeat for years — so between them there is
+    // always something the page did not show yesterday.
+    // Spotify's own browse pages, one tab each; see loadBrowse. Filtering the
+    // home page's rows into these two tabs was the first attempt and it only
+    // moved the same rows around the app.
+    val newShelves by viewModel.newBrowse.collectAsStateWithLifecycle()
+    val browseLoading by viewModel.browseLoading.collectAsStateWithLifecycle()
+    val radioShelves by viewModel.radioBrowse.collectAsStateWithLifecycle()
+
+    val radioSeeds = remember(recent, searchHistory, newPage.songs, feed.topTracks, feed.allTimeTracks) {
+        (recent + feed.topTracks + searchHistory + newPage.songs + feed.allTimeTracks)
+            .filter { it.uri.startsWith("spotify:track:") && it.artist.isNotBlank() }
+            // By address as well as by artist: the same track can arrive from
+            // two of these lists at once, and a lazy list crashes on a repeated
+            // key rather than drawing it twice. (From HectorZL's #19.)
+            .distinctBy { it.artist.lowercase().trim() }
+            .distinctBy { it.uri }
+            // Turned over daily rather than shuffled: a page that rearranges
+            // itself every time it is opened is not richer, it is unreadable.
+            // The same list, started at a different name each day.
+            .let { seeds ->
+                if (seeds.isEmpty()) seeds
+                else {
+                    val day = java.time.LocalDate.now().toEpochDay().toInt()
+                    val from = Math.floorMod(day * DAILY_TURN, seeds.size)
+                    seeds.drop(from) + seeds.take(from)
+                }
+            }
+            .take(RADIO_SEEDS)
+    }
+    val playlistOrder by viewModel.playlistOrder.collectAsStateWithLifecycle()
+    val pinnedPlaylists by viewModel.pinnedPlaylists.collectAsStateWithLifecycle()
+    val likedTracks by viewModel.likedTracks.collectAsStateWithLifecycle()
+    val friends by viewModel.friends.collectAsStateWithLifecycle()
+    val addFriendState by viewModel.addFriendState.collectAsStateWithLifecycle()
+    val followedArtists by viewModel.followedArtists.collectAsStateWithLifecycle()
+    val savedAlbums by viewModel.savedAlbums.collectAsStateWithLifecycle()
+    val savedShows by viewModel.savedShows.collectAsStateWithLifecycle()
+    val podcastShelves by viewModel.podcastShelves.collectAsStateWithLifecycle()
+    val podcastsLoading by viewModel.podcastsLoading.collectAsStateWithLifecycle()
+    val newEpisodes by viewModel.newEpisodes.collectAsStateWithLifecycle()
+    val videoFileId by viewModel.videoFileId.collectAsStateWithLifecycle()
+    val spotifyVideoOn by com.abhishek.ame.backend.spotify.SpotifyVideoMode.enabled
+        .collectAsStateWithLifecycle()
+    val spotifyVideoGeneration by com.abhishek.ame.backend.spotify.SpotifyVideoMode.generation
+        .collectAsStateWithLifecycle()
+
+    val liveQueue by queueSource
+
+    // What was queued before the video took over.
+    //
+    // A video is one item: the player that shows it has a timeline of one, and
+    // the queue would read as empty for as long as it plays. The songs waiting
+    // are still waiting — the engine holding them is parked, not stopped — so
+    // the list keeps showing them rather than lying about it.
+    var queuedBeforeVideo by remember {
+        mutableStateOf<List<com.abhishek.ame.ui.player.QueueEntry>>(emptyList())
+    }
+    val queue = if (spotifyVideoOn) queuedBeforeVideo else liveQueue
+    LaunchedEffect(spotifyVideoOn, liveQueue) {
+        if (!spotifyVideoOn) queuedBeforeVideo = liveQueue
+    }
+
+    // Proactively prefetch the next and previous tracks in queue immediately on track start
+    LaunchedEffect(playback.mediaId, queue, coverSource) {
+        val curIdx = queue.indexOfFirst { it.isCurrent }
+        val nextInQueue = if (curIdx in 0 until queue.lastIndex) queue[curIdx + 1] else null
+        val prevInQueue = if (curIdx > 0) queue[curIdx - 1] else null
+
+        if (nextInQueue != null) {
+            viewModel.prefetchArt(
+                title = nextInQueue.title,
+                album = nextInQueue.contextLabel,
+                artist = nextInQueue.artist,
+                nextMediaId = nextInQueue.uri,
+                source = coverSource,
+            )
+        } else {
+            val next = runCatching {
+                val at = player?.nextMediaItemIndex ?: androidx.media3.common.C.INDEX_UNSET
+                if (at == androidx.media3.common.C.INDEX_UNSET) null
+                else player?.getMediaItemAt(at)
+            }.getOrNull()
+            if (next != null) {
+                val meta = next.mediaMetadata
+                viewModel.prefetchArt(
+                    title = meta.title?.toString().orEmpty(),
+                    album = meta.albumTitle?.toString().orEmpty(),
+                    artist = meta.artist?.toString().orEmpty(),
+                    nextArtworkUrl = meta.artworkUri?.toString(),
+                    nextMediaId = next.mediaId,
+                    source = coverSource,
+                )
+            }
+        }
+
+        if (prevInQueue != null) {
+            viewModel.prefetchArt(
+                title = prevInQueue.title,
+                album = prevInQueue.contextLabel,
+                artist = prevInQueue.artist,
+                nextMediaId = prevInQueue.uri,
+                source = coverSource,
+            )
+        }
+    }
+
+    // 10-15s Countdown Prefetch: Proactively pre-cache upcoming track banner, colors, and motion video
+    // before the current track ends, guaranteeing instant zero-flicker transitions.
+    var countdownPrefetchedTrack by remember { mutableStateOf<String?>(null) }
+    val remainingMs = playback.durationMs - positionMs.value
+    LaunchedEffect(playback.mediaId) {
+        countdownPrefetchedTrack = null
+    }
+    LaunchedEffect(positionMs.value, playback.durationMs, playback.mediaId) {
+        if (playback.mediaId != null &&
+            playback.durationMs > 20_000L &&
+            remainingMs in 1L..15_000L &&
+            countdownPrefetchedTrack != playback.mediaId
+        ) {
+            countdownPrefetchedTrack = playback.mediaId
+            val curIdx = queue.indexOfFirst { it.isCurrent }
+            val nextInQueue = if (curIdx in 0 until queue.lastIndex) queue[curIdx + 1] else null
+            if (nextInQueue != null) {
+                viewModel.prefetchArt(
+                    title = nextInQueue.title,
+                    album = nextInQueue.contextLabel,
+                    artist = nextInQueue.artist,
+                    nextMediaId = nextInQueue.uri,
+                    source = coverSource,
+                )
+            }
+        }
+    }
+
+    // And whether there is anywhere to skip to, which is the same question.
+    //
+    // The video's own player has one item and answers no to both, so the
+    // buttons went grey over a queue that was still there. Skipping leaves the
+    // video anyway — see SpotifyVideoMode.skip — so what they should show is
+    // what the queue behind it can do.
+    var skipsBeforeVideo by remember { mutableStateOf(false to false) }
+    LaunchedEffect(spotifyVideoOn, playback.hasNext, playback.hasPrevious) {
+        if (!spotifyVideoOn) skipsBeforeVideo = playback.hasNext to playback.hasPrevious
+    }
+    // While the DJ talks, the DJ is what is playing: the song after it has not
+    // started, and its cover and title would be a promise made too early.
+    val djTalking by com.abhishek.ame.backend.spotify.SpotifyDj.speaking.collectAsStateWithLifecycle()
+    val djSpeaking = djTalking && com.abhishek.ame.backend.spotify.SpotifyDj.isDj(playback.contextUri)
+    val djTalkingLabel = stringResource(R.string.spotify_dj_talking)
+    val playerState = if (spotifyVideoOn) {
+        playback.copy(
+            hasNext = skipsBeforeVideo.first,
+            hasPrevious = skipsBeforeVideo.second,
+        )
+    } else if (djSpeaking) {
+        // The song's artists go too: the line under the title names them
+        // before the plain artist string.
+        playback.copy(title = DJ_LABEL, artist = djTalkingLabel, artists = emptyList(), artistUri = null)
+    } else {
+        playback
+    }
+
+    // Asked once per track: almost no song has a video, and the answer is two
+    // catalogue calls rather than something the account volunteers.
+    LaunchedEffect(playback.mediaId) {
+        awaitAudible(localState)
+        viewModel.lookUpVideo(playback.mediaId)
+    }
+
+    val devices by viewModel.devices.collectAsStateWithLifecycle()
+    val addToPlaylist by viewModel.addToPlaylist.collectAsStateWithLifecycle()
+    val trackOrders by viewModel.trackOrders.collectAsStateWithLifecycle()
+    val onboarded by viewModel.onboarded.collectAsStateWithLifecycle()
+
+    // Asked for again from the settings, after it has already been finished.
+    var showTutorial by remember { mutableStateOf(false) }
+
+    /** The Google sign-in web view, opened from the settings. */
+    var showYouTubeLogin by remember { mutableStateOf(false) }
+
+    // The open track menu, if any. Held here because the menu is drawn above
+    // everything the app puts over its screens.
+    var trackMenu by remember { mutableStateOf<TrackMenuRequest?>(null) }
+    // The playlist a long press opened the actions for.
+    var playlistMenu by remember { mutableStateOf<CatalogPlaylist?>(null) }
+    // What the menu may offer for the playlist it is open on. Defaults say yes,
+    // because the library's own rows are the account's own library: only the
+    // detail page, which can be a playlist belonging to anyone, ever says no.
+    /** The page whose downloads are about to be given back; see the menu. */
+    var unkeeping by remember { mutableStateOf<MainViewModel.PlaylistState?>(null) }
+    var playlistMenuMine by remember { mutableStateOf(true) }
+    var playlistMenuSaved by remember { mutableStateOf(true) }
+    var deleting by remember { mutableStateOf<CatalogPlaylist?>(null) }
+    var pendingBannerUri by remember { mutableStateOf<String?>(null) }
+    val bannerPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null && pendingBannerUri != null) {
+            viewModel.setPlaylistCustomBanner(pendingBannerUri!!, uri)
+        }
+        pendingBannerUri = null
+    }
+    // A song somebody sent, waiting to be looked at; see SharedTrackCard.
+    var sharedTrack by remember { mutableStateOf<CatalogTrack?>(null) }
+    // Whether the friend list is open; the faces in the header open it.
+    var friendsOpen by remember { mutableStateOf(false) }
+    // Open when a name is being asked for; the playlist is null when the name is
+    // for one that does not exist yet.
+    var naming by remember { mutableStateOf<NamingRequest?>(null) }
+
+    // Once, on the first composition that has a usable Web API session. The
+    // ViewModel keeps what it fetched, so navigating away and back does not
+    // spend the quota again.
+    LaunchedEffect(webApi.connected) {
+        if (webApi.connected) {
+            viewModel.loadFeed()
+            viewModel.loadProfile()
+        }
+    }
+    // Two layers, and the split is not optional.
+    //
+    // `pageBackdrop` records the artwork *and* the screen on top of it, and is
+    // what the floating bars refract — that is how the list underneath shows
+    // through them. Those bars therefore have to be drawn outside it: a layer
+    // that contains something which draws that same layer recurses until the
+    // render thread's stack runs out, which is exactly the SIGSEGV this caused.
+    //
+    // `artBackdrop` records only the blurred artwork, and is what glass *inside*
+    // a screen uses — the playlist buttons, the search button — for the same
+    // reason: they cannot sample a layer they are part of.
+    val artBackdrop = rememberLayerBackdrop()
+    val pageBackdrop = rememberLayerBackdrop()
+
+    // The foot of the Canvas as it plays, which the player's field is made of
+    // while there is one; see AmbientArtworkBackground.
+    var clipColumns by remember { mutableStateOf<List<Color>>(emptyList()) }
+
+    // What the player's field is made of, worked out once.
+    val ambientArt = authoritativeArt
+    val ambientFoot by rememberArtworkFootColor(ambientArt)
+    val ambientAccent by rememberArtworkColor(
+        ambientArt.takeIf { currentTrackArt?.bgColor == null },
+    )
+    val playerTone = when {
+        currentTrackArt?.bgColor != null ->
+            pageColorForHex(currentTrackArt.bgColor, lift = false)
+        ambientFoot != null -> footToneFor(ambientFoot, lift = false)
+        else -> pageColorFor(ambientAccent)
+    }
+
+    // The player's ink, which is always the light one.
+    //
+    // It used to be read off the field, and the glass took the opposite film
+    // from it: a pale sleeve turned the whole player into white panes with dark
+    // writing, and the next song could turn it back. The player is dark now
+    // whatever the record and whatever the phone's setting, so the ink is light
+    // and the glass, which still reads it, always takes its dark film.
+    val playerInk = Color(0xFFF7F8FA)
+
+    // The cover's colour, except while a video plays: the picture on screen is
+    // the video, not the sleeve, and glass tinted after a record nobody is
+    // looking at clashes with it. The plain glass instead, until the video
+    // is put away.
+    val glassAccent = accent.takeUnless { videoOn || spotifyVideoOn }
+
+    // Artwork lookup has a bounded wait so queue playback never waits on a
+    // catalogue request. Keep the visual theme locked through that fallback
+    // window, otherwise the title/control glass briefly falls back to dark gray
+    // before the replacement artwork color arrives.
+    val visualArtworkLoading = !videoOn && !spotifyVideoOn && (
+        appleArtPending ||
+            (playingArt != null && playingAccent == null)
+        )
+    var visualAccent by remember { mutableStateOf(glassAccent) }
+    LaunchedEffect(playback.mediaId, glassAccent, visualArtworkLoading) {
+        if (!visualArtworkLoading) visualAccent = glassAccent
+    }
+
+    // And the film on its glass: still dark, and now the record's own dark.
+    // The song's colour at the depth the grey film sat at, see playerFilmTint,
+    // eased from one song to the next rather than cut, like the field under it.
+    val playerFilm by animateColorAsState(
+        targetValue = visualAccent?.let { com.abhishek.ame.ui.player.playerFilmTint(it) }
+            ?: com.abhishek.ame.ui.player.PlayerFilm.copy(alpha = 1f),
+        animationSpec = tween(PLAYER_FILM_FADE_MS),
+        label = "playerFilm",
+    )
+
+    // Emptied by the track change itself, not by the answer about the new
+    // track's Canvas.
+    //
+    // A song with no clip left the last one's colours on the screen: the reset
+    // waited for the player to report that this track has no Canvas, and the
+    // clip that was leaving went on sampling itself for the length of its own
+    // crossfade — so whichever arrived last won, and it was usually the clip.
+    // The track changing is the one moment that is certainly true.
+    LaunchedEffect(playback.mediaId) { clipColumns = emptyList() }
+
+
+    // What the player's own glass refracts: the ambient field made from the
+    // record, and nothing of the page underneath.
+    //
+    // The panes in the player used to sample `artBackdrop`, which is the page's
+    // flat tone — drawn behind a screen that entirely covers it. So the pill
+    // under the title and the transport bent a colour that was not on screen,
+    // and sat on the ambient without ever picking anything up from it.
+    val playerBackdrop = rememberLayerBackdrop()
+
+    // Everything the modals cover: the screens, the bars *and* the player. The
+    // sheets used to sample `pageBackdrop`, which stops at the navigation host,
+    // so opening one over the player blurred the home page behind it instead of
+    // the player it was opened from.
+    val overlayBackdrop = rememberLayerBackdrop()
+
+    // Where the player was left, read before anything is drawn.
+    //
+    // The activity is destroyed while the app sits in the background and the
+    // service keeps playing, so coming back from the launcher rebuilds this
+    // composition from nothing. Starting the animation at rest in the open
+    // position makes the first frame the player itself; waiting for the media
+    // controller to connect and *then* animating is what showed the home page
+    // for a moment first.
+    /** False only until the source has been picked once; see BackendChoiceScreen. */
+    val backendChosen by preferences.backendChosen.collectAsStateWithLifecycle()
+    val backend by preferences.backend.collectAsStateWithLifecycle()
+    val youtubeHome by viewModel.youtubeHome.collectAsStateWithLifecycle()
+    val recommendedQuickPicks by viewModel.recommendedQuickPicks.collectAsStateWithLifecycle()
+    val sourceNew by viewModel.sourceNew.collectAsStateWithLifecycle()
+    val sourceRadio by viewModel.sourceRadio.collectAsStateWithLifecycle()
+    // Whether YouTube Music knows whose it is, for the pages that suggest
+    // signing in when it does not.
+    val youtubeAccountName by remember(context) {
+        (context.applicationContext as com.abhishek.ame.AmeApplication).youtubeAccount.accountName
+    }.collectAsStateWithLifecycle()
+
+    // Seamless cloud profile restoration when YouTube Account is authenticated
+    LaunchedEffect(youtubeAccountName) {
+        if (!youtubeAccountName.isNullOrBlank()) {
+            viewModel.restoreProfileFromCloud()
+        }
+    }
+    // What is kept on the phone. Read here rather than inside the pages that
+    // draw it, because the same answer is wanted by the playlist button, the
+    // track rows and the track menu, and one collection is one recomposition.
+    val downloadOwners by viewModel.downloadOwners.collectAsStateWithLifecycle()
+    val downloadedFiles by viewModel.downloadedFiles.collectAsStateWithLifecycle()
+    val downloadProgress by viewModel.downloadProgress.collectAsStateWithLifecycle()
+    val downloadSingles by viewModel.downloadSingles.collectAsStateWithLifecycle()
+    // Whether only what is on the phone can be played. Read once here: half the
+    // screens ask, and every one of them asks the same question.
+    val offlineNow by com.abhishek.ame.playback.OfflineMode.active
+        .collectAsStateWithLifecycle()
+
+    // Once the source is YouTube Music. Keyed on the backend so switching to it
+    // at runtime fills the page rather than leaving yesterday's empty one.
+    //
+    // And the library with it, which is read from whichever backend is active:
+    // switching source used to leave the other service's playlists on screen
+    // until the app was restarted.
+    var loadedBackend by remember { mutableStateOf(backend) }
+    LaunchedEffect(backend) {
+        viewModel.loadYouTubeHome()
+        if (backend != loadedBackend) {
+            loadedBackend = backend
+            viewModel.refresh()
+        }
+    }
+
+    // How far the player is open, 0 to 1. A value rather than a destination:
+    // see NowPlayingSheet for why the player stopped being a route.
+    val expand = remember { Animatable(if (preferences.playerWasOpen()) 1f else 0f) }
+
+    // Open and standing still. Derived rather than read straight, so what
+    // depends on it recomposes twice a journey instead of on every frame of
+    // one; see the player's ambient background.
+    val playerSettled by remember {
+        derivedStateOf { expand.value > 0.999f && !expand.isRunning }
+    }
+    val scope = rememberCoroutineScope()
+
+    // Spotify's DJ is played, not opened: as a list it has nothing in it. Its
+    // first line takes a few seconds to be synthesised, so the listener is
+    // told it is coming rather than left with a tap that did nothing.
+    val djFailed = stringResource(R.string.spotify_dj_failed)
+    // The DJ coming on, shown over everything while its session is fetched
+    // and its first line synthesised; see DjStarting.
+    var djStarting by remember { mutableStateOf(false) }
+    fun startDj() {
+        if (djStarting) return
+        djStarting = true
+        scope.launch {
+            val tracks = runCatching { com.abhishek.ame.backend.spotify.SpotifyDj.start(context) }
+                .onFailure { android.util.Log.w("AmeDj", "dj session failed: ${it.message}") }
+                .getOrDefault(emptyList())
+            if (tracks.isEmpty()) {
+                djStarting = false
+                android.widget.Toast.makeText(context, djFailed, android.widget.Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            onPlay(tracks, 0, com.abhishek.ame.data.Catalog.DJ_URI, false, DJ_LABEL, 0L)
+            // Straight into the player, where the DJ is about to talk.
+            expand.animateTo(1f, expandSpec)
+            djStarting = false
+        }
+    }
+
+    // Remembered for the next launch. Written when the animation settles rather
+    // than on every frame of the drag.
+    LaunchedEffect(Unit) {
+        snapshotFlow { expand.isRunning to expand.value }
+            .collect { (running, value) ->
+                if (!running) preferences.setPlayerOpen(value > 0.5f)
+            }
+    }
+
+    // Nothing to be open onto: the queue was cleared, or the saved session did
+    // not survive. Closed without animating, so it is never seen.
+    LaunchedEffect(player, playback.hasItem) {
+        if (player != null && !playback.hasItem && expand.value > 0f) {
+            expand.snapTo(0f)
+        }
+    }
+
+    // Opened from outside — a tap on the media notification.
+    //
+    // Held as a pending request rather than acted on immediately: the media
+    // controller connects a moment after the activity starts, so a launch
+    // straight from the notification arrives here with no track yet and the
+    // player would have nothing to open onto. This waits for one.
+    var pendingOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(openPlayer) {
+        if (openPlayer > 0) pendingOpen = true
+    }
+    LaunchedEffect(pendingOpen, playback.hasItem) {
+        if (pendingOpen && playback.hasItem) {
+            pendingOpen = false
+            // Run outside this effect. Clearing the flag changes one of the
+            // effect's own keys, so the effect is cancelled immediately — and
+            // with it the animation, about two frames in. That is why the player
+            // "opened" and was never seen.
+            scope.launch {
+                expand.animateTo(1f, expandSpec)
+            }
+        }
+    }
+
+    // Measured rather than assumed. The constant this replaced was 62dp while
+    // the bar is a 64dp capsule with padding around it and the navigation inset
+    // under that, so the sheet sat about twenty over it.
+    //
+    // The open bar's height, taken once it has settled. The lists read this as
+    // their bottom padding, and a height that followed the fold recomposed the
+    // page under the bar and laid it out again on each frame of the animation,
+    // while that page was being scrolled: on a mid-range phone that was most of
+    // the frame, and the fold stuttered. Nor does the folded height count: a
+    // page that reached its end while the bar was folding would have dropped by
+    // the difference once it settled. Lists end above the open bar either way.
+    var barHeight by remember { mutableStateOf(BottomBarHeight) }
+    val measuredBarHeight = remember { kotlinx.coroutines.flow.MutableStateFlow(BottomBarHeight) }
+    LaunchedEffect(measuredBarHeight) {
+        measuredBarHeight.collectLatest { height ->
+            kotlinx.coroutines.delay(BAR_SETTLE_MS)
+            barHeight = height
+        }
+    }
+    val density = LocalDensity.current
+
+    // Recorded here rather than at the tap: this fires for auto-advance and for
+    // controls outside the app too, so the history matches what was actually
+    // heard instead of only what was tapped.
+    // Keyed on the metadata as well as the address, and refusing a nameless
+    // track.
+    //
+    // A session arrives in pieces: the uri first, the title and the cover a
+    // moment later. Recorded on the uri alone, what landed in the history was a
+    // row with no name and no picture, which is the ghost you could not tap
+    // away. Waiting for a title costs nothing, because the same effect runs
+    // again when it arrives. (From HectorZL's #19.)
+    LaunchedEffect(playback.mediaId, playback.title, playback.artworkUrl) {
+        val uri = playback.mediaId ?: return@LaunchedEffect
+        if (playback.title.isBlank()) return@LaunchedEffect
+        viewModel.recordPlayed(
+            CatalogTrack(
+                uri = uri,
+                name = playback.title,
+                artist = playback.artist,
+                durationMs = playback.durationMs,
+                artworkUrl = playback.artworkUrl,
+            ),
+        )
+    }
+
+    var canvas by remember { mutableStateOf<CanvasClip?>(null) }
+
+    // Fetched per track, like the lyrics. Most tracks have none, so a null is an
+    // ordinary answer and the player falls back to the cover.
+    // Canvas is Spotify's own, served by its access point: on another source
+    // there is nobody to ask.
+    // Turned off, no clip is ever asked for — which is the point of the switch:
+    // it saves the video as well as hiding it.
+    LaunchedEffect(playback.mediaId, backend, canvasEnabled, coverSource, offlineNow) {
+        val uri = playback.mediaId
+        canvas = null
+        // Offline means offline, including for the things that are only
+        // decoration: nothing here is fetched with the mode on — whether the
+        // listener set it or the signal went — and what shows then is the copy
+        // that came down with the download.
+        if (uri != null &&
+            canvasEnabled &&
+            coverSource == com.abhishek.ame.data.PreferencesStore.CoverSource.SPOTIFY &&
+            backend == com.abhishek.ame.backend.BackendId.SPOTIFY
+        ) {
+            // After the song, not beside it: a Canvas is a video, and fetching
+            // one while the track is still arriving takes the connection the
+            // track needs. See awaitAudible. Only wait when playing locally.
+            if (remote == null) {
+                awaitAudible(localState)
+            }
+            // The copy kept beside a download first, and not only offline: it
+            // is the same clip, it is already here, and playing it costs
+            // nothing. Offline it is the only one there is — the answer names a
+            // url on a CDN that cannot be reached, so without this a downloaded
+            // Canvas was a video sitting unplayed on the phone.
+            canvas = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                com.abhishek.ame.download.DownloadExtras.localCanvas(uri)
+            } ?: if (offlineNow) null else Catalog.canvas(uri)
+        }
+    }
+
+    val credits by viewModel.credits.collectAsStateWithLifecycle()
+    val creditsLoading by viewModel.creditsLoading.collectAsStateWithLifecycle()
+
+    var lyrics by remember { mutableStateOf<Lyrics?>(null) }
+
+    /**
+     * The track [lyrics] is the answer for.
+     *
+     * A flag set at the top of the fetch is not enough to say whether an answer
+     * is in yet: between the track changing and the effect that fetches for it
+     * starting, the flag still reads as it did for the track before — long
+     * enough for the panel to say a song has no words before anybody has asked.
+     * Naming the track the answer belongs to leaves no such moment.
+     */
+    var lyricsFor by remember { mutableStateOf<String?>(null) }
+
+    // One small question per track: is this one saved or in playlists? The player draws a heart
+    // and checkmark from the answer.
+    LaunchedEffect(playback.mediaId, playback.title, playback.artist) {
+        viewModel.checkLiked(playback.mediaId, playback.title, playback.artist)
+        viewModel.checkTrackMembership(playback.mediaId, playback.title, playback.artist)
+    }
+
+    // Fetched per track. Most of the catalogue has none, so a null result is an
+    // ordinary answer that shows an empty state rather than an error.
+    LaunchedEffect(playback.mediaId, playback.title, playback.artist) {
+        val uri = playback.mediaId
+        if (uri == null) {
+            lyrics = null
+            lyricsFor = null
+            return@LaunchedEffect
+        }
+        val isRemote = remote != null
+        // Lyrics are lightweight text — fetch them immediately without delay.
+        // Wait until title and artist metadata have arrived to avoid fetching
+        // with empty strings and polluting the session cache with false nulls.
+        // The player's own names only while they are this song's: read a
+        // moment after a skip they can still be the last song's, and asking
+        // under them found that song's words and kept them as this one's.
+        val own = localState.value.takeIf { !isRemote && it.mediaId == uri }
+        val currentTitle = own?.title?.ifBlank { null } ?: playback.title
+        val currentArtist = own?.artist?.ifBlank { null } ?: playback.artist
+        val currentDuration = if (isRemote && playback.durationMs > 0) {
+            playback.durationMs
+        } else {
+            own?.durationMs?.takeIf { it > 0 } ?: playback.durationMs
+        }
+
+        if (currentTitle.isBlank()) return@LaunchedEffect
+
+        // Asked again for the same song (its title or artist arrived late)
+        // with nothing to show yet: loading, not "no lyrics", until it answers.
+        if (lyricsFor != uri || lyrics == null) {
+            lyrics = null
+            lyricsFor = null
+        }
+
+        if (playback.mediaId != uri && localState.value.mediaId != uri) return@LaunchedEffect
+
+        lyrics = runCatching {
+            (context.applicationContext as com.abhishek.ame.AmeApplication)
+                .activeBackend
+                .lyrics(
+                    uri = uri,
+                    title = currentTitle,
+                    artist = currentArtist,
+                    durationMs = currentDuration,
+                )
+        }.getOrNull()
+
+        // Only if this is still the song being played. Dismiss the spinner by assigning lyricsFor.
+        if (playback.mediaId == uri || localState.value.mediaId == uri) {
+            lyricsFor = uri
+        } else {
+            lyrics = null
+        }
+    }
+
+    // Better words found after a song was shown some: word-timed lyrics from a
+    // source further down the order. Swapped in if that song is still on.
+    val playingUri by rememberUpdatedState(playback.mediaId)
+    LaunchedEffect(Unit) {
+        com.abhishek.ame.backend.lyrics.LyricsLibrary.upgrades.collect { (uri, better) ->
+            if (uri == playingUri) {
+                lyrics = better
+                lyricsFor = uri
+            }
+        }
+    }
+
+    // The language the app is read in. Changing it re-creates the activity,
+    // which is the only way a Compose tree already built out of one set of
+    // resources can be rebuilt out of another.
+    val languageStore = remember(context) {
+        (context.applicationContext as com.abhishek.ame.AmeApplication).language
+    }
+    val language by languageStore.tag.collectAsStateWithLifecycle()
+    val setLanguage: (String) -> Unit = remember(languageStore, context) {
+        { tag ->
+            if (tag != languageStore.tag.value) {
+                languageStore.set(tag)
+                (context as? android.app.Activity)?.recreate()
+            }
+        }
+    }
+
+    // Read once, up here: these travel with a play as plain text, and the rows
+    // that start one are not composables of their own.
+    val playAgainLabel = stringResource(R.string.play_again)
+    val trendingLabel = stringResource(R.string.trending_now)
+    val newLabel = stringResource(R.string.tab_new)
+    val searchLabel = stringResource(R.string.search)
+    val radioLabel = stringResource(R.string.radio)
+    // Resolved here rather than at the tap: a composable's resources are not
+    // reachable from inside a coroutine started by a click.
+    val radioOfTemplate = stringResource(R.string.radio_of)
+    val radioOf: (String) -> String = { title ->
+        if (title.isBlank()) radioLabel else radioOfTemplate.format(title)
+    }
+
+    val inPip by YouTubeVideoMode.pictureInPicture.collectAsStateWithLifecycle()
+
+    // In a floating window the app is the picture and nothing else.
+    //
+    // Drawing the whole interface into a window that size would put a home page,
+    // a tab bar and a player's worth of controls into a thumbnail, none of it
+    // legible and none of it reachable — the system owns the gestures there.
+    if (inPip) {
+        AmeTheme(seed = visualAccent) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black),
+                contentAlignment = Alignment.Center,
+            ) {
+                // The key matters for a Spotify video: its player is built
+                // fresh when the mode is entered, and a surface attached to the
+                // one before it shows nothing at all.
+                player?.let {
+                    val key = if (spotifyVideoOn) spotifyVideoGeneration else null
+                    // Fitted, not filled: the system clamps the window's
+                    // shape, and a picture wider than it allows was stretched
+                    // to the window.
+                    com.abhishek.ame.ui.player.VideoSurface(
+                        it,
+                        attachKey = key,
+                        modifier = Modifier.aspectRatio(
+                            com.abhishek.ame.ui.player.rememberVideoRatio(it, key),
+                        ),
+                    )
+                }
+            }
+        }
+        return
+    }
+
+    // Turned on its side while a video plays, the phone is a screen.
+    //
+    // Nobody rotates a music player to read a queue sideways; they rotate it
+    // because they are watching something. So landscape gives the picture the
+    // whole display and nothing else, the way every video app does — and
+    // turning back brings the player exactly as it was, since none of this
+    // touches what is playing.
+    val landscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
+        android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    // The rotation the video buttons asked for is let go of once there is no
+    // video: the app turns with the phone again.
+    val rotationContext = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(videoOn || spotifyVideoOn) {
+        if (!(videoOn || spotifyVideoOn)) {
+            com.abhishek.ame.ui.player.lockVideoOrientation(rotationContext, null)
+        }
+    }
+    if (landscape && (videoOn || spotifyVideoOn) && player != null) {
+        AmeTheme(seed = visualAccent) {
+            com.abhishek.ame.ui.player.FullScreenVideo(
+                player = player,
+                attachKey = spotifyVideoGeneration,
+                state = playerState,
+                positionMs = positionMs,
+                onTogglePlay = { player.togglePlay() },
+                onNext = {
+                    if (spotifyVideoOn) {
+                        com.abhishek.ame.backend.spotify.SpotifyVideoMode.skip(forward = true)
+                    } else {
+                        player.seekToNextMediaItem()
+                    }
+                },
+                onPrevious = {
+                    if (spotifyVideoOn) {
+                        com.abhishek.ame.backend.spotify.SpotifyVideoMode.skip(forward = false)
+                    } else {
+                        // The track before in the first three seconds, the
+                        // start of this one after, decided here by the position
+                        // on screen. It was always the track before, and the
+                        // engine then made its own three-second decision by its
+                        // own clock: past three seconds it restarted the song
+                        // while the queue moved back, and the app stayed a
+                        // track behind the speaker.
+                        player.seekToPrevious()
+                    }
+                },
+                onSeek = { player.seekTo(it) },
+                // Back to the song on its side: the app follows the phone
+                // again once the video is off; see the effect above.
+                onSwitchToSong = {
+                    if (spotifyVideoOn) {
+                        com.abhishek.ame.backend.spotify.SpotifyVideoMode.listen(player.currentPosition)
+                    } else {
+                        YouTubeVideoMode.toggle(player)
+                    }
+                },
+                onToggleShuffle = { player.shuffleModeEnabled = !player.shuffleModeEnabled },
+                onCycleRepeat = {
+                    player.repeatMode = when (player.repeatMode) {
+                        Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+                        Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+                        else -> Player.REPEAT_MODE_OFF
+                    }
+                },
+            )
+        }
+        return
+    }
+
+    androidx.compose.runtime.CompositionLocalProvider(
+        com.abhishek.ame.ui.glass.LocalBackdropLuminance provides backdropLuminance,
+    ) {
+    AmeTheme(seed = visualAccent) {
+        // Material's default content colour is black, and it used to arrive from
+        // the Surface that wrapped this tree. That Surface is gone — it painted
+        // an opaque page over the backdrop — so the colour has to be provided
+        // here, or every Text that does not set one explicitly stays black on
+        // the darkened artwork.
+        // What glass is, once, for everything made of it.
+        //
+        // This used to be provided around the bottom bar alone, because the bar
+        // was the only thing asking. Every other surface then quietly used the
+        // library's built-in defaults, which is how the settings below could
+        // move a slider and change nothing outside the bar.
+        val glassStore = remember(context) {
+            (context.applicationContext as com.abhishek.ame.AmeApplication).glass
+        }
+        val glassConfig by glassStore.config.collectAsStateWithLifecycle()
+
+        // Asking to read the music on the phone.
+        //
+        // Held at this level rather than in the shelf that needs it: a launcher
+        // belongs to the activity, and the answer has to reach the view model
+        // whether or not the screen that asked is still on top when it arrives.
+        val askLocalPermission = rememberLocalAudioPermission(
+            onAnswered = viewModel::onLocalPermissionAnswered,
+        )
+
+        // What folds the bar, and what tells the glass the page is moving. Built
+        // here rather than beside the bar because both of those are read at the
+        // top of the app: the glass configuration is provided from this scope.
+        // The bar never folds itself: what folds it is the connection below,
+        // which knows something the library's own does not — whether the page
+        // has any more room above it.
+        val tabBarScroll = rememberFloatingTabBarScrollConnection(
+            inlineBehavior = com.abhishek.ame.ui.glass.floatingtabbar
+                .FloatingTabBarInlineBehavior.Never,
+        )
+        val foldThresholdPx = with(LocalDensity.current) { 50.dp.toPx() }
+        // Beside the bar's own rather than inside it; see ScrollActivity.
+        // On its side the phone has height for one row of bar, not two: the
+        // bar stays folded — the page's own tab, the song, search — and opens
+        // only when its tab is tapped, never by itself at the top of a page.
+        val sideways = rememberUpdatedState(landscape)
+        LaunchedEffect(landscape) { if (landscape) tabBarScroll.inline() }
+        val scrollActivity = remember(tabBarScroll, foldThresholdPx) {
+            com.abhishek.ame.ui.glass.ScrollActivity(
+                onFold = { tabBarScroll.inline() },
+                // Only at the top. Scrolling up in the middle of a list leaves
+                // the bar where it is: it went away because the reader is
+                // reading, and it comes back when they have finished.
+                onTop = { if (!sideways.value) tabBarScroll.expand() },
+                foldThresholdPx = foldThresholdPx,
+            )
+        }
+        // Held as a lambda so a scroll starting or stopping costs no
+        // recomposition of the app: the surfaces ask during draw.
+        // And still again while a screen is arriving or leaving. A push is not a
+        // scroll, so the freeze above never covered it, and every navigation
+        // re-recorded the whole page for each frame of its own animation. Keyed
+        // on the route and on the open page, because the detail screen swaps its
+        // contents without the route changing at all.
+        val navFreeze = remember { com.abhishek.ame.ui.glass.NavTransitionFreeze() }
+        val pageMoving = remember(scrollActivity, navFreeze) {
+            { scrollActivity.scrolling || navFreeze.frozen() }
+        }
+
+        CompositionLocalProvider(
+            LocalContentColor provides Ink,
+            com.abhishek.ame.ui.glass.LocalGlassEffectConfig provides glassConfig,
+            com.abhishek.ame.ui.glass.LocalGlassFrozen provides pageMoving,
+        ) {
+            Box(Modifier.fillMaxSize()) {
+                val navController = rememberNavController()
+                val openList: (CatalogPlaylist) -> Unit = { playlist ->
+                    if (playlist.uri == com.abhishek.ame.data.Catalog.DJ_URI) startDj()
+                    else navController.openPlaylist(viewModel, playlist)
+                }
+                val appContext = androidx.compose.ui.platform.LocalContext.current
+                val shazamRecognizer = remember(appContext, scope) {
+                    com.abhishek.ame.recognition.ShazamRecognizer(appContext, scope)
+                }
+                val currentEntry by navController.currentBackStackEntryAsState()
+                val route = currentEntry?.destination?.route
+
+                // Every arrival starts the freeze window above. Keyed on the
+                // page as well as the route: the detail screen changes what it
+                // is showing without the route changing at all.
+                LaunchedEffect(route, playlist.uri) { navFreeze.mark() }
+
+                LaunchedEffect(openSettings) {
+                    if (openSettings > 0) {
+                        navController.navigate(Routes.SETTINGS)
+                    }
+                }
+
+                // Which tab the bar shows as the current one.
+                //
+                // Not the route: a playlist, an album and an artist are pages
+                // pushed over a tab rather than tabs of their own, and asking the
+                // bar to select a key it has no tab for left it with nothing
+                // selected — you opened an album from the library and the library
+                // stopped being where you were. A page opened from a tab belongs
+                // to it until you choose another one, which is also what makes
+                // the back arrow's destination legible before you press it.
+                // Only the two that have one: search is a circle beside the tabs
+                // and grows into the field rather than being somewhere you are,
+                // so it is the bar's search mode that shows it, not a selection.
+                // Naming it here instead left a page opened from a search result
+                // with the search key selected and no tab to put it on — nothing
+                // lit again, by a different route.
+                var activeTab by rememberSaveable { mutableStateOf(Routes.HOME) }
+                /**
+                 * Whether the bar is currently the search field.
+                 *
+                 * Not the same question as "is the search page on screen": the
+                 * page stays while the field goes, which is what tapping the
+                 * search tab a second time does — the results are still there to
+                 * read, the keyboard and the field are out of the way, and the
+                 * bar is a bar again. Reset on the way out of the page, so
+                 * coming back to search opens typing-ready as it did the first
+                 * time.
+                 */
+                var searchOpen by rememberSaveable { mutableStateOf(false) }
+
+                LaunchedEffect(route) {
+                    if (route in TAB_ROUTES) activeTab = route.orEmpty()
+                    if (route != Routes.SEARCH) searchOpen = false
+                }
+
+                val focus = androidx.compose.ui.platform.LocalFocusManager.current
+                // Clearing the focus is usually enough to put the keyboard away,
+                // but not on every phone: this asks for it directly.
+                val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+
+                // Read here as well as at the bar: what the page does about the
+                // keyboard depends on it, and the bar is built much further down.
+                val searching = route == Routes.SEARCH
+
+                // A link from outside.
+                //
+                // A song is offered rather than started. Whoever sent it may
+                // have meant "listen to this now" or "keep this", and a link
+                // that begins playing over whatever was already on takes the
+                // choice away: the card shows what the link is, and both
+                // answers are one tap.
+                //
+                // Everything else is a page, and the page opens in front of
+                // whatever was on screen.
+                LaunchedEffect(link) {
+                    val uri = link?.uri ?: return@LaunchedEffect
+                    if (link?.fromWidget == true) {
+                        viewModel.openPlaylist(
+                            com.abhishek.ame.data.CatalogPlaylist(uri = uri, name = link?.name.orEmpty(), artworkUrl = link?.artworkUrl),
+                        )
+                        if (navController.currentDestination?.route != Routes.PLAYLIST) {
+                            navController.navigate(Routes.PLAYLIST) { launchSingleTop = true }
+                        }
+                    } else if (uri.startsWith("ame:profile:")) {
+                        val handle = uri.removePrefix("ame:profile:").removePrefix("@").trim()
+                        viewModel.openSocialProfileByUsername(handle)
+                        if (navController.currentDestination?.route != Routes.PROFILE) {
+                            navController.navigate(Routes.PROFILE)
+                        }
+                    } else if (uri.startsWith("spotify:track:")) {
+                        sharedTrack = viewModel.resolveTrack(uri)
+                    } else {
+                        viewModel.openLink(uri)
+                        if (navController.currentDestination?.route != Routes.PLAYLIST) {
+                            navController.navigate(Routes.PLAYLIST) { launchSingleTop = true }
+                        }
+                    }
+                }
+
+                // Back to the home page when the source changes: an open
+                // playlist, a search or a detail page all belong to the
+                // catalogue that was just swapped out.
+                var lastBackend by remember { mutableStateOf(backend) }
+                // Held up over the switch, so the page changing catalogue
+                // underneath is something that happens behind a curtain rather
+                // than a screen half of one source and half of the other.
+                var switching by remember { mutableStateOf(false) }
+                LaunchedEffect(backend) {
+                    if (backend != lastBackend) {
+                        lastBackend = backend
+                        switching = true
+                        navController.popBackStack(Routes.HOME, inclusive = false)
+                        // Held until the new source has actually answered, so
+                        // what appears behind it is a page rather than a page
+                        // being built — with a floor, so the splash is never a
+                        // flash, and a ceiling, because a cold session can take
+                        // longer than anyone will stare at a logo.
+                        kotlinx.coroutines.withTimeoutOrNull(3_000) {
+                            kotlinx.coroutines.delay(600)
+                            snapshotFlow { state }
+                                .first { it !is MainViewModel.UiState.Loading }
+                        }
+                        switching = false
+                    }
+                }
+
+                val statusBar = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+                val navBar = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+                // With Settings/Profile now in the tab bar, the chrome remains
+                // visible so the user can easily switch tabs.
+                val chromeHidden = false
+                val chrome by animateFloatAsState(
+                    if (chromeHidden) 0f else 1f,
+                    tween(220),
+                    label = "chrome",
+                )
+
+                // Lists end above the bottom bar and the mini player rather than
+                // scrolling behind them.
+                val listPadding = PaddingValues(
+                    top = statusBar,
+                    bottom = barHeight + if (playback.hasItem) MiniPlayerHeight else 0.dp,
+                )
+
+                // Nothing floats over settings, so nothing has to be left free
+                // beneath it either.
+                val settingsPadding = PaddingValues(top = statusBar, bottom = navBar + 24.dp)
+
+                // The screens are recorded into the backdrop layer along with
+                // the artwork behind them, and the bars that float over them are
+                // not.
+                //
+                // That split is the whole point. Recording only the artwork —
+                // which is what this did at first — meant the mini player and
+                // the tab bar refracted a blurred cover no matter what was
+                // actually beneath them, so they looked like frosted panels
+                // rather than like glass: nothing of the list underneath ever
+                // showed through.
+                // Recorded only while something samples it.
+                //
+                // A layer backdrop is not free to keep: the subtree draws into
+                // an offscreen buffer the size of the window and that buffer is
+                // then composited, every frame, whether or not anyone reads it.
+                // The sheets that read this one are shut most of the time, so
+                // the whole app was paying for a full-screen copy of itself for
+                // nothing.
+                // The playlist sheet belongs in here too. Left out, the layer
+                // it refracts was not being recorded while it was the only
+                // thing open, so the glass had nothing behind it and the sheet
+                // came up as a transparent panel with no depth at all.
+                // The update sheet is glass like the rest, so it has to be
+                // counted here too: the layer below is only recorded while
+                // something is reading it, and a panel over an unrecorded
+                // backdrop has nothing to refract — it came out flat.
+                var updateOpen by remember { mutableStateOf(false) }
+                val sheetsOpen = trackMenu != null || addToPlaylist.open || playlistMenu != null ||
+                    sharedTrack != null || friendsOpen || updateOpen
+                // Kept on a little past the close, or the layer would stop
+                // being recorded while the sheet is still fading out over it
+                // and the panel would go black on the way down.
+                var sheetsRecording by remember { mutableStateOf(false) }
+                LaunchedEffect(sheetsOpen) {
+                    if (sheetsOpen) sheetsRecording = true
+                    else {
+                        kotlinx.coroutines.delay(400)
+                        sheetsRecording = false
+                    }
+                }
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .then(
+                            if (sheetsOpen || sheetsRecording) Modifier.layerBackdrop(overlayBackdrop)
+                            else Modifier,
+                        ),
+                ) {
+                // Same trade for the page layer: the only things that read it
+                // are the tab bar and the mini player, and a fully open player
+                // covers both. Derived so it flips once at the end of the
+                // animation rather than recomposing on every frame of it.
+                val barsVisible by remember {
+                    derivedStateOf { expand.value < 0.999f }
+                }
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .then(
+                            if (barsVisible) Modifier.layerBackdrop(pageBackdrop)
+                            else Modifier,
+                        )
+                        ,
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .layerBackdrop(artBackdrop),
+                    ) {
+                        // The playing record as the other catalogue draws it:
+                        // its own page colour where there is one, and its own
+                        // picture to take a colour from where there is not. The
+                        // same two sources a record's page uses, so home and
+                        // library are tinted exactly as the page you reach from
+                        // them — instead of a duller colour off Spotify's
+                        // thumbnail, which is what made them look like a
+                        // different app's screens.
+                        AppBackdrop()
+                    }
+
+                    Box(
+                        Modifier
+                            .nestedScroll(tabBarScroll)
+                            .nestedScroll(scrollActivity)
+                            // Touching the page puts the keyboard away.
+                            //
+                            // The field is in the bar at the bottom of the screen
+                            // and the keyboard is under it, so the results are the
+                            // only thing left to touch — and touching a result
+                            // while the keyboard stays up is the moment the
+                            // listener has finished typing. Nothing is consumed
+                            // here: the tap goes on to whatever it landed on, and
+                            // this only takes the focus with it.
+                            .pointerInput(searching) {
+                                if (!searching) return@pointerInput
+                                awaitEachGesture {
+                                    awaitFirstDown(requireUnconsumed = false)
+                                    focus.clearFocus()
+                                }
+                            },
+                    ) {
+                    NavHost(
+                        navController,
+                        startDestination = Routes.HOME,
+                        // Two different movements, because there are two
+                        // different kinds of navigation here. Opening a page is
+                        // a push: it comes in from the edge and the page under
+                        // it stays put and dims, so the new one reads as having
+                        // arrived over the old. Changing tab is not a push —
+                        // neither place is on top of the other — so those
+                        // crossfade, which is what the reference does too.
+                        enterTransition = {
+                            if (targetState.destination.route in TAB_ROUTES ||
+                                targetState.destination.route == Routes.SEARCH
+                            ) {
+                                fadeIn(tween(180))
+                            } else {
+                                slideInHorizontally(tween(280)) { it / 5 } + fadeIn(tween(220))
+                            }
+                        },
+                        exitTransition = { fadeOut(tween(180)) },
+                        popEnterTransition = { fadeIn(tween(200)) },
+                        popExitTransition = {
+                            slideOutHorizontally(tween(260)) { it / 5 } + fadeOut(tween(200))
+                        },
+                    ) {
+                        composable(Routes.HOME) {
+                            LaunchedEffect(Unit) {
+                                viewModel.loadBrowse()
+                                viewModel.loadFeed()
+                                viewModel.loadYouTubeHome()
+                                viewModel.loadSourceNew(force = true)
+                                viewModel.loadFollowedArtists()
+                            }
+                            HomeScreen(
+                                state = state,
+                                contentPadding = listPadding,
+                                onLogIn = viewModel::logIn,
+                                onRetry = { viewModel.retryFailed() },
+                                onGoOffline = viewModel::goOffline,
+                                onLogOut = viewModel::logOut,
+                                onOpenPlaylist = openList,
+                                playlistOrder = playlistOrder,
+                                recent = recent,
+                                sourceNew = sourceNew.rows,
+                                userPlaylists = (state as? MainViewModel.UiState.Ready)?.playlists.orEmpty(),
+                                followedArtists = followedArtists,
+                                onOpenArtist = { artist ->
+                                    viewModel.openContext(artist.uri, artist.title, artist.artworkUrl)
+                                    if (navController.currentDestination?.route != Routes.PLAYLIST) {
+                                        navController.navigate(Routes.PLAYLIST) { launchSingleTop = true }
+                                    }
+                                },
+                                onPlayRecent = { tracks, index ->
+                                    onPlay(tracks, index, null, false, playAgainLabel, 0L)
+                                },
+                                onPlayFeed = { tracks, index, label ->
+                                    onPlay(tracks, index, null, false, label, 0L)
+                                },
+                                feed = feed,
+                                onOpenItem = { item ->
+                                    viewModel.openContext(item.uri, item.title, item.artworkUrl)
+                                    if (navController.currentDestination?.route != Routes.PLAYLIST) {
+                                        navController.navigate(Routes.PLAYLIST) { launchSingleTop = true }
+                                    }
+                                },
+                                backdrop = artBackdrop,
+                                youtubeMode =
+                                    backend != com.abhishek.ame.backend.BackendId.SPOTIFY,
+                                onRetryOnline = viewModel::retryOnline,
+                                youtubeHome = youtubeHome,
+                                recommendedQuickPicks = recommendedQuickPicks,
+                                shelves = homeShelves,
+                                shelvesLoading = homeShelvesLoading,
+                                podcastShelves = podcastShelves,
+                                podcastsLoading = podcastsLoading,
+                                onWantPodcasts = viewModel::loadPodcastShelves,
+                                onPlayEpisode = { entry, label ->
+                                    onPlay(
+                                        listOf(
+                                            com.abhishek.ame.data.CatalogTrack(
+                                                uri = entry.uri,
+                                                name = entry.name,
+                                                artist = entry.subtitle.orEmpty(),
+                                                album = entry.subtitle.orEmpty(),
+                                                artworkUrl = entry.artworkUrl,
+                                            ),
+                                        ),
+                                        0, null, false, label, 0L,
+                                    )
+                                },
+                                onPlayTrending = { tracks, index ->
+                                    onPlay(tracks, index, null, false, trendingLabel, 0L)
+                                },
+                                onPickYouTubeChip = viewModel::selectYouTubeChip,
+                                onLoadMoreYouTube = viewModel::loadMoreYouTubeHome,
+                                youtubeSignedIn = youtubeAccountName != null,
+                                onYouTubeSignIn = { showYouTubeLogin = true },
+                                onSwitchSource = {
+                                    preferences.setBackend(
+                                        if (backend == com.abhishek.ame.backend.BackendId.SPOTIFY)
+                                            com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC
+                                        else com.abhishek.ame.backend.BackendId.SPOTIFY,
+                                    )
+                                },
+                                onUseYouTube = {
+                                    preferences.setBackend(com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC)
+                                },
+                                onOpenProfile = {
+                                    viewModel.clearVisitedSocialProfile()
+                                    navController.navigate(Routes.PROFILE)
+                                },
+                                onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                                friends = friends,
+                                onOpenFriends = {
+                                    friendsOpen = true
+                                    // Read again as it opens: what somebody is
+                                    // playing is only worth showing if it is
+                                    // what they are playing now.
+                                    viewModel.loadFriends()
+                                },
+                                currentTrackUri = playback.mediaId,
+                                currentContextUri = playback.contextUri,
+                                isPlaying = playback.isPlaying,
+                                playingColor = dynamicPlayingColor,
+                                customBanners = customBanners,
+                                savedPlaylists = savedPlaylists,
+                                onSavePlaylist = { pl ->
+                                    if (viewModel.isPlaylistSaved(pl.uri)) {
+                                        viewModel.removePublicPlaylist(pl.uri)
+                                    } else {
+                                        viewModel.savePublicPlaylist(pl)
+                                    }
+                                },
+                                accountName = customProfileDisplayName ?: if (backend != com.abhishek.ame.backend.BackendId.SPOTIFY) {
+                                    youtubeAccountName
+                                } else {
+                                    (state as? MainViewModel.UiState.Ready)?.displayName
+                                },
+                                customAvatarPath = customProfileAvatar,
+                                customAvatarCloudUrl = customProfileAvatarCloud,
+                                defaultAvatarUrl = (state as? MainViewModel.UiState.Ready)?.avatarUrl,
+                            )
+                        }
+
+                        composable(Routes.NEW) {
+                            // A source that lays out its own page of what is new
+                            // gets that page; the one below is built out of
+                            // Spotify's gateway and has nothing to show for any
+                            // other catalogue.
+                            LaunchedEffect(backend) { viewModel.loadNewEpisodes() }
+                            if (backend != com.abhishek.ame.backend.BackendId.SPOTIFY) {
+                                LaunchedEffect(backend) { viewModel.loadSourceNew() }
+                                val episodesTitle = stringResource(R.string.new_episodes)
+                                com.abhishek.ame.ui.home.SourceRowsPage(
+                                    title = newLabel,
+                                    rows = listOfNotNull(
+                                        com.abhishek.ame.backend.HomeRow(title = episodesTitle, tracks = newEpisodes)
+                                            .takeIf { newEpisodes.isNotEmpty() },
+                                    ) + sourceNew.rows,
+                                    loading = sourceNew.loading,
+                                    contentPadding = listPadding,
+                                    onPlay = { tracks, index ->
+                                        onPlay(tracks, index, null, false, newLabel, 0L)
+                                    },
+                                    onOpen = openList,
+                                )
+                                return@composable
+                            }
+                            LaunchedEffect(webApi.connected) {
+                                viewModel.loadNewPage()
+                                viewModel.loadBrowse()
+                                viewModel.loadFollowedReleases()
+                            }
+                            NewScreen(
+                                page = newPage,
+                                followed = followedReleases,
+                                onRefreshFollowed = { viewModel.loadFollowedReleases(force = true) },
+                                shelves = newShelves,
+                                shelvesLoading = browseLoading,
+                                contentPadding = listPadding,
+                                onPlaySong = { tracks, index ->
+                                    onPlay(tracks, index, null, false, newLabel, 0L)
+                                },
+                                onSongMenu = { track ->
+                                    trackMenu = TrackMenuRequest(track = track, removable = false)
+                                },
+                                episodes = newEpisodes,
+                                onPlayEpisode = { tracks, index ->
+                                    onPlay(tracks, index, null, false, newLabel, 0L)
+                                },
+                                onOpen = { item ->
+                                    viewModel.openContext(
+                                        item.uri,
+                                        item.title,
+                                        item.artworkUrl,
+                                    )
+                                    if (navController.currentDestination?.route != Routes.PLAYLIST) {
+                                        navController.navigate(Routes.PLAYLIST) { launchSingleTop = true }
+                                    }
+                                },
+                            )
+                        }
+
+                        composable(Routes.RADIO) {
+                            // The same for the stations; see the New tab above.
+                            if (backend != com.abhishek.ame.backend.BackendId.SPOTIFY) {
+                                LaunchedEffect(backend) { viewModel.loadSourceRadio() }
+                                com.abhishek.ame.ui.home.SourceRowsPage(
+                                    title = stringResource(R.string.tab_radio),
+                                    rows = sourceRadio.rows,
+                                    loading = sourceRadio.loading,
+                                    contentPadding = listPadding,
+                                    onPlay = { tracks, index ->
+                                        onPlay(tracks, index, null, false, radioLabel, 0L)
+                                    },
+                                    onOpen = openList,
+                                )
+                                return@composable
+                            }
+                            LaunchedEffect(Unit) { viewModel.loadBrowse() }
+                            RadioScreen(
+                                seeds = radioSeeds,
+                                shelves = radioShelves,
+                                shelvesLoading = browseLoading,
+                                loading = feed.loading,
+                                contentPadding = listPadding,
+                                onOpenMix = { mix ->
+                                    viewModel.openContext(mix.uri, mix.name, mix.artworkUrl)
+                                    if (navController.currentDestination?.route != Routes.PLAYLIST) {
+                                        navController.navigate(Routes.PLAYLIST) { launchSingleTop = true }
+                                    }
+                                },
+                                onOpen = { seed ->
+                                    scope.launch {
+                                        // Held, because everything in here can
+                                        // fail: the station is fetched from a
+                                        // private gateway and the page is
+                                        // opened from a coroutine, and a throw
+                                        // in either took the app down with it.
+                                        // (From HectorZL's #19.)
+                                        runCatching {
+                                        val tracks = viewModel.radioFor(seed.uri)
+                                        if (tracks.isEmpty()) return@launch
+                                        val station = viewModel.stationFor(seed.uri)
+                                        val name = radioOfTemplate.format(seed.artist)
+                                        // The station as a page and then as a
+                                        // queue, in that order: what the tab
+                                        // promises is a station to look at, not
+                                        // a shuffle that starts under a page
+                                        // the listener never sees.
+                                        viewModel.showStation(
+                                            uri = station,
+                                            name = name,
+                                            artworkUrl = seed.artworkUrl,
+                                            tracks = tracks,
+                                        )
+                                        if (navController.currentDestination?.route != Routes.PLAYLIST) {
+                                            navController.navigate(Routes.PLAYLIST) { launchSingleTop = true }
+                                        }
+                                        onPlay(tracks, 0, station, true, name, 0L)
+                                        }.onFailure {
+                                            android.util.Log.w(
+                                                "AmeRadio",
+                                                "station for ${seed.uri} failed: ${it.message}",
+                                                it,
+                                            )
+                                        }
+                                    }
+                                },
+                            )
+                        }
+
+                        composable(Routes.SEARCH) {
+                            SearchScreen(
+                                state = search,
+                                onQuery = viewModel::onSearchQuery,
+                                webApi = webApi,
+                                contentPadding = listPadding,
+                                nowPlayingUri = playback.mediaId,
+                                onClientIdChange = viewModel::onWebApiClientIdChange,
+                                onConnectWebApi = { viewModel.connectWebApi() },
+                                onPlayTrack = { tracks, index ->
+                                    val chosen = tracks.getOrNull(index)
+                                    chosen?.let(viewModel::recordSearchPlay)
+                                    if (chosen != null && !offlineNow && !chosen.isEpisode && viewModel.hasRadio(chosen.uri)) {
+                                        // The song, and then songs like it.
+                                        //
+                                        // The rest of the results are not a
+                                        // queue: a search for one song is not a
+                                        // wish to hear the others it matched,
+                                        // which were what followed it, and then
+                                        // nothing (#85). Its radio is what
+                                        // comes next, as in Spotify, asked for
+                                        // while the song starts and added only
+                                        // if it is still the one playing.
+                                        onPlay(listOf(chosen), 0, null, false, searchLabel, 0L)
+                                        scope.launch {
+                                            val similar = viewModel.radioFor(chosen.uri)
+                                                .filter { it.uri != chosen.uri }
+                                            if (similar.isNotEmpty() &&
+                                                player?.currentMediaItem?.mediaId == chosen.uri
+                                            ) {
+                                                onEnqueueAll(similar)
+                                            }
+                                        }
+                                    } else {
+                                        onPlay(tracks, index, null, false, searchLabel, 0L)
+                                    }
+                                },
+                                history = searchTrail,
+                                onClearHistory = viewModel::clearSearchHistory,
+                                onRemoveHistory = { uri -> viewModel.forgetSearchPlay(uri) },
+                                offline = offlineNow,
+                                onEnqueue = onEnqueue,
+                                onTrackMenu = { track ->
+                                    trackMenu = TrackMenuRequest(
+                                        track = track,
+                                        // Nothing to take a search result out
+                                        // of: it belongs to no playlist here.
+                                        removable = false,
+                                    )
+                                },
+                                onOpenContext = { item ->
+                                    // Kept, like a song played from a result:
+                                    // an artist looked up on Tuesday is worth
+                                    // having back as much as a song is.
+                                    viewModel.recordSearchOpen(item)
+                                    viewModel.openContext(item.uri, item.title, item.artworkUrl)
+                                    if (navController.currentDestination?.route != Routes.PLAYLIST) {
+                                        navController.navigate(Routes.PLAYLIST) { launchSingleTop = true }
+                                    }
+                                },
+                                onOpenProfile = { profile ->
+                                    viewModel.openSocialProfile(profile)
+                                    navController.navigate(Routes.PROFILE)
+                                },
+                                socialProfiles = socialSearchResults,
+                                activeJams = activeJams,
+                                onJoinJam = { jam ->
+                                    val jamTrack = CatalogTrack(
+                                        uri = jam.trackUri,
+                                        name = jam.trackTitle,
+                                        artist = jam.artistName,
+                                        artworkUrl = jam.artworkUrl,
+                                    )
+                                    onPlay(listOf(jamTrack), 0, null, false, "Jam with ${jam.displayName}", jam.positionMs)
+                                },
+                                onSearchSocialProfiles = viewModel::searchSocialProfiles,
+                                onToggleFollow = viewModel::toggleFollowUser,
+                                onLoadMore = viewModel::loadMoreSearch,
+                                backdrop = artBackdrop,
+                            )
+                        }
+
+                        composable(Routes.LIBRARY) {
+                            LaunchedEffect(backend, state is MainViewModel.UiState.Ready) { viewModel.syncListeningHistory() }
+                            LibraryScreen(
+                                state = state,
+                                contentPadding = listPadding,
+                                onLogIn = viewModel::logIn,
+                                onRetry = { viewModel.retryFailed() },
+                                onGoOffline = viewModel::goOffline,
+                                onLogOut = viewModel::logOut,
+                                onOpenPlaylist = openList,
+                                listeningEvents = listeningEvents,
+                                listeningFromSpotify = backend == com.abhishek.ame.backend.BackendId.SPOTIFY,
+                                currentPlayingUri = playerState?.contextUri,
+                                playlistOrder = playlistOrder,
+                                pinned = pinnedPlaylists,
+                                canEdit = viewModel.canEditPlaylists,
+                                onCreatePlaylist = { naming = NamingRequest(null) },
+                                onPlaylistMenu = {
+                                    // Whose it is, from the library's own index;
+                                    // unknown is still offered, as before.
+                                    playlistMenuMine = it.mine != false
+                                    playlistMenu = it
+                                },
+                                artists = followedArtists,
+                                albums = savedAlbums,
+                                podcasts = savedShows,
+                                onRetryOnline = viewModel::retryOnline,
+                                signInHint = backend != com.abhishek.ame.backend.BackendId.SPOTIFY &&
+                                    youtubeAccountName == null,
+                                onSignIn = { showYouTubeLogin = true },
+                                onUseYouTube = {
+                                    preferences.setBackend(com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC)
+                                },
+                                onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                                onOpenArtist = { artist ->
+                                    viewModel.openContext(
+                                        artist.uri,
+                                        artist.title,
+                                        artist.artworkUrl,
+                                    )
+                                    if (navController.currentDestination?.route != Routes.PLAYLIST) {
+                                        navController.navigate(Routes.PLAYLIST) { launchSingleTop = true }
+                                    }
+                                },
+                                backdrop = artBackdrop,
+                            )
+                        }
+
+                        composable(Routes.IDENTIFY) {
+                            com.abhishek.ame.ui.recognition.IdentifyScreen(
+                                recognizer = shazamRecognizer,
+                                contentPadding = listPadding,
+                                backdrop = artBackdrop,
+                                onPlayTrack = { track ->
+                                    viewModel.playRecognizedTrack(track, onPlay)
+                                },
+                                isLiked = { title, artist ->
+                                    viewModel.isLiked(null, title, artist)
+                                },
+                                onToggleLike = { title, artist ->
+                                    viewModel.toggleLikeTrackByMetadata(title, artist)
+                                },
+                            )
+                        }
+
+                        composable(Routes.SETTINGS) {
+                            SettingsScreen(
+                                state = state,
+                                webApi = webApi,
+                                contentPadding = listPadding,
+                                backdrop = artBackdrop,
+                                deviceName = android.os.Build.MODEL ?: "Android",
+                                onClientIdChange = viewModel::onWebApiClientIdChange,
+                                onConnectWebApi = viewModel::connectWebApi,
+                                onDisconnectWebApi = viewModel::disconnectWebApi,
+                                onLogOut = viewModel::logOut,
+                                onShowTutorial = { showTutorial = true },
+                                language = language,
+                                onLanguage = setLanguage,
+                                onBack = {
+                                    if (navController.previousBackStackEntry != null) {
+                                        navController.popBackStack()
+                                    } else {
+                                        navController.switchTab(Routes.HOME)
+                                    }
+                                },
+                                onYouTubeSignIn = { showYouTubeLogin = true },
+                                onYouTubeChannelChange = {
+                                    // A different channel is a different
+                                    // library and a different home: both were
+                                    // read for the one before it.
+                                    viewModel.refresh()
+                                    viewModel.loadYouTubeHome(force = true)
+                                },
+                            )
+                        }
+
+                        composable(Routes.PROFILE) {
+                            val readyState = state as? MainViewModel.UiState.Ready
+                            com.abhishek.ame.ui.profile.ProfileScreen(
+                                visitedProfile = visitedSocialProfile,
+                                isProfileLoading = isVisitedProfileLoading,
+                                currentUserId = viewModel.profileUserId,
+                                hasCreatedProfile = hasCreatedProfile,
+                                onToggleFollow = viewModel::toggleFollowUser,
+                                myFollowerIds = myFollowerIds,
+                                followedUserIds = followedUserIds,
+                                onOpenUserProfile = { profile ->
+                                    if (profile.id == viewModel.profileUserId) {
+                                        viewModel.clearVisitedSocialProfile()
+                                    } else {
+                                        viewModel.openSocialProfile(profile)
+                                    }
+                                },
+                                fetchFollowers = { userId -> viewModel.getFollowers(userId) },
+                                fetchFollowing = { userId -> viewModel.getFollowing(userId) },
+                                accountName = if (backend != com.abhishek.ame.backend.BackendId.SPOTIFY) {
+                                    youtubeAccountName
+                                } else {
+                                    readyState?.displayName
+                                },
+                                defaultAvatarUrl = readyState?.avatarUrl,
+                                customBannerPath = customProfileBanner,
+                                customAvatarPath = customProfileAvatar,
+                                customBannerCloudUrl = customProfileBannerCloud,
+                                customAvatarCloudUrl = customProfileAvatarCloud,
+                                customDisplayName = customProfileDisplayName,
+                                customUsername = customProfileUsername,
+                                bio = profileBio,
+                                isPrivate = profileIsPrivate,
+                                followersCount = profileFollowers,
+                                followingCount = profileFollowing,
+                                listeningEvents = listeningEvents,
+                                publicPlaylists = publicPlaylists,
+                                activeJam = activeJams[visitedSocialProfile?.id],
+                                onJoinJam = { jam ->
+                                    val jamTrack = CatalogTrack(
+                                        uri = jam.trackUri,
+                                        name = jam.trackTitle,
+                                        artist = jam.artistName,
+                                        artworkUrl = jam.artworkUrl,
+                                    )
+                                    onPlay(listOf(jamTrack), 0, null, false, "Jam with ${jam.displayName}", jam.positionMs)
+                                },
+                                contentPadding = listPadding,
+                                backdrop = artBackdrop,
+                                accentColor = dynamicPlayingColor,
+                                onPickBanner = { uri -> viewModel.setProfileBanner(uri) },
+                                onPickAvatar = { uri -> viewModel.setProfileAvatar(uri) },
+                                onSaveDisplayName = viewModel::setProfileDisplayName,
+                                onSaveUsername = viewModel::setProfileUsername,
+                                onCheckUsernameAvailability = viewModel::checkUsernameAvailability,
+                                onCheckUsernameRemote = viewModel::checkUsernameAvailabilityRemote,
+                                onCreateProfile = viewModel::createProfile,
+                                onLoginProfile = viewModel::loginProfile,
+                                onLogoutProfile = viewModel::logoutProfile,
+                                onSaveBio = viewModel::setProfileBio,
+                                onSetPrivate = viewModel::setProfilePrivate,
+                                onOpenPlaylist = openList,
+                                onBack = {
+                                    if (visitedSocialProfile != null) {
+                                        val popped = viewModel.popVisitedSocialProfile()
+                                        if (popped) return@ProfileScreen
+                                    }
+                                    if (navController.previousBackStackEntry != null) {
+                                        navController.popBackStack()
+                                    } else {
+                                        navController.switchTab(Routes.HOME)
+                                    }
+                                },
+                            )
+                        }
+
+                        composable(Routes.PLAYLIST) {
+                            // While this screen is up, a page opened from it is
+                            // opened *over* it; once it is gone, whatever it was
+                            // showing is not "the page you were on" any more.
+                            DisposableEffect(Unit) {
+                                viewModel.detailShown()
+                                onDispose { viewModel.detailClosed() }
+                            }
+
+                            // The system gesture, answered the same way as the
+                            // arrow: the page behind this one is usually inside
+                            // this screen rather than under it.
+                            val hasPreviousPage by viewModel.hasPreviousPage
+                                .collectAsStateWithLifecycle()
+                            // Not while the player is over the page. A page
+                            // opened from the player, an artist from the song
+                            // playing, registers its own answer to back after
+                            // the player has registered the one that closes
+                            // it, and the last one registered is the one the
+                            // system asks: back closed the page underneath and
+                            // left the player standing over nothing (#25).
+                            val playerCovering by remember {
+                                derivedStateOf { expand.value > 0.5f }
+                            }
+                            androidx.activity.compose.BackHandler(
+                                enabled = hasPreviousPage && !playerCovering,
+                            ) { viewModel.popPage() }
+
+                            // One destination holds every detail page, so a
+                            // page opening over another is not a navigation the
+                            // library can animate — it is the same screen with
+                            // different contents. This is that missing movement:
+                            // the page being left slides out the way it came,
+                            // the new one slides in from the other side, and the
+                            // depth says which side that is.
+                            val pageDepth by viewModel.pageDepth
+                                .collectAsStateWithLifecycle()
+                            androidx.compose.animation.AnimatedContent(
+                                targetState = playlist to pageDepth,
+                                contentKey = { (page, depth) -> page.uri to depth },
+                                transitionSpec = {
+                                    val deeper = targetState.second > initialState.second
+                                    val from = { width: Int ->
+                                        if (deeper) width / 4 else -width / 4
+                                    }
+                                    (
+                                        slideInHorizontally(tween(280)) { from(it) } +
+                                            fadeIn(tween(200))
+                                        ).togetherWith(
+                                        slideOutHorizontally(tween(280)) { -from(it) } +
+                                            fadeOut(tween(180)),
+                                    )
+                                },
+                                label = "detailPage",
+                            ) { (page, _) ->
+                            // Re-seeded from the open playlist, album or artist.
+                            // The rest of the app is themed after whatever is
+                            // playing, which is right for the home page and
+                            // wrong here: an album page tinted by an unrelated
+                            // track reads as belonging to something else.
+                            val detailAccent by rememberArtworkColor(page.artworkUrl)
+                            // Resolved here rather than inside the play
+                            // callbacks: those are not composables.
+                            val source = page.sourceLabel()
+                            AmeTheme(seed = detailAccent) {
+                                val suggested by viewModel.suggestions.collectAsStateWithLifecycle()
+                                // Asked for once the page knows it is the
+                                // account's own and every song is in.
+                                LaunchedEffect(page.uri, page.mine, page.loadingMore) {
+                                    val uri = page.uri
+                                    if (uri != null && page.mine == true && !page.loadingMore) viewModel.loadSuggestions(uri)
+                                }
+                                PlaylistScreen(
+                                    suggestions = suggested.tracks.takeIf { suggested.playlistUri == page.uri }.orEmpty(),
+                                    suggestionsLoading = suggested.loading && suggested.playlistUri == page.uri,
+                                    onAddSuggestion = viewModel::addSuggestion,
+                                    onRefreshSuggestions = { page.uri?.let { viewModel.loadSuggestions(it, refresh = true) } },
+                                    state = page,
+                                    offline = offlineNow,
+                                    // Read per row rather than handed over as a
+                                    // map: the progress map changes several
+                                    // times a second while a playlist is being
+                                    // fetched, and a new map is a new list.
+                                    trackDownload = { track ->
+                                        when {
+                                            track.uri in downloadedFiles ->
+                                                com.abhishek.ame.data.DownloadState.Done
+                                            downloadProgress[track.uri] != null ->
+                                                com.abhishek.ame.data.DownloadState.Running(
+                                                    downloadProgress.getValue(track.uri),
+                                                )
+                                            else -> com.abhishek.ame.data.DownloadState.None
+                                        }
+                                    },
+                                    contentPadding = listPadding,
+                                    nowPlayingUri = playback.mediaId,
+                                    nowPlaying = playback.isPlaying,
+                                    onTogglePlay = {
+                                        player?.let { if (it.isPlaying) it.pause() else it.play() }
+                                    },
+                                    // One route holds every detail page, so
+                                    // back is the screen's own history first
+                                    // and the navigation stack only once that
+                                    // is empty; see MainViewModel.popPage.
+                                    onBack = {
+                                        if (!viewModel.popPage()) navController.popBackStack()
+                                    },
+                                    onAskLocalPermission = { askLocalPermission() },
+                                    onPlay = { tracks, index, asContext ->
+                                        onPlay(
+                                            tracks,
+                                            index,
+                                            page.uri,
+                                            asContext,
+                                            source,
+                                            0L,
+                                        )
+                                    },
+                                    onEnqueue = onEnqueue,
+                                    // In order, whatever was left on. Shuffle
+                                    // is a mode, and the one a playlist's
+                                    // shuffle button turned on stayed on for the
+                                    // album played after it: its first song,
+                                    // and the rest in any order (#71).
+                                    onPlayInOrder = { tracks, asContext ->
+                                        player?.shuffleModeEnabled = false
+                                        onPlay(tracks, 0, page.uri, asContext, source, 0L)
+                                    },
+                                    onShuffle = { tracks ->
+                                        // Order does not matter: the player
+                                        // treats shuffle as a mode and stamps it
+                                        // onto whatever queue arrives next.
+                                        player?.shuffleModeEnabled = true
+                                        // Shuffled: the order on screen is not
+                                        // the one that will play, so this is a
+                                        // selection rather than the context.
+                                        onPlay(
+                                            tracks,
+                                            if (tracks.isEmpty()) 0 else tracks.indices.random(),
+                                            page.uri,
+                                            false,
+                                            source,
+                                            0L,
+                                        )
+                                    },
+                                    onAddToPlaylist = { track ->
+                                        viewModel.openAddToPlaylist(track.uri, track.name)
+                                    },
+                                    onTrackMenu = { track ->
+                                        trackMenu = TrackMenuRequest(
+                                            track = track,
+                                            // Only a playlist can have
+                                            // something taken out of it, and
+                                            // only one the account can write
+                                            // to: on YouTube Music the library
+                                            // also holds lists it only saved.
+                                            removable = page.kind ==
+                                                MainViewModel.DetailKind.PLAYLIST &&
+                                                viewModel.canRemoveFrom(page.uri),
+                                        )
+                                    },
+                                    storedSort = (trackOrders[page.uri] ?: viewModel.defaultTrackOrder).sort,
+                                    onSortChange = { viewModel.setTrackSort(page.uri, it) },
+                                    storedSortDescending = (trackOrders[page.uri] ?: viewModel.defaultTrackOrder).descending,
+                                    onSortDescendingChange = { viewModel.setTrackSortDescending(page.uri, it) },
+                                    onOpenItem = { item ->
+                                        viewModel.openContext(
+                                            item.uri,
+                                            item.title,
+                                            item.artworkUrl,
+                                        )
+                                    },
+                                    downloadState = page.uri
+                                        ?.let { downloadOwners[it] }
+                                        ?: com.abhishek.ame.data.OwnerState.None,
+                                    onToggleDownload = { viewModel.toggleDownload(page) },
+                                    // Pages of the source that is playing, on
+                                    // either source now: Spotify's through its
+                                    // engine, YouTube Music's as files of their
+                                    // own. With no network the button would only
+                                    // ever queue work that cannot start.
+                                    canDownload = viewModel.canKeep(page.uri) && !offlineNow,
+                                    onToggleFollow = viewModel::toggleFollowArtist,
+                                    onToggleLatestSaved = viewModel::toggleLatestSaved,
+                                    onToggleSaved = viewModel::toggleSaved,
+                                    onSetCustomBanner = {
+                                        val uri = page.uri ?: return@PlaylistScreen
+                                        pendingBannerUri = uri
+                                        bannerPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                    },
+                                    onMenu = {
+                                        val uri = page.uri ?: return@PlaylistScreen
+                                        // What the menu is allowed to offer, from
+                                        // the page that knows: whose list this is,
+                                        // and whether it is in the library at all.
+                                        playlistMenuMine = page.mine != false
+                                        playlistMenuSaved = page.saved != false
+                                        playlistMenu = CatalogPlaylist(
+                                            uri = uri,
+                                            name = page.name,
+                                            artworkUrl = playlist.artworkUrl,
+                                        )
+                                    },
+                                )
+                            }
+                            }
+                        }
+
+                    }
+                }
+
+                }
+
+                // Out here for the same reason as the bars below: it refracts
+                // `pageBackdrop`, so it cannot be drawn inside it.
+                SessionExpiredNotice(
+                    visible = webApi.expired && !webApi.connecting,
+                    backdrop = pageBackdrop,
+                    onReconnect = viewModel::connectWebApi,
+                    onDismiss = viewModel::dismissWebApiExpiry,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = statusBar + 8.dp),
+                )
+
+                // Outside the recorded layer, and that is structural rather than
+                // stylistic: these refract `pageBackdrop`, and a pane drawn
+                // inside the layer it samples recurses on the render thread
+                // until the process dies.
+                // Faded out *and* taken out: a transparent bar still swallows
+                // the taps meant for the page underneath it.
+                if (chrome > 0.01f) Box(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        // Sideways, no wider than a phone held upright: a bar
+                        // across the whole of a landscape screen is a strip
+                        // of glass with the controls lost at its ends.
+                        .then(if (landscape) Modifier.widthIn(max = 640.dp) else Modifier.fillMaxWidth())
+                        // The bar is where you type now, so it has to be above
+                        // the keyboard: the search field lived on the page until
+                        // a moment ago, where the keyboard covering the bottom of
+                        // the screen cost nothing.
+                        .imePadding()
+                        // Hidden as the player takes over, and out of the way
+                        // before it covers it: a tab bar under a full-screen
+                        // player still swallows the taps meant for the
+                        // transport.
+                        .graphicsLayer {
+                            alpha = (1f - expand.value * 3f).coerceIn(0f, 1f) * chrome
+                        }
+                        .onSizeChanged {
+                            if (!tabBarScroll.isInline) {
+                                measuredBarHeight.value = with(density) { it.height.toDp() }
+                            }
+                        },
+                ) {
+                    // The material comes from the settings now, provided once at
+                    // the top of the app; what is still local here is which
+                    // backdrop the bar's surfaces sample when they are not handed
+                    // one, and that has to stay local — a pane drawn inside the
+                    // layer it samples recurses on the render thread until the
+                    // process dies.
+                    androidx.compose.runtime.CompositionLocalProvider(
+                        com.abhishek.ame.ui.glass.LocalAppBackdrop provides pageBackdrop,
+                    ) {
+                    // One pane of glass, given to both the bar and the pill
+                    // above it — which is how the reference does it: the tab bar
+                    // component paints no background of its own, the caller
+                    // hands it the material.
+                    // Where the glass is allowed to be, from the settings. Off
+                    // is not "no surface" — a transparent bar swallows the taps
+                    // meant for the page under it and reads as nothing at all —
+                    // but the film, which is the same thing a phone without the
+                    // hardware blur gets.
+                    val flat = com.abhishek.ame.ui.glass.GlassStyle.TRANSPARENT
+                    // Convx's lens and base film, on the bar and the mini
+                    // player alike: a deeper bend at the rim and a lighter
+                    // film, so what is behind shows through the glass instead
+                    // of a milky sheet over it. The shader, the highlight and
+                    // the selector are the app's own.
+                    //
+                    // Starting points, not fixed values: the settings' sliders
+                    // scale them, so at their defaults this is the tuning and
+                    // moved, the bar and the pill follow like every other pane.
+                    // Set once as numbers, the film slider did nothing to them.
+                    val lightBar = com.abhishek.ame.ui.theme.LocalLightTheme.current
+                    val defaults = com.abhishek.ame.ui.glass.GlassEffectConfig()
+                    fun scaled(tuned: Float, set: Float, default: Float) =
+                        (tuned * set / default).coerceIn(0f, 1f)
+                    val chromeConfig = glassConfig.copy(
+                        lensHeight = scaled(0.60f, glassConfig.lensHeight, defaults.lensHeight),
+                        lensAmount = scaled(0.69f, glassConfig.lensAmount, defaults.lensAmount),
+                        surfaceTintColor = if (glassConfig.surfaceTintColor.isSpecified) {
+                            glassConfig.surfaceTintColor
+                        } else if (lightBar) {
+                            Color(0xFFF5F5F7)
+                        } else {
+                            Color.White
+                        },
+                        surfaceOpacity = scaled(
+                            if (lightBar) 0.40f else 0.15f,
+                            glassConfig.surfaceOpacity,
+                            defaults.surfaceOpacity,
+                        ),
+                    )
+                    val barConfig = if (glassConfig.navBarEnabled) {
+                        chromeConfig
+                    } else {
+                        glassConfig.copy(style = flat)
+                    }
+                    val pillConfig = if (glassConfig.miniPlayerEnabled) {
+                        chromeConfig
+                    } else {
+                        glassConfig.copy(style = flat)
+                    }
+                    // Nothing special while the bar changes shape.
+                    //
+                    // Two things were tried there and both were worse than what
+                    // they fixed. Taking the glass away for the length of the
+                    // fold was the cheapest and you could see it go. Holding the
+                    // last capture instead was invisible while it lasted, but
+                    // the bar's two states are two different pieces of
+                    // composition, so the fresh capture arrives on a node that
+                    // has just been created and the correction is a cut nothing
+                    // can fade. The glass simply keeps working.
+                    val barShape = androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)
+
+                    val barGlass = Modifier.liquidGlass(
+                        config = barConfig,
+                        shape = barShape,
+                        highlightAlpha = 0.3f,
+                    )
+                    // The same pane, on the pill above it, unless the settings
+                    // have singled that one out.
+                    val pillGlass = if (glassConfig.miniPlayerEnabled == glassConfig.navBarEnabled) {
+                        barGlass
+                    } else {
+                        Modifier.liquidGlass(
+                            config = pillConfig,
+                            shape = barShape,
+                            highlightAlpha = 0.3f,
+                        )
+                    }
+
+                    // How far the player has to travel, for the pull that opens
+                    // it. Read once here rather than per frame of the drag.
+                    val playerTravelPx = with(density) {
+                        (LocalConfiguration.current.screenHeightDp.dp - MiniPlayerHeight).toPx()
+                    }
+                    val accessory: (@Composable androidx.compose.animation.SharedTransitionScope.(
+                        Modifier,
+                        androidx.compose.animation.AnimatedVisibilityScope,
+                    ) -> Unit)? = if (playback.hasItem) {
+                        { accessoryModifier, _ ->
+                            FloatingMiniPlayer(
+                                state = if (djSpeaking) playerState else playback,
+                                djSpeaking = djSpeaking,
+                                positionMs = positionMs,
+                                bufferedPositionMs = bufferedPositionMs,
+                                remoteLabel = remote?.takeIf { showConnectedDevice }?.let { remoteLabel },
+                                modifier = accessoryModifier
+                                    .fillMaxWidth()
+                                    .then(pillGlass)
+                                    // Up to open the player, as it always was.
+                                    // The pill's own drag detector locks to the
+                                    // horizontal after the touch slop, so a
+                                    // vertical pull never reached it and the
+                                    // gesture landed on nothing — the sheet's
+                                    // collapsed half, which used to carry this,
+                                    // is empty now that what is playing lives in
+                                    // the bar.
+                                    .draggable(
+                                        state = rememberDraggableState { delta ->
+                                            scope.launch {
+                                                val travel = playerTravelPx
+                                                if (travel > 0f) {
+                                                    expand.snapTo(
+                                                        (expand.value - delta / travel)
+                                                            .coerceIn(0f, 1f),
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        orientation = androidx.compose.foundation.gestures.Orientation.Vertical,
+                                        onDragStopped = { velocity ->
+                                            scope.launch {
+                                                val target = when {
+                                                    velocity < -800f -> 1f
+                                                    velocity > 800f -> 0f
+                                                    expand.value > 0.4f -> 1f
+                                                    else -> 0f
+                                                }
+                                                expand.animateTo(target, expandSpec)
+                                            }
+                                        },
+                                    ),
+                                inline = com.abhishek.ame.ui.glass.floatingtabbar.LocalFloatingTabBarInline.current,
+                                collapseProgress = com.abhishek.ame.ui.glass.floatingtabbar.LocalFloatingTabBarCollapseProgress.current?.invoke(),
+                                onClick = {
+                                    scope.launch { expand.animateTo(1f, expandSpec) }
+                                },
+                                onTogglePlay = {
+                                    if (remote != null) {
+                                        val playing = remote?.playing == true
+                                        onRemote { id ->
+                                            if (playing) RemoteConnect.pause(id)
+                                            else RemoteConnect.play(id)
+                                        }
+                                    } else {
+                                        player?.togglePlay()
+                                    }
+                                },
+                                onNext = {
+                                    if (remote != null) onRemote(RemoteConnect::next)
+                                    else player?.seekToNextMediaItem()
+                                },
+                                onPrevious = {
+                                    if (remote != null) onRemote(RemoteConnect::previous)
+                                    else player?.seekToPrevious()
+                                },
+                                onSeek = { positionMillis -> player?.seekTo(positionMillis) },
+                            )
+                        }
+                    } else {
+                        null
+                    }
+
+                    // Before anything is drawn for real; see GlassWarmUp.
+                    com.abhishek.ame.ui.glass.GlassWarmUp(pageBackdrop)
+                    // Two tabs and a circle beside them: the capsule takes what
+                    // is left of the row once the circle has its 80dp, and never
+                    // more than the 88dp a tab is designed for. Without this the
+                    // bar stretched to the screen and the tabs floated in it.
+                    // Measured off the reference, at its own density: a tab is
+                    // 88dp wide, the row is inset 16 while folded and 26 while
+                    // open, and everything is spaced by 8. Two tabs make a
+                    // narrower capsule than its three do, and the row centres
+                    // itself — which is the point of measuring the parts rather
+                    // than the whole.
+                    // Measured off the reference frame (314 px wide, bar 299 px
+                    // of it): the bar leaves about the same margin either side
+                    // as a tab is tall is wide — 17dp here once its own width is
+                    // taken off the screen. Folded it pulls in slightly, which
+                    // is what the reference does too.
+                    // Measured off the recording of the reference running on
+                    // this phone: 27 video pixels of a 720-wide capture, which
+                    // is 16dp here, and the same on both sides in both states.
+                    val barMargin = 16.dp
+
+                    // What one of the four gets, once the row's own margins and
+                    // the search circle beside it have been taken off. Measured
+                    // from the screen rather than fixed: four labels and a circle
+                    // on a narrow phone is exactly where a constant starts
+                    // pushing the last tab off the end.
+                    // The app's accent, which is the playing cover's own. Only
+                    // the faint tint of the other tabs comes from it now; see
+                    // barInk below.
+                    val songAccent = MaterialTheme.colorScheme.primary
+
+
+                    // And the white the rest of the bar is drawn in: never a
+                    // pure one. The reference tints its icons with the colour of
+                    // what is *behind* them — on a green page they are a green
+                    // white — which is most of why the bar reads as part of the
+                    // page rather than as a strip laid over it.
+                    //
+                    // Behind, and not what is playing. Those are two different
+                    // colours as soon as you open a record while something else
+                    // is on: a purple page under a pink bar is exactly the seam
+                    // this is meant to remove. So on a detail page the tint is
+                    // that page's own — the catalogue's colour for it where
+                    // there is one, and the colour of the picture where there is
+                    // not — and everywhere else it falls back to the playing
+                    // track, which is what those pages are tinted by.
+                    val onDetail = route == Routes.PLAYLIST
+                    val detailArt = playlist.heroUrl ?: playlist.coverUrl ?: playlist.artworkUrl
+                    val detailAccent by rememberArtworkColor(detailArt.takeIf { onDetail })
+                    // The colour of the page under the bar, where it has one: a
+                    // record's own, the catalogue's where there is one and the
+                    // picture's where there is not.
+                    val pageTint: Color? = when {
+                        !onDetail -> null
+                        playlist.tintHex != null -> runCatching {
+                            Color(android.graphics.Color.parseColor("#${playlist.tintHex}"))
+                        }.getOrNull()
+                        else -> detailAccent
+                    }
+                    // Off a detail page the bar is tinted by what is playing,
+                    // which is what those pages are tinted by too.
+                    val surfaceTint = pageTint ?: songAccent
+                    val barInk = inkTintedBy(surfaceTint)
+                    val readyState = state as? MainViewModel.UiState.Ready
+                    val profileAvatarUrl = readyState?.avatarUrl
+                    val profileName = readyState?.displayName
+
+                    // The colour the current tab is drawn in: the page's, never
+                    // the song's.
+                    //
+                    // It was the accent, so the one mark that says where you
+                    // are changed colour with every song, and on a green list
+                    // with a grey record playing it came out grey. On a page
+                    // with a colour of its own it is that colour, at the
+                    // strength the other tabs only lean towards; on the neutral
+                    // pages it is plain ink, chosen by the film it sits on.
+                    val tabAccent = pageTint?.let { litTabInk(it) } ?: neutralTabInk()
+
+                    // What the lit slot is filled with. The listener's own glass
+                    // settings still own it — the puck was a surface of this
+                    // app's making before the library grew one — so an opacity of
+                    // zero leaves the row unmarked rather than drawing a shape
+                    // nobody asked for.
+                    // Darker than the bar, not lighter.
+                    //
+                    // The reference sinks its lit slot into the bar rather than
+                    // lifting it off: measured off it, the puck reads at about
+                    // three fifths of the brightness of the glass around it. A
+                    // white sticker was the older idea and it made the bar look
+                    // like it had a highlight stuck on it.
+                    //
+                    // The listener's own slider still sets how far it goes; only
+                    // the direction is fixed here.
+                    // Far lighter on the light side. Sinking the lit slot works
+                    // over a dark bar, where the glass around it is already
+                    // dark; over a white film the same wash is a solid blob
+                    // with the page's colour in it, and what should be a mark
+                    // reads as a button someone pressed and left down.
+                    val puckWash = if (com.abhishek.ame.ui.theme.lightPage()) {
+                        Color.Black.copy(
+                            alpha = (glassConfig.puckOpacity.coerceIn(0f, 1f) * 0.13f)
+                                .coerceAtMost(0.11f),
+                        )
+                    } else {
+                        Color.Black.copy(
+                            alpha = (glassConfig.puckOpacity.coerceIn(0f, 1f) * 1.3f)
+                                .coerceAtMost(0.5f),
+                        )
+                    }
+
+                    // Searching opens the bar and keeps it open.
+                    //
+                    // The field is in the bar, so arriving at search with the bar
+                    // already folded left the search page with nowhere to type
+                    // and no sign that unfolding the bar was what you had to do.
+                    // And once open it stays: it used to fold on the way down the
+                    // results and come back on the way up, taking the field with
+                    // it each time and bringing the keyboard back up on every
+                    // scroll.
+                    // And the same lock serves the setting: a bar told not to
+                    // fold is a bar whose scrolling is not allowed to change it.
+                    val barFolds by glassStore.barFolds.collectAsStateWithLifecycle()
+                    LaunchedEffect(searching, barFolds) {
+                        if (searching || !barFolds) tabBarScroll.expand()
+                    }
+
+                    FloatingTabBar(
+                        // The page's own tab. The bar keeps this tab when it
+                        // folds and finds it by matching this key.
+                        //
+                        // Except search, which folds into the circle rather
+                        // than beside it: the circle is always there in the
+                        // folded bar, so keeping the search tab as well put two
+                        // magnifiers side by side on any page opened from the
+                        // results. Given the circle's key, the bar keeps the
+                        // last place before search instead, as the reference
+                        // does, and lights the circle.
+                        selectedTabKey = if (activeTab == Routes.SEARCH) SEARCH_CIRCLE else activeTab,
+                        scrollConnection = tabBarScroll,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = barMargin)
+                            .padding(bottom = navBar + 8.dp),
+                        // Where the glass goes in. The library applies this after
+                        // its own background and before its padding, which is
+                        // exactly the seam a pane of glass belongs in: the
+                        // surfaces below draw nothing of their own — see the
+                        // transparent colours — and this is what they are made
+                        // of.
+                        tabBarContentModifier = barGlass,
+                        colors = FloatingTabBarDefaults.colors(
+                            // A film over the glass, not nothing.
+                            //
+                            // The bar was left transparent so the glass alone
+                            // made it, and over a dark page that is very nearly
+                            // black — which leaves a dark puck with nothing to be
+                            // darker than. The reference's bar is a lighter
+                            // surface for exactly this reason: it is what its lit
+                            // slot is cut out of.
+                            backgroundColor = GlassFilm,
+                            accessoryBackgroundColor = GlassFilm,
+                            selectedTabBackgroundColor = puckWash,
+                            selectedStandaloneTabBackgroundColor = puckWash,
+                        ),
+                        sizes = FloatingTabBarDefaults.sizes(
+                            // Measured off the reference running on this phone;
+                            // see the notes on barMargin.
+                            // What separates the lit slot from the bar's own
+                            // edge. Measured off the reference: its puck stands
+                            // four fifths of the bar's height, which is six
+                            // points of glass above and below it.
+                            tabBarContentPadding = PaddingValues(
+                                vertical = 6.dp,
+                                horizontal = 2.dp,
+                            ),
+                            // Measured off Music OS 26 on this phone, which is
+                            // the bar this one is trying to be: its row stands
+                            // 61dp, its glyphs are 26, and the circle beside the
+                            // pill is as tall as the pill is. The library sizes
+                            // that circle off the row for us, so the only
+                            // numbers here are the paddings that make the row
+                            // that tall.
+                            tabExpandedContentPadding = PaddingValues(
+                                vertical = 8.dp,
+                                horizontal = 14.dp,
+                            ),
+                            tabInlineContentPadding = PaddingValues(14.dp),
+                            componentSpacing = 14.dp,
+                        ),
+                        // The tab group is the catalog's own component, as it
+                        // ships it: the pill, the four tabs and the indicator
+                        // that can be dragged between them. The bar around it —
+                        // the fold, the mini player, the search circle — is
+                        // still the library's.
+                        expandedTabs = { tabsModifier, tabsVisibility ->
+                            // The bar's own configuration, not the app's.
+                            //
+                            // The component reads the glass settings from
+                            // composition, and the setting that governs this
+                            // surface is the one for the navigation bar — so a
+                            // listener who turns the glass off there gets a flat
+                            // bar, exactly as they do for the mini player and the
+                            // player's own panes.
+                            val tabRoutes = remember {
+                                listOf(
+                                    Routes.HOME,
+                                    Routes.LIBRARY,
+                                    Routes.IDENTIFY,
+                                    Routes.SEARCH,
+                                    Routes.SETTINGS,
+                                )
+                            }
+                            val here = tabRoutes.indexOf(activeTab).coerceAtLeast(0)
+                            // Stable, or the component throws away the state it
+                            // keys on this and the indicator stops animating.
+                            val hereState = rememberUpdatedState(here)
+                            val selectedTabIndex = remember { { hereState.value } }
+                            // The catalog's component as this app carries it:
+                            // same code, with its shell made of the app's own
+                            // glass so the bar answers the listener's settings
+                            // like every other pane. See LiquidBottomTabs.
+                            CompositionLocalProvider(
+                                com.abhishek.ame.ui.glass.LocalGlassEffectConfig provides barConfig,
+                            ) {
+                            LiquidBottomTabs(
+                                selectedTabIndex = selectedTabIndex,
+                                onTabSelected = { index ->
+                                    viewModel.clearPageHistory()
+                                    if (tabRoutes[index] == Routes.SEARCH) searchOpen = true
+                                    navController.switchTab(tabRoutes[index])
+                                },
+                                backdrop = pageBackdrop,
+                                tabsCount = tabRoutes.size,
+                                accentColor = tabAccent,
+                                containerColor = GlassFilm,
+                                // Darker than the bar, not lighter: the mark is
+                                // cut into the glass rather than stuck on it.
+                                // Still the listener's own slider — at zero the
+                                // row goes unmarked.
+                                indicatorColor = puckWash,
+                                height = BarHeight,
+                                // Under half the height, or the refraction from
+                                // the two long edges meets in the middle and
+                                // draws a seam across the capsule.
+                                lensDepth = 20.dp,
+                                // Nothing is lit while the page on screen is not
+                                // one of these four; search is a place of its
+                                // own.
+                                indicatorVisible = activeTab in tabRoutes,
+                                modifier = tabsModifier,
+                                drawContainer = !com.abhishek.ame.ui.glass.floatingtabbar.LocalGeometricFloatingTabBar.current,
+                            ) {
+                                BarTab(
+                                    R.string.home,
+                                    PhosphorIcons.Fill.House,
+                                    activeTab == Routes.HOME,
+                                    tabAccent,
+                                    barInk,
+                                ) {
+                                    viewModel.clearPageHistory()
+                                    navController.switchTab(Routes.HOME)
+                                }
+                                BarTab(
+                                    R.string.library,
+                                    PhosphorIcons.Fill.MusicNotes,
+                                    activeTab == Routes.LIBRARY,
+                                    tabAccent,
+                                    barInk,
+                                ) {
+                                    viewModel.clearPageHistory()
+                                    navController.switchTab(Routes.LIBRARY)
+                                }
+                                BarTab(
+                                    R.string.identify,
+                                    PhosphorIcons.Fill.Waveform,
+                                    activeTab == Routes.IDENTIFY,
+                                    tabAccent,
+                                    barInk,
+                                ) {
+                                    viewModel.clearPageHistory()
+                                    navController.switchTab(Routes.IDENTIFY)
+                                }
+                                BarTab(
+                                    R.string.search,
+                                    // Heavy rather than solid: a filled
+                                    // magnifier reads as a blob at this size,
+                                    // and it is the one glyph here whose shape
+                                    // is the whole of its meaning.
+                                    PhosphorIcons.Bold.MagnifyingGlass,
+                                    activeTab == Routes.SEARCH,
+                                    tabAccent,
+                                    barInk,
+                                    // The circle and labelled tab share bounds,
+                                    // retaining their surfaces during the fold.
+                                    // The incoming tab inherits the capsule clip.
+                                    modifier = if (com.abhishek.ame.ui.glass.LocalLiquidBottomTabsReplica.current) {
+                                        Modifier
+                                    } else sharedSearchTab(tabsVisibility),
+                                ) {
+                                    viewModel.clearPageHistory()
+                                    searchOpen = true
+                                    navController.switchTab(Routes.SEARCH)
+                                }
+                                BarTab(
+                                    R.string.settings,
+                                    PhosphorIcons.Fill.GearSix,
+                                    activeTab == Routes.SETTINGS,
+                                    tabAccent,
+                                    barInk,
+                                ) {
+                                    viewModel.clearPageHistory()
+                                    navController.switchTab(Routes.SETTINGS)
+                                }
+                            }
+                            }
+                        },
+                        // What the tabs are built out of, so the builder runs
+                        // again when it changes.
+                        //
+                        // The library remembers the scope and runs the content
+                        // lambda once — so the icons registered in it captured
+                        // the colours of the first composition and kept them for
+                        // ever. That is why the folded bar's circle stayed the
+                        // accent of whatever was playing at startup while the
+                        // open bar followed the song, and why the search icon
+                        // drifted from the rest.
+                        contentKey = listOf(activeTab, searching, searchOpen, tabAccent, barInk, profileAvatarUrl),
+                        expandedTabsHeight = BarHeight,
+                        // Search is one of the places now, so the circle beside
+                        // the pill would be the same control twice. It stays for
+                        // the folded bar, where there is no pill to hold it.
+                        standaloneInExpanded = false,
+                        // Tapping the search tab grows it into the field, and
+                        // the tabs fold away behind it. Tapping it again puts
+                        // the field away and leaves the results; see searchOpen.
+                        searchMode = searching && searchOpen,
+                        searchBarContent = if (searching && searchOpen) {
+                            { fieldModifier ->
+                                BarSearchField(
+                                    query = search.query,
+                                    onQuery = viewModel::onSearchQuery,
+                                    modifier = fieldModifier,
+                                    ink = barInk,
+                                )
+                            }
+                        } else {
+                            null
+                        },
+                        tabsFillWidth = true,
+                        inlineAccessory = accessory,
+                        expandedAccessory = accessory,
+                    ) {
+                        tab(
+                            key = Routes.HOME,
+                            title = {
+                                Text(
+                                    stringResource(R.string.home),
+                                    fontSize = 9.sp,
+                                    lineHeight = 11.sp,
+                                    style = LocalTextStyle.current.copy(
+                                        platformStyle = androidx.compose.ui.text.PlatformTextStyle(
+                                            includeFontPadding = false,
+                                        ),
+                                        lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+                                            alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+                                            trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.Both,
+                                        ),
+                                    ),
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (activeTab == Routes.HOME) tabAccent else barInk,
+                                )
+                            },
+                            icon = {
+                                Icon(
+                                    PhosphorIcons.Fill.House,
+                                    contentDescription = stringResource(R.string.home),
+                                    tint = if (activeTab == Routes.HOME) tabAccent else barInk,
+                                    modifier = Modifier.size(TabIcon),
+                                )
+                            },
+                            onClick = {
+                                viewModel.clearPageHistory()
+                                navController.switchTab(Routes.HOME)
+                            },
+                        )
+                        tab(
+                            key = Routes.LIBRARY,
+                            title = {
+                                Text(
+                                    stringResource(R.string.library),
+                                    fontSize = 9.sp,
+                                    lineHeight = 11.sp,
+                                    style = LocalTextStyle.current.copy(
+                                        platformStyle = androidx.compose.ui.text.PlatformTextStyle(
+                                            includeFontPadding = false,
+                                        ),
+                                        lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+                                            alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+                                            trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.Both,
+                                        ),
+                                    ),
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (activeTab == Routes.LIBRARY) tabAccent else barInk,
+                                )
+                            },
+                            icon = {
+                                Icon(
+                                    PhosphorIcons.Fill.MusicNotes,
+                                    contentDescription = stringResource(R.string.library),
+                                    tint = if (activeTab == Routes.LIBRARY) tabAccent else barInk,
+                                    modifier = Modifier.size(TabIcon),
+                                )
+                            },
+                            onClick = {
+                                viewModel.clearPageHistory()
+                                navController.switchTab(Routes.LIBRARY)
+                            },
+                        )
+                        tab(
+                            key = Routes.IDENTIFY,
+                            title = {
+                                Text(
+                                    stringResource(R.string.identify),
+                                    fontSize = 9.sp,
+                                    lineHeight = 11.sp,
+                                    style = LocalTextStyle.current.copy(
+                                        platformStyle = androidx.compose.ui.text.PlatformTextStyle(
+                                            includeFontPadding = false,
+                                        ),
+                                        lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+                                            alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+                                            trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.Both,
+                                        ),
+                                    ),
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (activeTab == Routes.IDENTIFY) tabAccent else barInk,
+                                )
+                            },
+                            icon = {
+                                Icon(
+                                    PhosphorIcons.Fill.Waveform,
+                                    contentDescription = stringResource(R.string.identify),
+                                    tint = if (activeTab == Routes.IDENTIFY) tabAccent else barInk,
+                                    modifier = Modifier.size(TabIcon),
+                                )
+                            },
+                            onClick = {
+                                viewModel.clearPageHistory()
+                                navController.switchTab(Routes.IDENTIFY)
+                            },
+                        )
+                        // Search is one of the places, so it is registered like
+                        // one: this is the tab the folded bar shows when it is
+                        // where you are, and the key the search field grows out
+                        // of.
+                        tab(
+                            key = Routes.SEARCH,
+                            title = {
+                                Text(
+                                    stringResource(R.string.search),
+                                    fontSize = 9.sp,
+                                    lineHeight = 11.sp,
+                                    style = LocalTextStyle.current.copy(
+                                        platformStyle = androidx.compose.ui.text.PlatformTextStyle(
+                                            includeFontPadding = false,
+                                        ),
+                                        lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+                                            alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+                                            trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.Both,
+                                        ),
+                                    ),
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (activeTab == Routes.SEARCH) tabAccent else barInk,
+                                )
+                            },
+                            icon = {
+                                Icon(
+                                    // Heavy rather than solid: a filled magnifier
+                                    // reads as a blob at this size, and it is the
+                                    // one glyph here whose shape is the whole of
+                                    // its meaning.
+                                    PhosphorIcons.Bold.MagnifyingGlass,
+                                    contentDescription = stringResource(R.string.search),
+                                    tint = if (activeTab == Routes.SEARCH) tabAccent else barInk,
+                                    modifier = Modifier.size(TabIcon),
+                                )
+                            },
+                            onClick = {
+                                if (searching && searchOpen) {
+                                    // Already typing: this is the way out of it.
+                                    // The field goes and the keyboard with it,
+                                    // the results stay where they are.
+                                    searchOpen = false
+                                    focus.clearFocus()
+                                    keyboard?.hide()
+                                } else {
+                                    viewModel.clearPageHistory()
+                                    searchOpen = true
+                                    navController.switchTab(Routes.SEARCH)
+                                }
+                            },
+                        )
+                        tab(
+                            key = Routes.SETTINGS,
+                            title = {
+                                Text(
+                                    stringResource(R.string.settings),
+                                    fontSize = 9.sp,
+                                    lineHeight = 11.sp,
+                                    style = LocalTextStyle.current.copy(
+                                        platformStyle = androidx.compose.ui.text.PlatformTextStyle(
+                                            includeFontPadding = false,
+                                        ),
+                                        lineHeightStyle = androidx.compose.ui.text.style.LineHeightStyle(
+                                            alignment = androidx.compose.ui.text.style.LineHeightStyle.Alignment.Center,
+                                            trim = androidx.compose.ui.text.style.LineHeightStyle.Trim.Both,
+                                        ),
+                                    ),
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (activeTab == Routes.SETTINGS) tabAccent else barInk,
+                                )
+                            },
+                            icon = {
+                                Icon(
+                                    PhosphorIcons.Fill.GearSix,
+                                    contentDescription = stringResource(R.string.settings),
+                                    tint = if (activeTab == Routes.SETTINGS) tabAccent else barInk,
+                                    modifier = Modifier.size(TabIcon),
+                                )
+                            },
+                            onClick = {
+                                viewModel.clearPageHistory()
+                                navController.switchTab(Routes.SETTINGS)
+                            },
+                        )
+                        // And still a circle beside the folded bar, so a reader
+                        // halfway down a list can search without opening it
+                        // first. Gone while search is where you are: the folded
+                        // tab is already this control.
+                        if (!searching) {
+                            standaloneTab(
+                                key = SEARCH_CIRCLE,
+                                icon = {
+                                    Icon(
+                                        PhosphorIcons.Bold.MagnifyingGlass,
+                                        contentDescription = stringResource(R.string.search),
+                                        tint = barInk,
+                                        modifier = Modifier.size(TabIcon),
+                                    )
+                                },
+                                onClick = {
+                                    viewModel.clearPageHistory()
+                                    searchOpen = true
+                                    navController.switchTab(Routes.SEARCH)
+                                },
+                            )
+                        }
+                    }
+                    }
+                }
+
+                if (playback.hasItem && chrome > 0.01f) {
+                    Box(Modifier.fillMaxSize().graphicsLayer { alpha = chrome }) {
+                    NowPlayingSheet(
+                        progress = expand,
+                        background = {
+                          Box(Modifier.fillMaxSize().layerBackdrop(playerBackdrop)) {
+                            // The player's own room, out of the record it is
+                            // playing: see AmbientArtworkBackground. The tone
+                            // is the catalogue's where it gave one and the
+                            // picture's own where it did not, which is the same
+                            // rule every page in the app follows.
+                            com.abhishek.ame.ui.components.AmbientArtworkBackground(
+                                artworkModel = ambientArt,
+                                // Null coverAspect covers the entire screen uniformly with the thick ambient blur,
+                                // eliminating split-blur seams between the upper and lower portions of the player.
+                                coverAspect = null,
+                                // The catalogue's colour first, and used the
+                                // way it was filed rather than taken towards
+                                // the theme's paper: it was picked for this
+                                // record, and it is what the reference puts
+                                // behind the same cover. The colour read off
+                                // the picture is the fallback for the records
+                                // it has never heard of.
+                                tone = playerTone,
+                                // Barely any colour over the picture.
+                                //
+                                // The reference does not put a tone behind its
+                                // player at all: what fills the screen above and
+                                // below the cover is the cover, blurred and
+                                // carried past its edges — dark grey at the top
+                                // because the sleeve's top is dark grey, red at
+                                // the foot because the sleeve ends in a red
+                                // coat. A wash of a chosen colour over that is
+                                // the thing that made ours stop looking like the
+                                // record. What is left is enough to keep the
+                                // controls legible.
+                                toneFloor = 0.06f,
+                                scrimFloor = 0.18f,
+                                // Still, always. This layer is what every pane
+                                // of glass on the player refracts, so a drift
+                                // here redrew all of them on every frame,
+                                // about a hundred render passes sixty times a
+                                // second, for a movement the cover and its
+                                // extension hide almost entirely. Measured: the
+                                // player never stopped drawing, and most of
+                                // its frames came in late.
+                                motion = false,
+                                columns = clipColumns,
+                            )
+                          }
+                        },
+                        expandedContent = {
+                          // The player is the largest glass surface in the app by
+                          // a wide margin, so the settings' switch for it is the
+                          // one that buys the most. Off leaves the film every
+                          // pane falls back to, not a hole.
+                          androidx.compose.runtime.CompositionLocalProvider(
+                              com.abhishek.ame.ui.player.LocalGlassEnabled provides
+                                  (glassConfig.playerEnabled &&
+                                      com.abhishek.ame.ui.player.LocalGlassEnabled.current),
+                              // Light ink on every surface of the player, and
+                              // through it the dark film on its glass; see
+                              // playerInk above and GlassEffect.
+                              com.abhishek.ame.ui.theme.LocalInkOverride provides playerInk,
+                              androidx.compose.material3.LocalContentColor provides playerInk,
+                              // The record's film, to the panes that draw their
+                              // own and, through the config, to the ones the
+                              // glass recipe fills. A colour set by hand in the
+                              // settings still wins, as it does everywhere.
+                              com.abhishek.ame.ui.player.LocalPlayerFilm provides
+                                  playerFilm.copy(alpha = 0.5f),
+                              com.abhishek.ame.ui.glass.LocalGlassEffectConfig provides
+                                  com.abhishek.ame.ui.glass.LocalGlassEffectConfig.current.let {
+                                      if (it.surfaceTintColor.isSpecified) it
+                                      else it.copy(surfaceTintColor = playerFilm)
+                                  },
+                          ) {
+                            PlayerScreen(
+                                state = playerState,
+                                djSpeaking = djSpeaking,
+                                // The title is the way onto the record. The
+                                // address travels with the queue where the
+                                // source gave one; where it did not — a list
+                                // resolved before the app kept it — it is
+                                // looked up on the tap rather than left inert.
+                                onOpenAlbum = playback.mediaId
+                                    ?.takeIf {
+                                        it.startsWith("spotify:track:") ||
+                                            // YouTube has no lookup to fall back
+                                            // on: the record's address or nothing.
+                                            (it.startsWith(com.abhishek.ame.backend.youtube.YouTubeBackend.TRACK_PREFIX) &&
+                                                playback.albumUri != null)
+                                    }
+                                    ?.let { track ->
+                                        {
+                                            scope.launch {
+                                                val album = playback.albumUri?.let { uri ->
+                                                    CatalogPlaylist(
+                                                        uri = uri,
+                                                        name = playback.album,
+                                                        artworkUrl = playback.artworkUrl,
+                                                    )
+                                                } ?: viewModel.albumOf(track)
+                                                if (album != null) {
+                                                    expand.animateTo(0f, expandSpec)
+                                                    navController.openPlaylist(viewModel, album)
+                                                }
+                                            }
+                                            Unit
+                                        }
+                                    },
+                                positionMs = positionMs,
+                                bufferedPositionMs = bufferedPositionMs,
+                                videoFileId = videoFileId,
+                                videoMode = spotifyVideoOn,
+                                onToggleVideo = {
+                                    // Handed to the service, which swaps what
+                                    // the session is playing: the video carries
+                                    // the song's own audio and answers the
+                                    // transport controls. See SpotifyVideoMode.
+                                    val at = player?.currentPosition ?: 0L
+                                    val id = videoFileId
+                                    if (spotifyVideoOn) {
+                                        com.abhishek.ame.backend.spotify
+                                            .SpotifyVideoMode.listen(at)
+                                    } else if (id != null) {
+                                        com.abhishek.ame.backend.spotify
+                                            .SpotifyVideoMode.watch(id, at)
+                                    }
+                                },
+                                onCollapse = { scope.launch { expand.animateTo(0f, expandSpec) } },
+                                onTogglePlay = {
+                                    if (remote != null) {
+                                        val playing = remote?.playing == true
+                                        onRemote { id ->
+                                            if (playing) RemoteConnect.pause(id)
+                                            else RemoteConnect.play(id)
+                                        }
+                                    } else {
+                                        player?.togglePlay()
+                                    }
+                                },
+                                onNext = {
+                                    if (remote != null) onRemote(RemoteConnect::next)
+                                    // Skipping is about the song: a video has
+                                    // nowhere of its own to go, and the queue
+                                    // is held by the engine parked behind it.
+                                    else if (spotifyVideoOn) {
+                                        com.abhishek.ame.backend.spotify
+                                            .SpotifyVideoMode.skip(forward = true)
+                                    } else {
+                                        player?.seekToNextMediaItem()
+                                    }
+                                },
+                                onPrevious = {
+                                    if (remote != null) onRemote(RemoteConnect::previous)
+                                    else if (spotifyVideoOn) {
+                                        com.abhishek.ame.backend.spotify
+                                            .SpotifyVideoMode.skip(forward = false)
+                                    } else {
+                                        player?.seekToPrevious()
+                                    }
+                                },
+                                onSeek = { target ->
+                                    if (remote != null) {
+                                        onRemote { id -> RemoteConnect.seek(id, target) }
+                                    } else {
+                                        player?.seekTo(target)
+                                    }
+                                },
+                                onToggleShuffle = {
+                                    if (remote != null) {
+                                        val wanted = remote?.shuffle != true
+                                        onRemote { id -> RemoteConnect.setShuffle(id, wanted) }
+                                    } else {
+                                        if (backend == com.abhishek.ame.backend.BackendId.SPOTIFY && player is androidx.media3.session.MediaController) {
+                                            player.sendCustomCommand(androidx.media3.session.SessionCommand(com.abhishek.ame.data.SmartShuffle.COMMAND, android.os.Bundle.EMPTY), android.os.Bundle.EMPTY)
+                                        } else player?.let { it.shuffleModeEnabled = !it.shuffleModeEnabled }
+                                    }
+                                },
+                                onCycleRepeat = {
+                                    if (remote != null) {
+                                        val current = remote
+                                        // Off, all, one, off: the same cycle the
+                                        // local button walks.
+                                        val context = current?.repeatContext != true &&
+                                            current?.repeatTrack != true
+                                        val track = current?.repeatContext == true
+                                        onRemote { id -> RemoteConnect.setRepeat(id, context, track) }
+                                    } else {
+                                        player?.cycleRepeatMode()
+                                    }
+                                },
+                                queue = queue,
+                                lyrics = lyrics,
+                                lyricsQuery = playback.mediaId?.takeIf { playback.title.isNotBlank() }?.let { uri ->
+                                    com.abhishek.ame.backend.lyrics.LyricsQuery(
+                                        uri = uri,
+                                        title = playback.title,
+                                        artist = playback.artist,
+                                        durationMs = playback.durationMs,
+                                    )
+                                },
+                                // Shown at once; LyricsLibrary has already kept
+                                // it as this song's words from now on.
+                                onLyricsChosen = { chosen ->
+                                    lyrics = chosen
+                                    lyricsFor = playback.mediaId
+                                },
+                                // Loading until the answer in hand is this
+                                // track's, which covers the wait before the
+                                // fetch has even begun.
+                                lyricsLoading = playback.mediaId != null &&
+                                    lyricsFor != playback.mediaId,
+                                credits = credits,
+                                creditsLoading = creditsLoading,
+                                onWantCredits = viewModel::loadCredits,
+                                onPlayQueueItem = { player?.seekTo(it, 0L) },
+                                queueActions = queueActions,
+                                reverb = reverb,
+                                // Speed and pitch are set as a pair because
+                                // PlaybackParameters carries both; changing one
+                                // has to carry the other through unchanged.
+                                onSpeed = {
+                                    setPlaybackParameters(
+                                        PlaybackParameters(it, currentParameters().pitch),
+                                    )
+                                },
+                                onPitch = {
+                                    setPlaybackParameters(
+                                        PlaybackParameters(currentParameters().speed, it),
+                                    )
+                                },
+                                onReverb = AudioEffects::setReverb,
+                                presets = presets,
+                                onApplyPreset = { preset ->
+                                    // Over any slider write still waiting, or
+                                    // that lands after it and undoes it.
+                                    effectsJob?.cancel()
+                                    pendingParameters = null
+                                    player?.playbackParameters =
+                                        PlaybackParameters(preset.speed, preset.pitch)
+                                    AudioEffects.setReverb(preset.reverbAmount)
+                                },
+                                onSavePreset = {
+                                    viewModel.saveEffectPreset(
+                                        it,
+                                        playback.speed,
+                                        playback.pitch,
+                                        reverb,
+                                    )
+                                },
+                                onDeletePreset = viewModel::deleteEffectPreset,
+                                backdrop = playerBackdrop,
+                                canvas = canvas,
+                                // The record's own artwork from the other
+                                // catalogue, where it has any: the tall picture
+                                // and the moving cover a song inherits from its
+                                // album. Null leaves the player with the square
+                                // cover it always had.
+                                // The colours filed with this artwork, for the
+                                // light that moves behind it; see CoverAura.
+                                catalogPalette = currentTrackArt?.inkPalette.orEmpty(),
+                                onClipColumns = { clipColumns = it },
+                                coverHeroUrl = currentTrackArt?.heroUrl,
+                                // Apple's moving cover only when that is the
+                                // source chosen, and moving covers are on.
+                                coverMotionUrl = currentTrackArt?.motionUrl.takeIf {
+                                    canvasEnabled &&
+                                        (coverSource == com.abhishek.ame.data.PreferencesStore.CoverSource.APPLE_MUSIC ||
+                                            coverSource == com.abhishek.ame.data.PreferencesStore.CoverSource.PREMIUM)
+                                },
+                                coverSquareUrl = currentTrackArt?.coverUrl,
+                                allowQueueArtworkFallback = coverSource.allowsQueueArtworkFallback,
+                                // Keep the queue cover visible while an
+                                // Apple-only replacement is being looked up.
+                                // Both the sharp cover and the ambient layer
+                                // then change from the same source together.
+                                coverPending = appleArtPending,
+                                devices = devices,
+                                onAnotherDevice = remote != null,
+                                // Or playing from one of the listener's own
+                                // playlists, which it is in whether or not
+                                // that list has been read into the cache.
+                                alreadySaved = playback.mediaId != null &&
+                                    (
+                                        viewModel.isTrackInPlaylists(playback.mediaId, playback.title, playback.artist) ||
+                                            playback.mediaId in inPlaylists ||
+                                            (playback.mediaId?.substringAfterLast(':')?.let { it.isNotEmpty() && it in inPlaylists } == true) ||
+                                            (addToPlaylist.trackUri == playback.mediaId && addToPlaylist.containing.isNotEmpty())
+                                    ),
+                                inLikedSongs = playback.mediaId != null && (
+                                    playback.mediaId in likedTracks ||
+                                        (playback.mediaId?.substringAfterLast(':')?.let { it.isNotEmpty() && it in likedTracks } == true) ||
+                                        viewModel.isLiked(playback.mediaId, playback.title, playback.artist)
+                                ),
+                                // The song's own radio, from the service it
+                                // came from: Spotify's station or YouTube
+                                // Music's, each meaningless to the other.
+                                onRadio = playback.mediaId
+                                    ?.takeIf {
+                                        (it.startsWith("spotify:track:") &&
+                                            backend == com.abhishek.ame.backend.BackendId.SPOTIFY) ||
+                                            (!it.startsWith("spotify:") && viewModel.hasRadio(it))
+                                    }
+                                    ?.let { uri ->
+                                        {
+                                            scope.launch {
+                                                runCatching {
+                                                    val tracks = viewModel.radioFor(uri)
+                                                    if (tracks.isEmpty()) return@launch
+                                                    val station = viewModel.stationFor(uri)
+                                                    val name = radioOf(playback.title)
+                                                    viewModel.showStation(
+                                                        uri = station,
+                                                        name = name,
+                                                        artworkUrl = playback.artworkUrl,
+                                                        tracks = tracks,
+                                                    )
+                                                    expand.animateTo(0f, expandSpec)
+                                                    if (navController.currentDestination?.route != Routes.PLAYLIST) {
+                                                        navController.navigate(Routes.PLAYLIST) { launchSingleTop = true }
+                                                    }
+                                                    onPlay(
+                                                        tracks,
+                                                        0,
+                                                        station,
+                                                        true,
+                                                        name,
+                                                        0L,
+                                                    )
+                                                }.onFailure {
+                                                    android.util.Log.e("AmeApp", "Failed to start radio: ${it.message}")
+                                                }
+                                            }
+                                            Unit
+                                        }
+                                    },
+                                onOpenDevices = viewModel::openDevices,
+                                connectAvailable =
+                                    backend == com.abhishek.ame.backend.BackendId.SPOTIFY &&
+                                        // Offline there is no device to hand
+                                        // playback to, and no list to draw: the
+                                        // engine came up without a Connect
+                                        // device at all.
+                                        !offlineNow,
+                                onCloseDevices = viewModel::closeDevices,
+                                onRefreshDevices = viewModel::refreshDevices,
+                                // The position goes with the request: a
+                                // handover resumes where the listener was, and
+                                // this is the only side that knows to the
+                                // second.
+                                onSelectDevice = {
+                                    viewModel.transferPlayback(it, positionMs.value)
+                                },
+                                onOpenUri = { uri, name ->
+                                    viewModel.openContext(uri, name)
+                                    if (navController.currentDestination?.route != Routes.PLAYLIST) {
+                                        navController.navigate(Routes.PLAYLIST) { launchSingleTop = true }
+                                    }
+                                },
+                                onAddToPlaylist = {
+                                    viewModel.openAddToPlaylist(
+                                        playback.mediaId,
+                                        playback.title,
+                                        asSheet = false,
+                                        contextUri = playback.contextUri,
+                                    )
+                                },
+                                onAddAutoplayToPlaylist = if (playback.isAutoplay && !playback.originPlaylistUri.isNullOrBlank()) {
+                                    {
+                                        viewModel.addTrackToPlaylistDirect(
+                                            playlistUri = playback.originPlaylistUri!!,
+                                            playlistName = playback.originPlaylistName.orEmpty(),
+                                            trackUri = playback.mediaId.orEmpty(),
+                                            trackTitle = playback.title,
+                                            artist = playback.artist,
+                                            artworkUrl = playback.artworkUrl,
+                                        )
+                                    }
+                                } else null,
+                                onToggleLike = playback.mediaId?.let { uri ->
+                                    {
+                                        viewModel.toggleLike(
+                                            uri,
+                                            playback.title,
+                                            playback.artist,
+                                            playback.artworkUrl,
+                                        )
+                                    }
+                                },
+                                addToPlaylist = addToPlaylist,
+                                onPickPlaylist = viewModel::addToPlaylist,
+                                playlistEditAvailable =
+                                    backend == com.abhishek.ame.backend.BackendId.SPOTIFY ||
+                                        (viewModel.canEditPlaylists && !offlineNow &&
+                                            playback.mediaId != null),
+                                onWatchVideo = player
+                                    ?.takeIf {
+                                        // A video is streamed, so there is
+                                        // nothing to offer offline.
+                                        !offlineNow &&
+                                            playback.mediaId?.let { id ->
+                                                id.startsWith("ytmusic:track:") ||
+                                                    id.startsWith(com.abhishek.ame.backend.youtube.YouTubeBackend.VIDEO_PREFIX)
+                                            } == true
+                                    }
+                                    ?.let { { YouTubeVideoMode.toggle(it) } },
+                                videoOn = videoOn || spotifyVideoOn,
+                                videoNotice = playback.mediaId
+                                    ?.takeIf { it.startsWith(com.abhishek.ame.backend.youtube.YouTubeBackend.TRACK_PREFIX) }
+                                    ?.let { videoUnavailable[com.abhishek.ame.backend.youtube.YouTubeBackend.videoIdOfUri(it)] }
+                                    ?.let { reason ->
+                                        stringResource(
+                                            if (reason == YouTubeVideoMode.Unavailable.AGE_RESTRICTED) {
+                                                R.string.video_age_restricted
+                                            } else {
+                                                R.string.video_unavailable
+                                            },
+                                        )
+                                    },
+                                videoPlayer = player,
+                                videoAttachKey = spotifyVideoGeneration,
+                            )
+                          }
+                        },
+                    )
+                    }
+                }
+
+                // The DJ coming on: its lights, breathing, while the session
+                // is fetched and its first line made. In place of a toast,
+                // which said the same thing in a corner and went away before
+                // the music came.
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = djStarting,
+                    enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(320)),
+                    exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(420)),
+                ) {
+                    com.abhishek.ame.ui.player.DjStarting()
+                }
+
+                }
+
+                // Above the tab bar and the now-playing bar, which is the whole
+                // reason it lives here instead of in the screen that asked for
+                // it.
+                var lastPlaylistMenu by remember { mutableStateOf<CatalogPlaylist?>(null) }
+                LaunchedEffect(playlistMenu) { playlistMenu?.let { lastPlaylistMenu = it } }
+                val shownPlaylist = playlistMenu ?: lastPlaylistMenu
+                TrackSheet(
+                    visible = playlistMenu != null,
+                    title = shownPlaylist?.name.orEmpty(),
+                    subtitle = stringResource(R.string.playlist),
+                    artworkUrl = shownPlaylist?.artworkUrl,
+                    backdrop = overlayBackdrop,
+                    onDismiss = { playlistMenu = null },
+                ) {
+                    if (shownPlaylist != null) {
+                        // First action: Save to library / Remove from library
+                        val isSavedToLib = viewModel.isPlaylistSaved(shownPlaylist.uri) ||
+                            ((playlist.uri == shownPlaylist.uri && playlist.saved == true) || playlistMenuSaved)
+                        TrackSheetAction(
+                            stringResource(if (isSavedToLib) R.string.remove_from_library else R.string.add_to_library),
+                            if (isSavedToLib) PhosphorIcons.Fill.BookmarkSimple else PhosphorIcons.Regular.BookmarkSimple,
+                        ) {
+                            playlistMenu = null
+                            if (playlist.uri == shownPlaylist.uri) {
+                                viewModel.toggleSaved()
+                            } else {
+                                if (isSavedToLib) {
+                                    viewModel.removePublicPlaylist(shownPlaylist.uri)
+                                } else {
+                                    viewModel.savePublicPlaylist(shownPlaylist)
+                                }
+                            }
+                        }
+
+                        // Pinning is about where a row sits in the library, so
+                        // it is offered for what is in the library. A playlist
+                        // you are only looking at has no row to move.
+                        val isPinned = shownPlaylist.uri in pinnedPlaylists
+                        if (isSavedToLib) TrackSheetAction(
+                            stringResource(if (isPinned) R.string.unpin else R.string.pin),
+                            PhosphorIcons.Regular.PushPin,
+                        ) {
+                            viewModel.togglePinned(shownPlaylist.uri)
+                            playlistMenu = null
+                        }
+                        // The whole record, or the whole list, into another playlist
+                        if (playlist.uri == shownPlaylist.uri && playlist.tracks.isNotEmpty() &&
+                            (playlist.kind == MainViewModel.DetailKind.ALBUM ||
+                                playlist.kind == MainViewModel.DetailKind.PLAYLIST)
+                        ) TrackSheetAction(
+                            stringResource(R.string.add_to_playlist),
+                            PhosphorIcons.Regular.Queue,
+                        ) {
+                            playlistMenu = null
+                            viewModel.openAddAllToPlaylist(playlist.tracks, playlist.name)
+                        }
+                        // Liked Songs is Spotify's own list: it can be pinned
+                        // like any other row, but there is no name to change
+                        // and no way to delete it. Nor is anything editable on
+                        // somebody else's playlist — Spotify has no request for
+                        // "delete the list an editor made", and the app offering
+                        // one meant offering a button whose only outcome was an
+                        // error.
+                        val editable = !shownPlaylist.uri.endsWith(":collection") &&
+                            playlistMenuMine
+                        if (editable) TrackSheetAction(
+                            stringResource(R.string.edit_playlist),
+                            PhosphorIcons.Regular.PencilSimple,
+                        ) {
+                            viewModel.openEditPlaylist(shownPlaylist)
+                            playlistMenu = null
+                        }
+                        val hasCustom = viewModel.hasCustomBanner(shownPlaylist.uri)
+                        TrackSheetAction(
+                            stringResource(if (hasCustom) R.string.change_custom_banner else R.string.set_custom_banner),
+                            PhosphorIcons.Regular.ImageSquare,
+                        ) {
+                            playlistMenu = null
+                            pendingBannerUri = shownPlaylist.uri
+                            bannerPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        }
+                        if (hasCustom) {
+                            TrackSheetAction(
+                                stringResource(R.string.remove_custom_banner),
+                                PhosphorIcons.Regular.ArrowCounterClockwise,
+                            ) {
+                                playlistMenu = null
+                                viewModel.removePlaylistCustomBanner(shownPlaylist.uri)
+                            }
+                        }
+                        val isPublic = viewModel.isPlaylistPublic(shownPlaylist.uri)
+                        TrackSheetAction(
+                            stringResource(if (isPublic) R.string.make_playlist_private else R.string.make_playlist_public),
+                            if (isPublic) PhosphorIcons.Regular.Lock else PhosphorIcons.Regular.Globe,
+                        ) {
+                            playlistMenu = null
+                            val nowPublic = viewModel.togglePlaylistPublic(shownPlaylist)
+                            android.widget.Toast.makeText(
+                                context,
+                                if (nowPublic) R.string.playlist_made_public else R.string.playlist_made_private,
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                        // The whole playlist in one link. yt-dlp and the apps
+                        // built on it expand a playlist URL themselves, so this
+                        // is the entire "download an album" feature.
+                        if (backend != com.abhishek.ame.backend.BackendId.SPOTIFY) {
+                            val label = if (downloaderInstalled(context)) {
+                                stringResource(R.string.download_with)
+                            } else {
+                                stringResource(R.string.download_get_app)
+                            }
+                            TrackSheetAction(label, PhosphorIcons.Regular.Download) {
+                                playlistMenu = null
+                                sendForDownload(context, shownPlaylist.openLink())
+                            }
+                        }
+                        // Keeping the page on the phone lives here rather
+                        // than under the cover: the reference has no button for
+                        // it beside play, and the three that are there are the
+                        // three you press while listening. This is a decision
+                        // about storage, which is what a menu is for.
+                        //
+                        // Pages of the source that is playing can be kept,
+                        // and with no network the entry would only ever queue
+                        // work that cannot start.
+                        //
+                        // Offered only for the page that is open, because
+                        // keeping one means keeping its songs and the track list
+                        // is what this reads: the same sheet opens over a
+                        // library row, where there is a name and nothing to
+                        // fetch yet.
+                        val keepable = viewModel.canKeep(shownPlaylist.uri) &&
+                            playlist.uri == shownPlaylist.uri &&
+                            playlist.tracks.isNotEmpty() &&
+                            // An artist page has no keep button of its own: its
+                            // three controls are the ones the reference gives an
+                            // artist, so for that one page this is the way in.
+                            playlist.kind == MainViewModel.DetailKind.ARTIST &&
+                            !offlineNow
+                        if (keepable) {
+                            val kept = downloadOwners[shownPlaylist.uri]
+                            val isKept = kept != null && kept !is com.abhishek.ame.data.OwnerState.None
+                            TrackSheetAction(
+                                stringResource(
+                                    if (isKept) R.string.remove_download else R.string.download,
+                                ),
+                                if (isKept) {
+                                    PhosphorIcons.Regular.Trash
+                                } else {
+                                    PhosphorIcons.Regular.Download
+                                },
+                            ) {
+                                playlistMenu = null
+                                // Asked rather than done when it takes songs
+                                // away: a mis-tap should not delete a hundred
+                                // of them.
+                                if (isKept) unkeeping = playlist
+                                else viewModel.toggleDownload(playlist)
+                            }
+                        }
+                        // The link to the page, which used to be a button of
+                        // its own beside the cover. Sharing is occasional and
+                        // it is done once; the place next to the page's title
+                        // now filters its songs, which is what gets used while
+                        // the page is open.
+                        TrackSheetAction(
+                            stringResource(R.string.copy_link),
+                            PhosphorIcons.Regular.Export,
+                        ) {
+                            playlistMenu = null
+                            context.startActivity(
+                                android.content.Intent.createChooser(
+                                    android.content.Intent(android.content.Intent.ACTION_SEND)
+                                        .setType("text/plain")
+                                        .putExtra(
+                                            android.content.Intent.EXTRA_TEXT,
+                                            com.abhishek.ame.ui.library.openLinkOf(
+                                                shownPlaylist.uri,
+                                            ),
+                                        ),
+                                    null,
+                                ),
+                            )
+                        }
+                        if (editable) TrackSheetAction(
+                            stringResource(R.string.delete),
+                            PhosphorIcons.Regular.Trash,
+                            destructive = true,
+                        ) {
+                            // Asked rather than done: see ConfirmDialog.
+                            deleting = shownPlaylist
+                            playlistMenu = null
+                        }
+                    }
+                }
+
+                unkeeping?.let { target ->
+                    com.abhishek.ame.ui.components.ConfirmDialog(
+                        title = stringResource(R.string.remove_download),
+                        message = stringResource(R.string.remove_download_confirm, target.name),
+                        confirmLabel = stringResource(R.string.remove_download_confirm_action),
+                        onConfirm = {
+                            viewModel.toggleDownload(target)
+                            unkeeping = null
+                        },
+                        onDismiss = { unkeeping = null },
+                    )
+                }
+
+                deleting?.let { target ->
+                    com.abhishek.ame.ui.components.ConfirmDialog(
+                        title = stringResource(R.string.delete_playlist_title),
+                        message = stringResource(R.string.delete_playlist_message, target.name),
+                        confirmLabel = stringResource(R.string.delete),
+                        onConfirm = {
+                            viewModel.deletePlaylist(target.uri)
+                            deleting = null
+                        },
+                        onDismiss = { deleting = null },
+                    )
+                }
+
+                val editing by viewModel.editingPlaylist.collectAsStateWithLifecycle()
+                editing?.let { edit ->
+                    com.abhishek.ame.ui.components.CreatePlaylistDialog(
+                        title = stringResource(R.string.edit_playlist),
+                        confirmLabel = stringResource(R.string.save),
+                        describes = viewModel.describesPlaylists,
+                        busy = edit.busy,
+                        error = edit.error,
+                        initial = edit.details,
+                        loading = edit.loading,
+                        onCreate = { name, description, public, cover ->
+                            viewModel.savePlaylist(name, description, public, cover)
+                        },
+                        onDismiss = viewModel::closeEditPlaylist,
+                    )
+                }
+
+                naming?.takeIf { it.playlist == null }?.let {
+                    val creating by viewModel.creatingPlaylist.collectAsStateWithLifecycle()
+                    com.abhishek.ame.ui.components.CreatePlaylistDialog(
+                        title = stringResource(R.string.new_playlist),
+                        confirmLabel = stringResource(R.string.create),
+                        describes = viewModel.describesPlaylists,
+                        busy = creating.busy,
+                        error = creating.error,
+                        onCreate = { name, description, public, cover ->
+                            viewModel.createPlaylist(name, description, public, cover) { created ->
+                                naming = null
+                                navController.openPlaylist(viewModel, created)
+                            }
+                        },
+                        onDismiss = {
+                            viewModel.resetCreatePlaylist()
+                            naming = null
+                        },
+                    )
+                }
+
+                naming?.playlist?.let { playlist ->
+                    com.abhishek.ame.ui.components.NameDialog(
+                        title = stringResource(R.string.rename),
+                        initial = playlist.name,
+                        confirmLabel = stringResource(R.string.save),
+                        onConfirm = { name ->
+                            viewModel.renamePlaylist(playlist.uri, name)
+                            naming = null
+                        },
+                        onDismiss = { naming = null },
+                    )
+                }
+
+                // Held one beat longer than the state that opened it: the
+                // sheet slides out over a couple of hundred milliseconds, and
+                // reading the track straight off `trackMenu` emptied the title,
+                // the artist and every action the instant it was dismissed —
+                // the sheet was seen leaving with nothing in it.
+                var lastMenu by remember { mutableStateOf<TrackMenuRequest?>(null) }
+                LaunchedEffect(trackMenu) { trackMenu?.let { lastMenu = it } }
+                val menu = trackMenu ?: lastMenu
+                val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+                TrackSheet(
+                    visible = trackMenu != null,
+                    title = menu?.track?.name.orEmpty(),
+                    subtitle = menu?.track?.artist.orEmpty(),
+                    artworkUrl = menu?.track?.artworkUrl,
+                    backdrop = overlayBackdrop,
+                    onDismiss = { trackMenu = null },
+                ) {
+                    if (menu != null) {
+                        TrackSheetAction(stringResource(R.string.play), PhosphorIcons.Fill.Play) {
+                            trackMenu = null
+                            onPlay(listOf(menu.track), 0, null, false, "", 0L)
+                        }
+                        TrackSheetAction(stringResource(R.string.add_to_queue), PhosphorIcons.Regular.Queue) {
+                            trackMenu = null
+                            onEnqueue(menu.track)
+                        }
+                        // Writing to a playlist needs the account: Spotify's
+                        // Web API, or a signed-in YouTube Music. With no
+                        // network the entry would only ever fail.
+                        if ((backend == com.abhishek.ame.backend.BackendId.SPOTIFY ||
+                                viewModel.canEditPlaylists) && !offlineNow
+                        ) {
+                            TrackSheetAction(stringResource(R.string.add_to_playlist), PhosphorIcons.Regular.Plus) {
+                                trackMenu = null
+                                viewModel.openAddToPlaylist(menu.track.uri, menu.track.name)
+                            }
+                        }
+                        TrackSheetAction(stringResource(R.string.go_to_artist), PhosphorIcons.Regular.User) {
+                            val track = menu.track
+                            trackMenu = null
+                            scope.launch {
+                                if (expand.value > 0f) {
+                                    expand.animateTo(0f, expandSpec)
+                                }
+                                val artist = viewModel.artistOf(track)
+                                if (artist != null) {
+                                    viewModel.openContext(artist.uri, artist.title, artist.artworkUrl)
+                                    if (navController.currentDestination?.route != Routes.PLAYLIST) {
+                                        navController.navigate(Routes.PLAYLIST) { launchSingleTop = true }
+                                    }
+                                }
+                            }
+                        }
+                        // The record the song is on, as the player's own album
+                        // link finds it: the address the source gave, or a
+                        // lookup for a Spotify song that came without one.
+                        // YouTube has nothing to look up, so its songs offer
+                        // this only with the address in hand.
+                        if (menu.track.albumUri != null || menu.track.uri.startsWith("spotify:track:")) {
+                            TrackSheetAction(stringResource(R.string.go_to_album), PhosphorIcons.Regular.VinylRecord) {
+                                val track = menu.track
+                                trackMenu = null
+                                scope.launch {
+                                    val album = track.albumUri?.let { uri ->
+                                        CatalogPlaylist(uri = uri, name = track.album, artworkUrl = track.artworkUrl)
+                                    } ?: viewModel.albumOf(track.uri)
+                                    if (album != null) {
+                                        if (expand.value > 0f) {
+                                            expand.animateTo(0f, expandSpec)
+                                        }
+                                        navController.openPlaylist(viewModel, album)
+                                    }
+                                }
+                            }
+                        }
+                        // Keeping one song, as opposed to keeping the list it
+                        // came from, on whichever source it belongs to.
+                        // Removing is offered only for a song kept on its
+                        // own. One that is here because a playlist wants it
+                        // cannot be let go of from this menu — the file is
+                        // still owed to that playlist — and a row that looks
+                        // like it removes something and removes nothing is
+                        // worse than no row.
+                        val onItsOwn = menu.track.uri in downloadSingles
+                        val here = menu.track.uri in downloadedFiles
+                        if (viewModel.canKeep(menu.track.uri) &&
+                            (onItsOwn || (!here && !offlineNow))
+                        ) {
+                            val kept = onItsOwn
+                            TrackSheetAction(
+                                stringResource(
+                                    // Asked for and not here yet is a download
+                                    // still to happen, not one to remove: said
+                                    // as "remove", it read as a song already on
+                                    // the phone that the downloads did not list.
+                                    when {
+                                        !kept -> R.string.download
+                                        here -> R.string.remove_download
+                                        else -> R.string.cancel_download
+                                    },
+                                ),
+                                if (kept) {
+                                    PhosphorIcons.Fill.ArrowCircleDown
+                                } else {
+                                    PhosphorIcons.Regular.Download
+                                },
+                            ) {
+                                trackMenu = null
+                                viewModel.toggleTrackDownload(menu.track)
+                            }
+                        }
+                        if (viewModel.hasRadio(menu.track.uri)) TrackSheetAction(stringResource(R.string.radio), PhosphorIcons.Regular.Broadcast) {
+                            val track = menu.track
+                            trackMenu = null
+                            scope.launch {
+                                runCatching {
+                                    val tracks = viewModel.radioFor(track.uri)
+                                    if (tracks.isEmpty()) return@launch
+                                    val station = viewModel.stationFor(track.uri)
+                                    val name = radioOf(track.name)
+                                    viewModel.showStation(
+                                        uri = station,
+                                        name = name,
+                                        artworkUrl = track.artworkUrl,
+                                        tracks = tracks,
+                                    )
+                                    if (expand.value > 0f) {
+                                        expand.animateTo(0f, expandSpec)
+                                    }
+                                    if (navController.currentDestination?.route != Routes.PLAYLIST) {
+                                        navController.navigate(Routes.PLAYLIST) { launchSingleTop = true }
+                                    }
+                                    onPlay(tracks, 0, station, true, name, 0L)
+                                }
+                            }
+                        }
+                        TrackSheetAction(stringResource(R.string.copy_link), PhosphorIcons.Regular.LinkSimple) {
+                            trackMenu = null
+                            clipboard.setText(AnnotatedString(menu.track.openLink()))
+                        }
+
+                        // YouTube only. A Spotify link handed to a downloader
+                        // is a link it cannot do anything with, so offering the
+                        // action there would be offering a failure.
+                        if (backend != com.abhishek.ame.backend.BackendId.SPOTIFY) {
+                            // Says which app it will open, and says the other
+                            // thing when there is no app to open: a row that
+                            // promised a download and delivered a web page
+                            // would be the entry lying about what it does.
+                            val label = if (downloaderInstalled(context)) {
+                                stringResource(R.string.download_with)
+                            } else {
+                                stringResource(R.string.download_get_app)
+                            }
+                            TrackSheetAction(label, PhosphorIcons.Regular.Download) {
+                                trackMenu = null
+                                sendForDownload(context, menu.track.openLink())
+                            }
+                        }
+                        if (menu.removable) {
+                            TrackSheetAction(
+                                stringResource(R.string.remove_from_playlist),
+                                PhosphorIcons.Regular.Trash,
+                                destructive = true,
+                            ) {
+                                trackMenu = null
+                                viewModel.removeFromPlaylist(menu.track)
+                            }
+                        }
+                    }
+                }
+
+                FriendsPanel(
+                    visible = friendsOpen,
+                    friends = friends,
+                    backdrop = overlayBackdrop,
+                    onOpenTrack = { friend ->
+                        friendsOpen = false
+                        sharedTrack = com.abhishek.ame.data.CatalogTrack(
+                            uri = friend.trackUri,
+                            name = friend.trackName,
+                            artist = friend.artist,
+                            artworkUrl = friend.artworkUrl,
+                        )
+                    },
+                    onAddFriend = viewModel::addFriend,
+                    addState = addFriendState,
+                    onDismiss = {
+                        friendsOpen = false
+                        viewModel.clearAddFriend()
+                    },
+                )
+
+                // A song that arrived by link. Held one beat past the dismissal
+                // for the same reason the track sheet is: the card is still on
+                // its way out, and reading the track off the state that closed
+                // it would empty the cover and the title as it goes.
+                var lastShared by remember { mutableStateOf<CatalogTrack?>(null) }
+                LaunchedEffect(sharedTrack) { sharedTrack?.let { lastShared = it } }
+                SharedTrackCard(
+                    visible = sharedTrack != null,
+                    track = sharedTrack ?: lastShared,
+                    backdrop = overlayBackdrop,
+                    onPlay = {
+                        val track = sharedTrack ?: return@SharedTrackCard
+                        sharedTrack = null
+                        onPlay(listOf(track), 0, null, false, "", 0L)
+                    },
+                    onAddToPlaylist = {
+                        val track = sharedTrack ?: return@SharedTrackCard
+                        sharedTrack = null
+                        viewModel.openAddToPlaylist(track.uri, track.name)
+                    },
+                    onDismiss = { sharedTrack = null },
+                )
+
+                // Over everything, including the player: the same sheet is
+                // opened from a track row in the library and from the plus in
+                // the player, and it is one sheet with one state.
+                // Here rather than at the top of the app: a sheet made of
+                // glass has to be drawn where there is a layer to refract, and
+                // this is the layer the other sheets use.
+                // UpdatePrompt commented out per user instruction: updates are notified via the Settings page badge instead of a startup popup.
+                // UpdatePrompt(overlayBackdrop, onOpenChange = { updateOpen = it })
+
+                AddToPlaylistSheet(
+                    state = addToPlaylist,
+                    backdrop = overlayBackdrop,
+                    onSelect = viewModel::addToPlaylist,
+                    onDismiss = viewModel::closeAddToPlaylist,
+                )
+
+                // The curtain. Over the whole app, under nothing.
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = switching,
+                    enter = androidx.compose.animation.fadeIn(tween(180)),
+                    exit = androidx.compose.animation.fadeOut(tween(420)),
+                    modifier = Modifier.zIndex(20f),
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            // Opaque, using the same light/dark ground as the pages.
+                            .background(com.abhishek.ame.ui.theme.pageGround()),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                        ) {
+                            com.abhishek.ame.ui.components.AppGlyph(64.dp)
+                            com.abhishek.ame.ui.components.AmeWordmark(height = 28.dp)
+                            // Which source is being opened, named and marked:
+                            // the whole point of the wait is that the app is
+                            // becoming a different one, and a bare spinner says
+                            // nothing about that.
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(
+                                    when (backend) {
+                                        com.abhishek.ame.backend.BackendId.SPOTIFY ->
+                                            PhosphorIcons.Regular.SpotifyLogo
+                                        com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC ->
+                                            PhosphorIcons.Regular.YoutubeLogo
+                                        com.abhishek.ame.backend.BackendId.HYBRID ->
+                                            PhosphorIcons.Regular.Waveform
+                                    },
+                                    contentDescription = null,
+                                    tint = Ink,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                                Text(
+                                    stringResource(
+                                        when (backend) {
+                                            com.abhishek.ame.backend.BackendId.SPOTIFY ->
+                                                R.string.backend_spotify
+                                            com.abhishek.ame.backend.BackendId.YOUTUBE_MUSIC ->
+                                                R.string.backend_youtube
+                                            com.abhishek.ame.backend.BackendId.HYBRID ->
+                                                R.string.backend_hybrid
+                                        },
+                                    ),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = Ink,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Above everything, bars and player included: until it is done
+                // there is nothing underneath worth reaching, and on a fresh
+                // install most of what is underneath does not work yet.
+                //
+                // Above the tutorial too, and asked first: everything the
+                // tutorial explains is Spotify's setup, so the source has to be
+                // settled before any of it is worth walking through.
+                // Over everything, like the tutorial: it is Google's own sign-in
+                // page and half-covering it would be the wrong thing to do with
+                // a page someone is typing a password into.
+                if (showYouTubeLogin) {
+                    val account = remember(context) {
+                        (context.applicationContext as com.abhishek.ame.AmeApplication)
+                            .youtubeAccount
+                    }
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(androidx.compose.ui.graphics.Color(0xFF101012)),
+                    ) {
+                        com.abhishek.ame.backend.youtube.YouTubeLoginScreen(
+                            account = account,
+                            onDone = {
+                                showYouTubeLogin = false
+                                // The library is the whole point of signing in,
+                                // and it was read as the signed-out account.
+                                viewModel.refresh()
+                            },
+                        )
+                    }
+                }
+
+                if (!backendChosen) {
+                    BackendChoiceScreen(onChoose = preferences::setBackend)
+                } else if (
+                    // Every step of it is Spotify's setup — the Premium
+                    // account, the login, the registered application — so on
+                    // YouTube Music it would be five screens of instructions
+                    // for something the user just chose not to use. Still
+                    // reachable from the settings, which is where someone who
+                    // means to switch to Spotify would go.
+                    showTutorial ||
+                    (!onboarded && backend == com.abhishek.ame.backend.BackendId.SPOTIFY)
+                ) {
+                    OnboardingScreen(
+                        state = state,
+                        webApi = webApi,
+                        onLogIn = viewModel::logIn,
+                        onClientIdChange = viewModel::onWebApiClientIdChange,
+                        onConnectWebApi = { viewModel.connectWebApi() },
+                        language = language,
+                        onLanguage = setLanguage,
+                        onFinish = {
+                            showTutorial = false
+                            viewModel.setOnboarded(true)
+                        },
+                    )
+                }
+            }
+        }
+    }
+    }
+}
+
+/**
+ * The colour every screen sits on, taken from what is playing.
+ *
+ * The player is the exception and has its own: there the record is the subject
+ * and the screen is made of the picture itself — see AmbientArtworkBackground,
+ * which is where the blurred copy of the artwork went.
+ */
+@Composable
+private fun AppBackdrop() {
+    // Neutral, and the same on every page the app assembles.
+    //
+    // These screens used to take the colour of whatever was playing. On a page
+    // that is *about* one record — its own page, or the player — that is right,
+    // and it stays. On a screen made of other people's covers it is a wash
+    // under a hundred artworks that have nothing to do with it: on the New tab
+    // a salmon ground had every sleeve fighting it, and the reference keeps
+    // exactly these pages black or white for that reason.
+    //
+    // The record's colour did not go anywhere. It is on the page of the record
+    // itself, on the player, and on the controls that mean "this one, now" —
+    // the play button, the lit tab, the row that is playing — which is where a
+    // colour says something.
+    Box(Modifier.fillMaxSize().background(pageGround()))
+}
+
+@Composable
+private fun BottomBar(
+    route: String?,
+    bottomInset: Dp,
+    backdrop: Backdrop,
+    onSelect: (String) -> Unit,
+) {
+    // Search sits outside the capsule as its own round button, the way the
+    // reference has it: it is a different kind of destination — you go there to
+    // do something and come back — and giving it the same weight as the places
+    // made all of them read as places.
+    val routes = remember {
+        listOf(Routes.HOME, Routes.LIBRARY, Routes.IDENTIFY, Routes.SETTINGS)
+    }
+
+    // The last tab that was actually on screen, held across screens that are not
+    // tabs at all — a playlist, the search page.
+    //
+    // Falling back to Home instead, which is what this did, navigated the user
+    // away: the bar reports every change of its selected index through
+    // `onTabSelected`, so opening a playlist from Library moved the index 1 -> 0
+    // and the bar promptly "selected" Home. That was the playlist opening and
+    // then bouncing back.
+    var lastTab by remember { mutableStateOf(0) }
+    val routeIndex = routes.indexOf(route)
+    if (routeIndex >= 0 && routeIndex != lastTab) lastTab = routeIndex
+    val selected = if (routeIndex >= 0) routeIndex else lastTab
+
+    // A *stable* lambda, deliberately. LiquidBottomTabs keys its internal state
+    // on this reference, so a fresh closure on every recomposition threw that
+    // state away and the indicator arrived at the new tab without ever
+    // animating — which is exactly the bug where tapping snapped and only
+    // dragging moved.
+    val selectedState = rememberUpdatedState(selected)
+    val selectedTabIndex = remember { { selectedState.value } }
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(bottom = bottomInset + 8.dp, top = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.weight(1f)) {
+            LiquidBottomTabs(
+            selectedTabIndex = selectedTabIndex,
+            onTabSelected = { onSelect(routes[it]) },
+            backdrop = backdrop,
+            tabsCount = routes.size,
+            // Both upstream defaults are wrong here: the accent is a system blue
+            // that belongs to no part of this palette, and the container is a
+            // 40% fill that made the bar a solid slab beside the other glass.
+            accentColor = Ink,
+            containerColor = GlassFilm,
+            indicatorVisible = routeIndex >= 0,
+        ) {
+            BottomItem(
+                stringResource(R.string.home),
+                PhosphorIcons.Fill.House,
+                PhosphorIcons.Bold.House,
+                // Nothing is lit while the page on screen is not one of these
+                // two: search is a destination of its own, and leaving Home
+                // filled behind it said the app was somewhere it was not.
+                routeIndex >= 0 && selected == 0,
+            ) {
+                onSelect(Routes.HOME)
+            }
+            BottomItem(
+                stringResource(R.string.library),
+                PhosphorIcons.Fill.MusicNotes,
+                PhosphorIcons.Bold.MusicNotes,
+                routeIndex >= 0 && selected == 1,
+            ) { onSelect(Routes.LIBRARY) }
+            BottomItem(
+                stringResource(R.string.identify),
+                PhosphorIcons.Fill.Waveform,
+                PhosphorIcons.Bold.Waveform,
+                routeIndex >= 0 && selected == 2,
+            ) { onSelect(Routes.IDENTIFY) }
+            BottomItem(
+                stringResource(R.string.settings),
+                PhosphorIcons.Fill.GearSix,
+                PhosphorIcons.Bold.GearSix,
+                routeIndex >= 0 && selected == 3,
+            ) { onSelect(Routes.SETTINGS) }
+            }
+        }
+
+        Spacer(Modifier.width(10.dp))
+
+        val searching = route == Routes.SEARCH
+        LiquidButton(
+            onClick = { onSelect(Routes.SEARCH) },
+            backdrop = backdrop,
+            tint = if (searching) MaterialTheme.colorScheme.primary else Color.Unspecified,
+            modifier = Modifier.size(64.dp),
+            contentHeight = 64.dp,
+            contentPadding = 0.dp,
+            // The same film the capsule beside it uses, or the round button
+            // reads as clearer glass than the bar it sits next to.
+        ) {
+            Icon(
+                imageVector = if (searching) PhosphorIcons.Fill.MagnifyingGlass else PhosphorIcons.Bold.MagnifyingGlass,
+                contentDescription = stringResource(R.string.search),
+                tint = Ink,
+                modifier = Modifier.size(24.dp),
+            )
+        }
+    }
+}
+
+/**
+ * Selected tabs switch to the filled icon as well as to ink.
+ *
+ * Weight carries the selection, not just colour: the difference between a
+ * filled and an outlined glyph survives at a glance and for anyone who cannot
+ * separate the two tints.
+ */
+@Composable
+private fun RowScope.BottomItem(
+    label: String,
+    filled: ImageVector,
+    outlined: ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    // Fixed ink rather than the artwork accent. Tinting the label after the
+    // playing track put an arbitrary colour on the one control that has to stay
+    // readable, and some of those colours have almost no contrast against the
+    // glass.
+    val tint = if (selected) Ink else Ink.copy(alpha = 0.62f)
+    // `LiquidBottomTab` rather than a Column of our own, and this is not
+    // cosmetic: it takes an equal share of the row, and the sliding indicator is
+    // positioned as `index * (barWidth / tabsCount)`. A tab sized by its own
+    // padding leaves the two disagreeing — labels packed to the left with the
+    // indicator sitting under empty space.
+    LiquidBottomTab(onClick = onClick) {
+        Icon(
+            imageVector = if (selected) filled else outlined,
+            contentDescription = label,
+            tint = tint,
+            modifier = Modifier.size(23.dp),
+        )
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = tint,
+            modifier = Modifier.padding(top = 3.dp),
+        )
+    }
+}
+
+/** What the player names the DJ's queue after. */
+private const val DJ_LABEL = "DJ"
+
+/** Loads the playlist and shows it, from whichever tab asked. */
+private fun NavHostController.openPlaylist(viewModel: MainViewModel, playlist: CatalogPlaylist) {
+    viewModel.openPlaylist(playlist)
+    if (currentDestination?.route != Routes.PLAYLIST) {
+        navigate(Routes.PLAYLIST) { launchSingleTop = true }
+    }
+}
+
+/**
+ * Switches tab without stacking destinations.
+ *
+ * Without popping back to the start, tapping between tabs would grow the back
+ * stack forever and the system back button would walk the entire history.
+ */
+/**
+ * What the player says the track is coming from: "Estate 2025".
+ *
+ * The name alone. The kind in front of it took the room a long name needs at
+ * the top of the player, and the name is what tells one list from another;
+ * the kind is what shows when there is no name to give.
+ */
+@Composable
+private fun MainViewModel.PlaylistState.sourceLabel(): String {
+    val kindName = stringResource(kind.label)
+    return name.ifBlank { kindName }
+}
+
+private fun NavHostController.switchTab(route: String) {
+    if (currentDestination?.route == route) return
+    navigate(route) {
+        // No `saveState`/`restoreState`, and that is the fix rather than a
+        // simplification. With them, leaving Home for a playlist saved the pair
+        // [home, playlist] under Home's id, and tapping Home restored exactly
+        // that — the playlist came straight back and the tab looked dead.
+        //
+        // Popping to the start destination without saving leaves Home on top
+        // and, for Library, one entry over it. What a tab loses is its scroll
+        // position, which is the right thing to lose when the tap means "take
+        // me back to this page".
+        popUpTo(Routes.HOME)
+        launchSingleTop = true
+    }
+}
+
+private fun Player.togglePlay() {
+    // playWhenReady, not isPlaying: a track that is still being fetched is not
+    // playing, so asking isPlaying made every tap during a load another play —
+    // the listener could tap five times and never stop it. This alternates from
+    // the first tap, and the last one wins.
+    if (playWhenReady) pause() else play()
+}
+
+/** off → all → one → off, the order every player uses. */
+private fun Player.cycleRepeatMode() {
+    repeatMode = when (repeatMode) {
+        Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+        Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+        else -> Player.REPEAT_MODE_OFF
+    }
+}
+
+/**
+ * The playing track as the last session left it, or null when there was none.
+ *
+ * The saved index points into the *current* order while the list is kept in the
+ * pre-shuffle one, so the permutation has to be applied to find the track that
+ * was actually playing.
+ */
+/**
+ * Asks GitHub for a newer release when the app opens, and says so if there is one.
+ *
+ * This used to be a button in the settings and nothing else, on the grounds
+ * that the check is a request made for the app's benefit rather than the
+ * user's. The trouble with that is who it leaves behind: an app no store can
+ * reach, whose owner never opens the settings, stays on the version it was
+ * installed with forever, security fixes and all. So it runs on its own now,
+ * with the cost kept small: at most one request every six hours, and one
+ * dialog per release, ever.
+ *
+ * Everything that can go wrong is silence. The check is not something the user
+ * asked for, so a failure is not something to tell them about.
+ */
+@Composable
+private fun UpdatePrompt(
+    backdrop: com.abhishek.ame.ui.glass.backdrop.Backdrop,
+    onOpenChange: (Boolean) -> Unit,
+) {
+    val context = LocalContext.current
+    val updater = remember(context) {
+        (context.applicationContext as com.abhishek.ame.AmeApplication).updater
+    }
+    val prefs = remember(context) { com.abhishek.ame.data.PreferencesStore(context) }
+    val scope = rememberCoroutineScope()
+    val state by updater.state.collectAsStateWithLifecycle()
+
+    LaunchedEffect(Unit) {
+        val now = System.currentTimeMillis()
+        if (now - prefs.lastUpdateCheck() < UPDATE_CHECK_INTERVAL_MS) return@LaunchedEffect
+        // Recorded before the call rather than after it: a phone with no
+        // network would otherwise ask again at every launch, which is the one
+        // shape of this that would be a nuisance.
+        prefs.setLastUpdateCheck(now)
+        runCatching { updater.check() }
+    }
+
+    // Held while the download runs: the state moves on from Available the
+    // moment the fetch starts, and the sheet has to stay to show it happening.
+    var offered by remember { mutableStateOf<Updater.State.Available?>(null) }
+    var dismissed by remember { mutableStateOf(false) }
+    (state as? Updater.State.Available)?.let { found ->
+        // Already offered, and turned down. The version is remembered rather
+        // than a flag, so the next release is news again.
+        if (found.version != prefs.skippedUpdate()) offered = found
+    }
+    val available = offered ?: return
+
+    // Held across the trip to the system settings, so granting the permission
+    // continues the install instead of dropping it.
+    var pending by remember { mutableStateOf<Updater.State.Available?>(null) }
+    val permission = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        val update = pending ?: return@rememberLauncherForActivityResult
+        pending = null
+        if (updater.canInstall()) updater.install(update)
+    }
+
+    val downloading = state is Updater.State.Downloading
+    val installing = state is Updater.State.Installing
+
+    // What the layer below is recorded for; see [sheetsOpen].
+    val showing = !dismissed && !installing
+    LaunchedEffect(showing) { onOpenChange(showing) }
+    DisposableEffect(Unit) { onDispose { onOpenChange(false) } }
+
+    UpdateSheet(
+        version = available.version,
+        size = available.bytes.takeIf { it > 0 }?.let { "%.1f MB".format(it / 1_000_000.0) },
+        notes = available.notes,
+        progress = (state as? Updater.State.Downloading)?.progress,
+        downloading = downloading,
+        onInstall = {
+            if (updater.canInstall()) {
+                updater.install(available)
+            } else {
+                pending = available
+                permission.launch(updater.permissionIntent())
+            }
+        },
+        onDismiss = {
+            prefs.setSkippedUpdate(available.version)
+            dismissed = true
+        },
+        backdrop = backdrop,
+        // Gone once the system installer has it: what happens next is Android's
+        // dialog, and two things asking about the same install is one too many.
+        visible = showing,
+    )
+}
+
+/** At most one check every six hours, however often the app is opened. */
+private const val UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
+
+private fun savedPlaybackSeed(context: android.content.Context): PlaybackState? {
+    val saved = com.abhishek.ame.data.PlaybackStore(context).load() ?: return null
+    val position = saved.shuffleOrder?.getOrNull(saved.index) ?: saved.index
+    val track = saved.tracks.getOrNull(position)?.takeIf { it.name.isNotBlank() } ?: return null
+    return PlaybackState(
+        hasItem = true,
+        mediaId = track.uri,
+        title = track.name,
+        artist = track.artist,
+        // The record too, and not only for the caption under the title: it is
+        // what the other catalogue is searched by. Left out, the first lookup of
+        // every cold start went to the search-by-song fallback and came back
+        // with whichever release ranked first — a single, or a compilation —
+        // which is why a song could open under a different cover each time the
+        // app was started.
+        album = track.album,
+        albumUri = track.albumUri,
+        artworkUrl = track.artworkUrl,
+        explicit = track.explicit,
+        durationMs = track.durationMs,
+        // Not "paused": what it is doing is unknown until the controller
+        // answers, and a play button that flips to pause a moment later reads
+        // as the app having ignored a tap.
+        isBuffering = true,
+    )
+}
+
+/**
+ * The search field, living in the bar.
+ *
+ * The circle the listener tapped grows into this, so it is focused as it
+ * arrives: whoever pressed the magnifier wants to type. The cross clears the
+ * field and appears only once there is something to clear.
+ */
+@Composable
+private fun BarSearchField(
+    query: String,
+    onQuery: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    /** The bar's own white, carrying the colour of the page behind it. */
+    ink: Color = Ink,
+) {
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+
+    // Held as a value with a selection, so a field that opens on words already
+    // typed puts the cursor after them, where the listener carries on typing;
+    // a plain string put it before the first letter. Kept in step with the
+    // query from outside, which the cross and a search from history change.
+    var field by remember {
+        mutableStateOf(
+            androidx.compose.ui.text.input.TextFieldValue(query, androidx.compose.ui.text.TextRange(query.length)),
+        )
+    }
+    LaunchedEffect(query) {
+        if (field.text != query) {
+            field = androidx.compose.ui.text.input.TextFieldValue(query, androidx.compose.ui.text.TextRange(query.length))
+        }
+    }
+
+    Row(
+        modifier.padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            PhosphorIcons.Bold.MagnifyingGlass,
+            contentDescription = null,
+            tint = ink.copy(alpha = 0.7f),
+            modifier = Modifier.size(20.dp),
+        )
+        BasicTextField(
+            value = field,
+            onValueChange = {
+                field = it
+                if (it.text != query) onQuery(it.text)
+            },
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = ink),
+            cursorBrush = androidx.compose.ui.graphics.SolidColor(ink),
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 12.dp)
+                .focusRequester(focus),
+            decorationBox = { field ->
+                if (query.isEmpty()) {
+                    Text(
+                        stringResource(R.string.search_placeholder),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = ink.copy(alpha = 0.5f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                field()
+            },
+        )
+        if (query.isNotEmpty()) {
+            Icon(
+                PhosphorIcons.Fill.XCircle,
+                contentDescription = stringResource(R.string.clear),
+                tint = Ink.copy(alpha = 0.55f),
+                modifier = Modifier
+                    .size(22.dp)
+                    .pressable(onClick = { onQuery("") }, pressedScale = 0.9f),
+            )
+        }
+    }
+}
+
+/**
+ * Waits for the song to be playing before fetching what surrounds it.
+ *
+ * Everything the player shows around a track — the Canvas clip above all, which
+ * is a video, plus the lyrics and the question of whether there is a music
+ * video — is worth having and worth nothing at all until the song is audible.
+ * Asked for the moment the track changes, they compete with the audio for the
+ * same connection, and on a slow one that is the difference between a song
+ * starting now and starting in three seconds.
+ *
+ * Bounded, because a track that never gets going must not hold them for ever:
+ * after this, they are fetched anyway.
+ */
+private suspend fun awaitAudible(
+    state: androidx.compose.runtime.State<com.abhishek.ame.ui.player.PlaybackState>,
+) {
+    kotlinx.coroutines.withTimeoutOrNull(AUDIBLE_TIMEOUT_MS) {
+        snapshotFlow { state.value.isBuffering }.first { !it }
+    }
+}
+
+/** How long the extras wait for the song; see [awaitAudible]. */
+private const val AUDIBLE_TIMEOUT_MS = 5_000L
+
+/** How long the player's glass takes to become the next song's colour. */
+private const val PLAYER_FILM_FADE_MS = 700

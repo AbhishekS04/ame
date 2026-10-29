@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="100%" height="100%" fill="none">
+  <defs>
+    <mask id="glyphCutouts">
+      <!-- Everything white in the mask stays visible; black is cut out -->
+      <rect width="1024" height="1024" fill="#ffffff" />
+
+      <!-- Headband top rim highlight groove cutout -->
+      <path d="M196,385 C235,230 355,132 495,126 C640,120 765,212 835,348" stroke="#000000" stroke-width="14" stroke-linecap="round" fill="none" />
+
+      <!-- Seam around Mascot Head & Forehead Tufts -->
+      <path d="M272,218
+               C308,242 355,252 418,246
+               C555,234 698,285 775,400
+               C845,505 860,645 805,750
+               C740,850 628,895 515,895
+               C435,895 375,875 340,852
+               C398,775 395,645 348,540
+               C318,478 275,456 236,464
+               C205,436 194,408 190,386
+               C230,382 272,374 305,366
+               C272,320 264,265 272,218 Z" stroke="#000000" stroke-width="18" stroke-linejoin="round" fill="none" />
+
+      <!-- Inner Tuft Crease Lines (Cutouts) -->
+      <path d="M305,366 C342,356 382,340 412,322" stroke="#000000" stroke-width="16" stroke-linecap="round" fill="none" />
+      <path d="M236,464 C268,460 302,468 332,485" stroke="#000000" stroke-width="16" stroke-linecap="round" fill="none" />
+
+      <!-- Left Eye Cutout (Tilted -16 deg) -->
+      <g transform="rotate(-16, 598, 588)">
+        <ellipse cx="598" cy="588" rx="53" ry="87" fill="#000000" />
+        <!-- Inner Eye Ring / Specular Glint restored in positive space -->
+        <ellipse cx="614" cy="544" rx="18" ry="32" transform="rotate(-4, 614, 544)" fill="#ffffff" />
+      </g>
+
+      <!-- Right Eye Cutout (Tilted -19 deg) -->
+      <g transform="rotate(-19, 738, 535)">
+        <ellipse cx="738" cy="535" rx="48" ry="85" fill="#000000" />
+        <!-- Specular Glint restored in positive space -->
+        <ellipse cx="752" cy="492" rx="16" ry="30" transform="rotate(-4, 752, 492)" fill="#ffffff" />
+      </g>
+
+      <!-- Left Earcup Hinge Seam -->
+      <path d="M102,490 L192,452" stroke="#000000" stroke-width="14" stroke-linecap="round" />
+      <path d="M104,522 C132,500 165,492 198,496" stroke="#000000" stroke-width="14" stroke-linecap="round" fill="none" />
+
+      <!-- Seam between Left Earcup White Shell and Black Cushion -->
+      <path d="M175,492 C248,518 308,630 308,758 C308,815 288,850 255,862" stroke="#000000" stroke-width="16" stroke-linecap="round" fill="none" />
+
+      <!-- Seam around Left Earcup Outer Inset Oval -->
+      <ellipse cx="134" cy="698" rx="68" ry="140" transform="rotate(-19.5, 134, 698)" stroke="#000000" stroke-width="16" fill="none" />
+
+      <!-- Glowing Vertical Pill Cutout inside Left Earcup -->
+      <g transform="rotate(-19.5, 130, 702)">
+        <rect x="115" y="638" width="30" height="128" rx="15" fill="#000000" />
+      </g>
+
+      <!-- Seam between Right Earcup Cushion and Outer Shell -->
+      <path d="M830,350 C902,418 942,575 908,705 C898,735 880,750 860,756" stroke="#000000" stroke-width="16" stroke-linecap="round" fill="none" />
+    </mask>
+  </defs>
+
+  <!-- SOLID #333333 MONOCHROME SILHOUETTE WITH NEGATIVE-SPACE CUTOUTS -->
+  <g mask="url(#glyphCutouts)" fill="#333333">
+    <!-- Headband Arch -->
+    <path d="M105,486
+             C122,310 245,128 475,104
+             C665,85 815,215 872,368
+             L755,360
+             C705,252 605,198 490,205
+             C365,212 270,285 252,388
+             L192,495 Z" />
+
+    <!-- Left Hinge Bracket -->
+    <path d="M104,485 L192,450 L198,505 L104,528 Z" />
+
+    <!-- Right Earcup (Cushion + Shell) -->
+    <path d="M740,348
+             C795,338 840,350 882,382
+             C948,432 982,565 955,668
+             C935,732 872,762 795,756
+             Z" />
+
+    <!-- Mascot Head Silhouette -->
+    <path d="M272,218
+             C308,242 355,252 418,246
+             C555,234 698,285 775,400
+             C845,505 860,645 805,750
+             C740,850 628,895 515,895
+             C435,895 375,875 340,852
+             C265,780 230,620 236,464
+             C205,436 194,408 190,386
+             C230,382 272,374 305,366
+             C272,320 264,265 272,218 Z" />
+
+    <!-- Left Earcup Cushion -->
+    <ellipse cx="292" cy="662" rx="92" ry="198" transform="rotate(-18.5, 292, 662)" />
+
+    <!-- Left Earcup Outer Shell & Inset -->
+    <ellipse cx="182" cy="682" rx="106" ry="182" transform="rotate(-19.5, 182, 682)" />
+    <ellipse cx="134" cy="698" rx="68" ry="140" transform="rotate(-19.5, 134, 698)" />
+  </g>
+</svg>

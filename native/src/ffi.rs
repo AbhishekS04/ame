@@ -1,0 +1,1044 @@
+//! Raw JNI exports for `com.abhishek.ame.nativecore.NativeBridge`.
+//!
+//! Every function follows the same contract: do the work, and on failure throw
+//! `java.lang.IllegalStateException` with the engine's error message. Kotlin
+//! therefore never has to check return codes.
+
+use crate::{catalog, dj, downloads, engine, recs, sink};
+use jni::objects::{JClass, JObject, JString};
+use jni::sys::{jboolean, jint, jlong, jstring, JNI_FALSE, JNI_TRUE};
+use jni::JNIEnv;
+
+const EXCEPTION: &str = "java/lang/IllegalStateException";
+
+/// Return a `String` result to Java, or throw and return null.
+///
+/// Null is only ever seen by the JVM while an exception is already pending, so
+/// Kotlin's non-null return types are not actually violated.
+fn string_or_throw(env: &mut JNIEnv, result: engine::EngineResult<String>) -> jstring {
+    match result.and_then(|value| {
+        env.new_string(value)
+            .map_err(|e| format!("could not allocate a Java string: {e}"))
+    }) {
+        Ok(s) => s.into_raw(),
+        Err(message) => {
+            let _ = env.throw_new(EXCEPTION, message);
+            JObject::null().into_raw() as jstring
+        }
+    }
+}
+
+/// Convert an engine result into either a value or a pending Java exception.
+///
+/// The returned `T` is meaningless once an exception is pending; callers return
+/// it anyway because the JVM discards the value as soon as it unwinds.
+fn or_throw<T: Default>(env: &mut JNIEnv, result: engine::EngineResult<T>) -> T {
+    match result {
+        Ok(value) => value,
+        Err(message) => {
+            let _ = env.throw_new(EXCEPTION, message);
+            T::default()
+        }
+    }
+}
+
+
+/// Runs `f`, turning a panic into a Java exception rather than an abort.
+///
+/// The Rust side owns audio decoding, the Connect state machine and a good deal
+/// of reverse-engineered parsing, and a panic in any of it used to end the
+/// process: the crash was a track change away and left nothing to read. A
+/// panic is still a bug, but it should cost the action, not the app.
+fn guard<T: Default>(
+    env: &mut JNIEnv,
+    what: &str,
+    f: impl FnOnce() -> engine::EngineResult<T>,
+) -> T {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(result) => or_throw(env, result),
+        Err(_) => {
+            // The payload is not logged: a panic message can carry whatever was
+            // being processed, and that is the user's listening.
+            log::error!("panic in {what}");
+            let _ = env.throw_new(EXCEPTION, format!("{what} failed"));
+            T::default()
+        }
+    }
+}
+
+/// [guard] for the calls that answer with a string.
+fn guard_string(
+    env: &mut JNIEnv,
+    what: &str,
+    f: impl FnOnce() -> engine::EngineResult<String>,
+) -> jstring {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(result) => string_or_throw(env, result),
+        Err(_) => {
+            log::error!("panic in {what}");
+            let _ = env.throw_new(EXCEPTION, format!("{what} failed"));
+            JObject::null().into_raw() as jstring
+        }
+    }
+}
+
+fn read_string(env: &mut JNIEnv, s: &JString) -> engine::EngineResult<String> {
+    env.get_string(s)
+        .map(|v| v.into())
+        .map_err(|e| format!("invalid string argument: {e}"))
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeInitContext(
+    mut env: JNIEnv,
+    _class: JClass,
+    context: JObject,
+) {
+    guard(&mut env, "InitContext", || engine::init_android_context(&context));
+}
+
+/// Register the Kotlin `AudioOutput` the sink writes PCM to.
+///
+/// Must be called before playback starts; without it the sink has nowhere to
+/// send audio and every write fails.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeSetAudioOutput(
+    mut env: JNIEnv,
+    _class: JClass,
+    output: JObject,
+) {
+    // Read outside the guard: these borrow `env`, and the guard borrows it too.
+    let output = env
+        .new_global_ref(&output)
+        .map_err(|e| format!("failed to pin the audio output: {e}"));
+    guard(&mut env, "SetAudioOutput", || output.map(sink::set_output));
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeStart(
+    mut env: JNIEnv,
+    _class: JClass,
+    client_id: JString,
+    device_name: JString,
+    device_id: JString,
+    access_token: JString,
+    credentials_dir: JString,
+    cache_dir: JString,
+    language: JString,
+    bitrate_kbps: jni::sys::jint,
+    crossfade_ms: jni::sys::jint,
+    listener: JObject,
+) {
+    // Every argument is read before the guard: reading borrows `env`, and so
+    // does the guard itself.
+    let arguments: engine::EngineResult<(
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        jni::objects::GlobalRef,
+    )> = (|| {
+        Ok((
+            read_string(&mut env, &client_id)?,
+            read_string(&mut env, &device_name)?,
+            read_string(&mut env, &device_id).unwrap_or_default(),
+            read_string(&mut env, &access_token)?,
+            read_string(&mut env, &credentials_dir)?,
+            read_string(&mut env, &cache_dir)?,
+            read_string(&mut env, &language).unwrap_or_default(),
+            env.new_global_ref(&listener)
+                .map_err(|e| format!("failed to pin listener: {e}"))?,
+        ))
+    })();
+
+    guard(&mut env, "Start", || {
+        let (
+            client_id,
+            device_name,
+            device_id,
+            access_token,
+            credentials_dir,
+            cache_dir,
+            language,
+            listener,
+        ) = arguments?;
+        engine::start(
+            &client_id,
+            &device_name,
+            &device_id,
+            &access_token,
+            &credentials_dir,
+            &cache_dir,
+            &language,
+            bitrate_kbps,
+            crossfade_ms,
+            listener,
+        )
+    });
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeLoadQueue(
+    mut env: JNIEnv,
+    _class: JClass,
+    uris_json: JString,
+    index: jint,
+    start_playing: jboolean,
+    position_ms: jint,
+    context_uri: JString,
+    play_as_context: jboolean,
+) {
+    // JSON rather than a jobjectArray: the Kotlin side already serialises track
+    // lists for the catalogue calls, and one decoder is easier to keep correct
+    // than two ways of crossing the same boundary.
+    let context = read_string(&mut env, &context_uri).unwrap_or_default();
+    let raw = match read_string(&mut env, &uris_json) {
+        Ok(value) => value,
+        Err(message) => {
+            let _ = env.throw_new(EXCEPTION, message);
+            return;
+        }
+    };
+    guard(&mut env, "LoadQueue", || {
+        serde_json::from_str::<Vec<String>>(&raw)
+            .map_err(|e| format!("bad queue: {e}"))
+            .and_then(|uris| {
+            engine::load_queue(
+                uris,
+                index.max(0) as u32,
+                start_playing == JNI_TRUE,
+                position_ms.max(0) as u32,
+                context,
+                play_as_context == JNI_TRUE,
+            )
+        })
+    });
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeNext(
+    mut env: JNIEnv,
+    _class: JClass,
+) {
+    guard(&mut env, "Next", || engine::next());
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativePrevious(
+    mut env: JNIEnv,
+    _class: JClass,
+) {
+    guard(&mut env, "Previous", || engine::previous());
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeSetShuffle(
+    mut env: JNIEnv,
+    _class: JClass,
+    shuffle: jboolean,
+) {
+    guard(&mut env, "SetShuffle", || engine::set_shuffle(shuffle == JNI_TRUE));
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeSetRepeat(
+    mut env: JNIEnv,
+    _class: JClass,
+    repeat_context: jboolean,
+    repeat_track: jboolean,
+) {
+    guard(&mut env, "SetRepeat", || engine::set_repeat(repeat_context == JNI_TRUE, repeat_track == JNI_TRUE));
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativePlay(
+    mut env: JNIEnv,
+    _class: JClass,
+) {
+    guard(&mut env, "Play", || engine::play());
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativePause(
+    mut env: JNIEnv,
+    _class: JClass,
+) {
+    guard(&mut env, "Pause", || engine::pause());
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeStop(
+    mut env: JNIEnv,
+    _class: JClass,
+) {
+    guard(&mut env, "Stop", || engine::stop());
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeSeek(
+    mut env: JNIEnv,
+    _class: JClass,
+    position_ms: jlong,
+) {
+    guard(&mut env, "Seek", || engine::seek(position_ms.clamp(0, u32::MAX as jlong) as u32));
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeSetVolume(
+    mut env: JNIEnv,
+    _class: JClass,
+    volume: jint,
+) {
+    guard(&mut env, "SetVolume", || engine::set_volume(volume.clamp(0, u16::MAX as jint) as u16));
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeVolume(
+    mut env: JNIEnv,
+    _class: JClass,
+) -> jint {
+    guard(&mut env, "Volume", || engine::volume().map(|v| v as jint))
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeIsConnected(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jboolean {
+    if engine::is_connected() {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
+}
+
+// --- Catalogue lookups, all over the access point rather than the Web API ---
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeUsername(
+    mut env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    guard_string(&mut env, "Username", || catalog::username())
+
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeCollectionUri(
+    mut env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    guard_string(&mut env, "CollectionUri", || catalog::collection_uri())
+
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeRootlist(
+    mut env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    guard_string(&mut env, "Rootlist", || catalog::rootlist())
+
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeContextTracks(
+    mut env: JNIEnv,
+    _class: JClass,
+    uri: JString,
+) -> jstring {
+    let uri = match read_string(&mut env, &uri) {
+        Ok(value) => value,
+        Err(message) => {
+            let _ = env.throw_new(EXCEPTION, message);
+            return JObject::null().into_raw() as jstring;
+        }
+    };
+    guard_string(&mut env, "ContextTracks", || catalog::context_tracks(&uri))
+
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeAccessToken(
+    mut env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    guard_string(&mut env, "AccessToken", catalog::access_token)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeTrackVideo(
+    mut env: JNIEnv,
+    _class: JClass,
+    uri: JString,
+) -> jstring {
+    let uri = match read_string(&mut env, &uri) {
+        Ok(value) => value,
+        Err(message) => {
+            let _ = env.throw_new(EXCEPTION, message);
+            return JObject::null().into_raw() as jstring;
+        }
+    };
+    guard_string(&mut env, "TrackVideo", || catalog::track_video(&uri))
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeFriendActivity(
+    mut env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    guard_string(&mut env, "FriendActivity", catalog::friend_activity)
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativePlaylistName(
+    mut env: JNIEnv,
+    _class: JClass,
+    uri: JString,
+) -> jstring {
+    let uri = match read_string(&mut env, &uri) {
+        Ok(value) => value,
+        Err(message) => {
+            let _ = env.throw_new(EXCEPTION, message);
+            return JObject::null().into_raw() as jstring;
+        }
+    };
+    guard_string(&mut env, "PlaylistName", || catalog::playlist_name(&uri))
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeAddToPlaylist(
+    mut env: JNIEnv,
+    _class: JClass,
+    playlist: JString,
+    item: JString,
+) {
+    let (playlist, item) = match (read_string(&mut env, &playlist), read_string(&mut env, &item)) {
+        (Ok(playlist), Ok(item)) => (playlist, item),
+        (Err(message), _) | (_, Err(message)) => {
+            let _ = env.throw_new(EXCEPTION, message);
+            return;
+        }
+    };
+    guard(&mut env, "AddToPlaylist", || catalog::add_to_playlist(&playlist, &item));
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeRemoveFromPlaylist(
+    mut env: JNIEnv,
+    _class: JClass,
+    playlist: JString,
+    item: JString,
+) {
+    let (playlist, item) = match (read_string(&mut env, &playlist), read_string(&mut env, &item)) {
+        (Ok(playlist), Ok(item)) => (playlist, item),
+        (Err(message), _) | (_, Err(message)) => {
+            let _ = env.throw_new(EXCEPTION, message);
+            return;
+        }
+    };
+    guard(&mut env, "RemoveFromPlaylist", || catalog::remove_from_playlist(&playlist, &item));
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativePlaylistMine(
+    mut env: JNIEnv,
+    _class: JClass,
+    uri: JString,
+) -> jstring {
+    let uri = match read_string(&mut env, &uri) {
+        Ok(value) => value,
+        Err(message) => {
+            let _ = env.throw_new(EXCEPTION, message);
+            return JObject::null().into_raw() as jstring;
+        }
+    };
+    guard_string(&mut env, "PlaylistMine", || catalog::playlist_mine(&uri))
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativePlaylistCover(
+    mut env: JNIEnv,
+    _class: JClass,
+    uri: JString,
+) -> jstring {
+    let uri = match read_string(&mut env, &uri) {
+        Ok(value) => value,
+        Err(message) => {
+            let _ = env.throw_new(EXCEPTION, message);
+            return JObject::null().into_raw() as jstring;
+        }
+    };
+    guard_string(&mut env, "PlaylistCover", || catalog::playlist_cover(&uri))
+
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeCanvas(
+    mut env: JNIEnv,
+    _class: JClass,
+    track_uri: JString,
+) -> jstring {
+    let uri = match read_string(&mut env, &track_uri) {
+        Ok(value) => value,
+        Err(message) => {
+            let _ = env.throw_new(EXCEPTION, message);
+            return JObject::null().into_raw() as jstring;
+        }
+    };
+    guard_string(&mut env, "Canvas", || catalog::canvas(&uri))
+
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeLyrics(
+    mut env: JNIEnv,
+    _class: JClass,
+    track_uri: JString,
+) -> jstring {
+    let uri = match read_string(&mut env, &track_uri) {
+        Ok(value) => value,
+        Err(message) => {
+            let _ = env.throw_new(EXCEPTION, message);
+            return JObject::null().into_raw() as jstring;
+        }
+    };
+    guard_string(&mut env, "Lyrics", || catalog::lyrics(&uri))
+
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeTrackRelatives(
+    mut env: JNIEnv,
+    _class: JClass,
+    track_uri: JString,
+) -> jstring {
+    let uri = match read_string(&mut env, &track_uri) {
+        Ok(value) => value,
+        Err(message) => {
+            let _ = env.throw_new(EXCEPTION, message);
+            return JObject::null().into_raw() as jstring;
+        }
+    };
+    guard_string(&mut env, "TrackRelatives", || catalog::track_relatives(&uri))
+
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeTracksMetadata(
+    mut env: JNIEnv,
+    _class: JClass,
+    uris_json: JString,
+) -> jstring {
+    let json = match read_string(&mut env, &uris_json) {
+        Ok(value) => value,
+        Err(message) => {
+            let _ = env.throw_new(EXCEPTION, message);
+            return JObject::null().into_raw() as jstring;
+        }
+    };
+    guard_string(&mut env, "TracksMetadata", || catalog::tracks_metadata(&json))
+
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeSpircLost(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jboolean {
+    engine::spirc_lost() as jboolean
+}
+
+/// Rebuilds the player with a new bitrate and crossfade.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeSetQuality(
+    mut env: JNIEnv,
+    _class: JClass,
+    bitrate_kbps: jint,
+    crossfade_ms: jint,
+) {
+    guard(&mut env, "SetQuality", || {
+        engine::set_quality(bitrate_kbps, crossfade_ms)
+    });
+}
+
+/// Changes the quality asked for from the next track on, with no rebuild.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeSetBitrate(
+    mut env: JNIEnv,
+    _class: JClass,
+    bitrate_kbps: jint,
+) {
+    guard(&mut env, "SetBitrate", || engine::set_bitrate(bitrate_kbps));
+}
+
+/// Changes whether silence trimming is enabled, with no rebuild.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeSetTrimSilence(
+    mut env: JNIEnv,
+    _class: JClass,
+    enabled: jboolean,
+) {
+    guard(&mut env, "SetTrimSilence", || {
+        engine::set_trim_silence(enabled != 0)
+    });
+}
+
+/// The language Spotify answers in; see engine::set_language.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeSetLanguage(
+    mut env: JNIEnv,
+    _class: JClass,
+    language: JString,
+    rebuild: jint,
+) {
+    let language = match env.get_string(&language) {
+        Ok(value) => String::from(value),
+        Err(_) => return,
+    };
+    guard(&mut env, "SetLanguage", || {
+        engine::set_language(&language, rebuild != 0)
+    });
+}
+
+/// Holds the end of the playing track for the sleep timer, with no rebuild.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeSetSkipFade(
+    mut env: JNIEnv,
+    _class: JClass,
+    ms: jint,
+) {
+    guard(&mut env, "SetSkipFade", || {
+        engine::set_skip_fade(ms.max(0) as u32)
+    });
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeSetHoldEnd(
+    mut env: JNIEnv,
+    _class: JClass,
+    enabled: jboolean,
+) {
+    guard(&mut env, "SetHoldEnd", || engine::set_hold_end(enabled != 0));
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeSetLocalFiles(
+    mut env: JNIEnv,
+    _class: JClass,
+    json: JString,
+) {
+    let json = match env.get_string(&json) {
+        Ok(value) => String::from(value),
+        Err(_) => return,
+    };
+    guard(&mut env, "SetLocalFiles", || engine::set_local_files(&json));
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeSetSleepTimer(
+    mut env: JNIEnv,
+    _class: JClass,
+    value: jlong,
+) {
+    guard(&mut env, "SetSleepTimer", || engine::set_sleep_timer(value));
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeReconnect(
+    mut env: JNIEnv,
+    _class: JClass,
+) {
+    guard(&mut env, "Reconnect", engine::reconnect);
+}
+
+/// Whether the account is playing on a device that is not this one.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativePlaybackElsewhere(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jboolean {
+    engine::elsewhere_active() as jboolean
+}
+
+/// Republishes the queue as its real context, before handing playback over.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativePublishContext(
+    mut env: JNIEnv,
+    _class: JClass,
+    position_ms: jint,
+) -> jboolean {
+    guard(&mut env, "PublishContext", || {
+        engine::publish_context(position_ms.max(0) as u32)
+    }) as jboolean
+}
+
+/// Starts playing here what another device was playing.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeResumeHere(
+    mut env: JNIEnv,
+    _class: JClass,
+    context_uri: JString,
+    track_uri: JString,
+    position_ms: jint,
+) {
+    let context = read_string(&mut env, &context_uri).unwrap_or_default();
+    let track = read_string(&mut env, &track_uri);
+    guard(&mut env, "ResumeHere", || {
+        engine::resume_here(&context, &track?, position_ms.max(0) as u32)
+    });
+}
+
+/// Takes the account's playback for this device.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeTakeOver(
+    mut env: JNIEnv,
+    _class: JClass,
+) {
+    guard(&mut env, "TakeOver", engine::take_over);
+}
+
+/// The account's personalised home, as raw JSON from Spotify's gateway.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeHomeFeed(
+    mut env: JNIEnv,
+    _class: JClass,
+    time_zone: JString,
+    language: JString,
+    hash: JString,
+    app_version: JString,
+) -> jstring {
+    let zone = read_string(&mut env, &time_zone).unwrap_or_default();
+    let language = read_string(&mut env, &language).unwrap_or_default();
+    let hash = read_string(&mut env, &hash).unwrap_or_default();
+    let app_version = read_string(&mut env, &app_version).unwrap_or_default();
+    guard_string(&mut env, "HomeFeed", || {
+        crate::pathfinder::home(&zone, &language, &hash, &app_version)
+    })
+}
+
+/// Any of the gateway's persisted queries, by name and hash; raw JSON back.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeGatewayQuery(
+    mut env: JNIEnv,
+    _class: JClass,
+    operation: JString,
+    hash: JString,
+    variables: JString,
+    language: JString,
+    app_version: JString,
+) -> jstring {
+    let operation = read_string(&mut env, &operation).unwrap_or_default();
+    let hash = read_string(&mut env, &hash).unwrap_or_default();
+    let variables = read_string(&mut env, &variables).unwrap_or_default();
+    let language = read_string(&mut env, &language).unwrap_or_default();
+    let app_version = read_string(&mut env, &app_version).unwrap_or_default();
+    guard_string(&mut env, "GatewayQuery", || {
+        crate::pathfinder::gateway(&operation, &hash, &variables, &language, &app_version)
+    })
+}
+
+/// The account's saved tracks, as raw JSON from Spotify's gateway.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeLikedSongs(
+    mut env: JNIEnv,
+    _class: JClass,
+    variables: JString,
+    language: JString,
+    hash: JString,
+    app_version: JString,
+) -> jstring {
+    let variables = read_string(&mut env, &variables).unwrap_or_default();
+    let language = read_string(&mut env, &language).unwrap_or_default();
+    let hash = read_string(&mut env, &hash).unwrap_or_default();
+    let app_version = read_string(&mut env, &app_version).unwrap_or_default();
+    guard_string(&mut env, "LikedSongs", || {
+        crate::pathfinder::liked_songs(&variables, &language, &hash, &app_version)
+    })
+}
+
+/// This device's own Connect id.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeDeviceId(
+    mut env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    guard_string(&mut env, "DeviceId", crate::remote::device_id)
+}
+
+/// A new running order for the queue already loaded; see `engine::set_queue_order`.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeSetQueueOrder(
+    mut env: JNIEnv,
+    _class: JClass,
+    uris_json: JString,
+    index: jint,
+) {
+    // JSON, like the load above and for the same reason.
+    let raw = match read_string(&mut env, &uris_json) {
+        Ok(value) => value,
+        Err(message) => {
+            let _ = env.throw_new(EXCEPTION, message);
+            return;
+        }
+    };
+    guard(&mut env, "SetQueueOrder", || {
+        serde_json::from_str::<Vec<String>>(&raw)
+            .map_err(|e| format!("bad queue: {e}"))
+            .and_then(|uris| engine::set_queue_order(uris, index.max(0) as u32))
+    });
+}
+
+/// What this device itself is playing, straight from its Connect state.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativePlayingHere(
+    mut env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    guard_string(&mut env, "PlayingHere", engine::playing_here)
+}
+
+/// What the account is playing, wherever it is playing it.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeRemoteState(
+    mut env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    guard_string(&mut env, "RemoteState", || Ok(crate::remote::state_json()))
+}
+
+/// Every Connect device the account can see, this one included.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeRemoteDevices(
+    mut env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    guard_string(&mut env, "RemoteDevices", || {
+        Ok(crate::remote::devices_json())
+    })
+}
+
+/// Sends one command, as Spotify's own clients word it, to another device.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeRemoteCommand(
+    mut env: JNIEnv,
+    _class: JClass,
+    device_id: JString,
+    body: JString,
+) {
+    let device_id = read_string(&mut env, &device_id);
+    let body = read_string(&mut env, &body);
+    guard(&mut env, "RemoteCommand", || {
+        crate::remote::command(&device_id?, body?)
+    });
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeRemoteVolume(
+    mut env: JNIEnv,
+    _class: JClass,
+    device_id: JString,
+    volume: jint,
+) {
+    let device_id = read_string(&mut env, &device_id);
+    guard(&mut env, "RemoteVolume", || {
+        crate::remote::set_volume(&device_id?, volume.clamp(0, u16::MAX as i32) as u16)
+    });
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeShutdown(
+    _env: JNIEnv,
+    _class: JClass,
+) {
+    let _ = std::panic::catch_unwind(engine::shutdown);
+}
+
+/// True when the engine came up with no connection and is running on the
+/// downloads alone; see `engine::is_offline`.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeIsOffline(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jboolean {
+    if engine::is_offline() { JNI_TRUE } else { JNI_FALSE }
+}
+
+/// Whether the player may only use what is on the phone; see
+/// `engine::set_offline_only`.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeSetOfflineOnly(
+    _env: JNIEnv,
+    _class: JClass,
+    only: jboolean,
+) {
+    engine::set_offline_only(only == JNI_TRUE);
+}
+
+// --------------------------------------------------------------- downloads
+
+/// Where downloads are kept. Called before anything is downloaded, and again
+/// if the listener moves the store to a memory card.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeSetDownloadRoot(
+    mut env: JNIEnv,
+    _class: JClass,
+    path: JString,
+) {
+    let path = read_string(&mut env, &path);
+    guard(&mut env, "SetDownloadRoot", || downloads::set_root(&path?));
+}
+
+/// Downloads one track and answers with the sidecar that was written.
+///
+/// Blocks for as long as the download takes, which is why the Kotlin side calls
+/// it from the download queue's own worker rather than from anything the
+/// listener is waiting on.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeDownloadTrack(
+    mut env: JNIEnv,
+    _class: JClass,
+    track_uri: JString,
+    bitrate_kbps: jint,
+) -> jstring {
+    let uri = match read_string(&mut env, &track_uri) {
+        Ok(value) => value,
+        Err(message) => {
+            let _ = env.throw_new(EXCEPTION, message);
+            return JObject::null().into_raw() as jstring;
+        }
+    };
+    guard_string(&mut env, "DownloadTrack", || {
+        downloads::download_track(&uri, bitrate_kbps)
+    })
+}
+
+/// The sidecar of a downloaded track as JSON, or `null` if it is not here.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeDownloadState(
+    mut env: JNIEnv,
+    _class: JClass,
+    track_uri: JString,
+) -> jstring {
+    let uri = match read_string(&mut env, &track_uri) {
+        Ok(value) => value,
+        Err(message) => {
+            let _ = env.throw_new(EXCEPTION, message);
+            return JObject::null().into_raw() as jstring;
+        }
+    };
+    guard_string(&mut env, "DownloadState", || downloads::stored(&uri))
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeRemoveDownload(
+    mut env: JNIEnv,
+    _class: JClass,
+    track_uri: JString,
+) {
+    let uri = read_string(&mut env, &track_uri);
+    guard(&mut env, "RemoveDownload", || downloads::remove_track(&uri?));
+}
+
+/// Asks a download in progress to stop at the end of its current chunk.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeCancelDownload(
+    mut env: JNIEnv,
+    _class: JClass,
+    track_uri: JString,
+) {
+    let uri = read_string(&mut env, &track_uri);
+    guard(&mut env, "CancelDownload", || downloads::cancel(&uri?));
+}
+
+/// One page of the DJ's session; see dj::session.
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeDjSession(
+    mut env: JNIEnv,
+    _class: JClass,
+    page: JString,
+    language: JString,
+    app_version: JString,
+) -> jstring {
+    let page = read_string(&mut env, &page).unwrap_or_default();
+    let language = read_string(&mut env, &language).unwrap_or_default();
+    let app_version = read_string(&mut env, &app_version).unwrap_or_default();
+    guard_string(&mut env, "DjSession", || dj::session(&page, &language, &app_version))
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeDjSetActive(
+    mut env: JNIEnv,
+    _class: JClass,
+    on: jboolean,
+) {
+    guard(&mut env, "DjSetActive", || {
+        dj::set_active(on != 0);
+        Ok(())
+    });
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeDjJumped(
+    mut env: JNIEnv,
+    _class: JClass,
+    uri: JString,
+) {
+    let Ok(uri) = read_string(&mut env, &uri) else { return };
+    guard(&mut env, "DjJumped", || {
+        dj::jumped(&uri);
+        Ok(())
+    });
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeDjAwaitOpening(
+    mut env: JNIEnv,
+    _class: JClass,
+    uri: JString,
+    timeout_ms: jlong,
+) -> jboolean {
+    let Ok(uri) = read_string(&mut env, &uri) else { return JNI_FALSE };
+    if dj::await_opening(&uri, timeout_ms.max(0) as u64) { JNI_TRUE } else { JNI_FALSE }
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeDjPrepare(
+    mut env: JNIEnv,
+    _class: JClass,
+    uris_json: JString,
+) {
+    let Ok(json) = read_string(&mut env, &uris_json) else { return };
+    let uris: Vec<String> = serde_json::from_str(&json).unwrap_or_default();
+    guard(&mut env, "DjPrepare", || dj::prepare(&uris));
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_abhishek_ame_nativecore_NativeBridge_nativeRankCandidates(
+    mut env: JNIEnv,
+    _class: JClass,
+    candidates_json: JString,
+    history_json: JString,
+    liked_uris_json: JString,
+    context_json: JString,
+) -> jstring {
+    let Ok(candidates) = read_string(&mut env, &candidates_json) else {
+        return JObject::null().into_raw() as jstring;
+    };
+    let Ok(history) = read_string(&mut env, &history_json) else {
+        return JObject::null().into_raw() as jstring;
+    };
+    let Ok(liked) = read_string(&mut env, &liked_uris_json) else {
+        return JObject::null().into_raw() as jstring;
+    };
+    let Ok(context) = read_string(&mut env, &context_json) else {
+        return JObject::null().into_raw() as jstring;
+    };
+
+    let result = recs::rank_candidates(&candidates, &history, &liked, &context);
+    string_or_throw(&mut env, result)
+}
+

@@ -1,0 +1,509 @@
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URI
+import java.util.Properties
+import org.gradle.api.DefaultTask
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.TaskAction
+
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
+}
+
+/** Checks release signing inputs without capturing the build script in a task action. */
+abstract class VerifyReleaseSigningTask : DefaultTask() {
+    @get:Input
+    abstract val signingPropertiesComplete: Property<Boolean>
+
+    @get:Input
+    abstract val keystorePath: Property<String>
+
+    @TaskAction
+    fun verify() {
+        check(signingPropertiesComplete.get() && File(keystorePath.get()).isFile) {
+            "Production release signing is unavailable. Configure keystore.properties and the referenced keystore before building a release."
+        }
+    }
+}
+
+/**
+ * ABIs to build the native core for.
+ *
+ * arm64 covers every phone made in the last decade, and each extra ABI is a full
+ * extra Rust build (~2 min from cold), so the default is deliberately just the
+ * one. Add "x86_64" for the emulator and "armeabi-v7a" for pre-2015 hardware.
+ */
+val nativeAbis = listOf("arm64-v8a", "armeabi-v7a")
+
+/** NDK used for both AGP and the Cargo cross-build; keep the two in step. */
+val ndkVersionForCargo = "28.2.13676358"
+
+/** Maps Android ABI names to Rust target triples. */
+val rustTargets = mapOf(
+    "arm64-v8a" to "aarch64-linux-android",
+    "armeabi-v7a" to "armv7-linux-androideabi",
+    "x86_64" to "x86_64-linux-android",
+)
+
+/**
+ * The release signing details, when there are any.
+ *
+ * Kept in `keystore.properties` beside the project and never committed: a
+ * keystore in a repository is a keystore anyone can sign as you with. When the
+ * file is absent — a fresh clone, or anyone building this who is not its
+ * author — production release tasks fail instead of falling back to the
+ * well-known debug key. The local dev build may still use that key for testing.
+ */
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use(::load)
+}
+
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use(::load)
+}
+val requiredSigningProperties = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+val releaseSigningReady = requiredSigningProperties.all { !keystoreProperties.getProperty(it).isNullOrBlank() } &&
+    rootProject.file(keystoreProperties.getProperty("storeFile").orEmpty()).isFile
+val supabaseUrl = localProperties.getProperty("supabase.url")
+    ?: "https://kasxrvmzbvdtiubcufch.supabase.co"
+val supabaseAnonKey = localProperties.getProperty("supabase.anon.key")
+    ?: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imthc3hydm16YnZkdGl1YmN1ZmNoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI4NjM1MTEsImV4cCI6MjEwODQzOTUxMX0.ly_1mzOOs-aIuKavt06K4gG8oJJlb2SY6up0GhbET0I"
+
+android {
+    namespace = "com.abhishek.ame"
+    compileSdk = 37
+    ndkVersion = ndkVersionForCargo
+
+    defaultConfig {
+        applicationId = "com.abhishek.ame"
+        // cpal's Android host is AAudio, which the ndk crate gates at API 26.
+        minSdk = 26
+        targetSdk = 35
+        versionCode = 16
+        versionName = "1.2.0-beta.1"
+        buildConfigField("boolean", "VERBOSE_LOG", "false")
+        buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
+
+        // Bungee only for the ABIs that ship; see the splits below.
+        externalNativeBuild {
+            cmake {
+                abiFilters += nativeAbis
+            }
+        }
+    }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+
+    // One APK per ABI, and a universal one for whoever does not know which
+    // their phone is. The split sets the ABIs, so the NDK filter it would
+    // conflict with is not set; CMake is told the same list, or it would build
+    // Bungee for ABIs nothing ships.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include(*nativeAbis.toTypedArray())
+            isUniversalApk = true
+        }
+    }
+
+    signingConfigs {
+        if (releaseSigningReady) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+                enableV4Signing = true
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            isMinifyEnabled = false
+        }
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Release builds are guarded by verifyReleaseSigning below and must
+            // never silently fall back to the well-known debug certificate.
+            signingConfig = signingConfigs.findByName("release")
+        }
+
+        /**
+         * What to build while working on the app.
+         *
+         * A profile of a one-line-change build: R8 3m43s of a 4m12s total, then
+         * lint-vital at 50s and the Compose mapping at 32s. Compiling the actual
+         * Kotlin was ten seconds. Shrinking a build that is going straight onto
+         * a test phone buys nothing and costs almost the entire wall clock.
+         *
+         * Not `debug`, though — a debuggable build turns off the ART optimiser
+         * and leaves Compose's own debug instrumentation in, so scrolling and
+         * animation measure far worse than they really are, which is the thing
+         * this app is mostly being judged on. This is release without the
+         * shrinker: same runtime behaviour, none of the wait.
+         *
+         * Verify on `release` before shipping — R8 is also what would surface a
+         * missing keep rule (reflection over the Retrofit and serialization
+         * models above all), and that failure only ever appears in a minified
+         * build.
+         */
+        create("dev") {
+            initWith(getByName("release"))
+            isMinifyEnabled = false
+            isShrinkResources = false
+            // This build type is release-shaped, so BuildConfig.DEBUG is false
+            // here and anything gated on it stays off — including the log the
+            // vendored InnerTube module writes through Timber, which is the
+            // only view there is of a page that came back in the wrong shape.
+            buildConfigField("boolean", "VERBOSE_LOG", "true")
+            // The real key when there is one: a build signed with a different
+            // key than the copy already on the phone cannot replace it, and
+            // uninstalling first would take the login and the saved queue with
+            // it every time.
+            signingConfig = signingConfigs.findByName("release")
+                ?: signingConfigs.getByName("debug")
+        }
+    }
+
+    lint {
+        // Runs on demand (`./gradlew lint`) rather than inside every release
+        // build. It is 50 seconds of a build whose output is a local test
+        // install, and it has never been the thing that caught a problem here.
+        checkReleaseBuilds = false
+        baseline = file("lint-baseline.xml")
+    }
+
+    compileOptions {
+        // Required by the vendored :innertube module, which reads java.time.
+        isCoreLibraryDesugaringEnabled = true
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        }
+    }
+
+    buildFeatures {
+        compose = true
+        // Off by default since AGP 8; AmeApplication reads BuildConfig.DEBUG.
+        buildConfig = true
+    }
+
+    // Bungee and its JNI wrapper. The Rust core is not built here — it is
+    // cross-compiled by the cargoBuild task and dropped into jniLibs.
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+        }
+    }
+
+    sourceSets["main"].jniLibs.srcDirs("src/main/jniLibs")
+
+    packaging {
+        // The Rust cdylib is already stripped by the release profile; letting
+        // Gradle re-strip it with the wrong tool breaks the arm64 build.
+        jniLibs.keepDebugSymbols += "**/libamecore.so"
+        // The universal APK would otherwise carry the x86 builds some
+        // dependencies ship, without the Rust core: installable on an x86
+        // device, and closing at once there.
+        jniLibs.excludes += listOf("lib/x86/**", "lib/x86_64/**")
+    }
+}
+
+/**
+ * Prevents a production release from being built with a missing or incomplete
+ * signing setup. The dev build intentionally keeps its debug fallback for
+ * local development; only release-shaped distribution tasks are guarded.
+ */
+val verifyReleaseSigning = tasks.register<VerifyReleaseSigningTask>("verifyReleaseSigning") {
+    signingPropertiesComplete.set(releaseSigningReady)
+    keystorePath.set(
+        rootProject.file(
+            keystoreProperties.getProperty("storeFile").orEmpty().ifBlank { ".missing-release-keystore" },
+        ).absolutePath,
+    )
+}
+
+tasks.configureEach {
+    if (name != verifyReleaseSigning.name && name.contains("Release")) {
+        dependsOn(verifyReleaseSigning)
+    }
+}
+
+dependencies {
+    testImplementation("junit:junit:4.13.2")
+    // The real org.json for the JVM tests: android.jar carries only stubs.
+    testImplementation("org.json:json:20240303")
+    implementation(libs.timber)
+    implementation(libs.androidx.core.ktx)
+    // Installs baseline-prof.txt on first run, so the code the bar and the
+    // player use is compiled before it is needed rather than while it runs.
+    implementation(libs.androidx.profileinstaller)
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.browser)
+    // An isolated JavaScript engine, no page around it: runs the challenge
+    // solver YouTube's signed-in streams need; see PlayerChallenges.
+    implementation(libs.androidx.javascriptengine)
+    implementation(libs.reorderable)
+    implementation(libs.androidx.security.crypto)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+
+    implementation(platform(libs.compose.bom))
+    implementation(libs.compose.ui)
+    implementation(libs.compose.material3)
+    implementation(libs.compose.icons.extended)
+    implementation(libs.compose.ui.tooling.preview)
+    debugImplementation(libs.compose.ui.tooling)
+
+    implementation(libs.media3.common)
+    implementation(libs.media3.datasource)
+    implementation(libs.media3.database)
+    implementation(libs.media3.session)
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.ffmpeg.decoder)
+    // DASH, for Spotify's own video: its manifest is a set of segment
+    // templates, which is what a DASH source is built to walk.
+    implementation(libs.media3.exoplayer.dash)
+    // Apple's animated covers are HLS; see AppleCatalog and MotionCover.
+    implementation(libs.media3.exoplayer.hls)
+    implementation(libs.media3.ui)
+
+    implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.coroutines.guava)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.okhttp)
+    implementation(libs.okhttp.logging)
+    implementation(libs.retrofit)
+    implementation(libs.retrofit.serialization)
+    implementation(libs.newpipe.extractor)
+    implementation(project(":innertube"))
+    implementation(libs.coil.compose)
+    implementation(libs.androidx.palette)
+    implementation(libs.androidx.navigation.compose)
+    implementation(libs.backdrop)
+    implementation(libs.kyant.shapes)
+    implementation(libs.phosphor)
+
+    implementation(platform(libs.supabase.bom))
+    implementation(libs.supabase.postgrest)
+    implementation(libs.supabase.storage)
+    implementation(libs.supabase.realtime)
+
+    coreLibraryDesugaring(libs.desugaring)
+}
+
+/** Pinned so a build is not at the mercy of upstream's next commit. */
+val bungeeTag = "v2.4.24"
+
+/**
+ * Clones Bungee, the time-stretching library behind the speed and pitch
+ * controls.
+ *
+ * Fetched rather than vendored: Bungee is MPL-2.0, and keeping the licensed
+ * sources exactly as upstream published them — pinned to a tag, never edited —
+ * keeps the obligation simple. The build only compiles them; the patched copy
+ * of librespot under native/vendor is vendored precisely because it *is*
+ * modified, and that difference is the reason for treating the two differently.
+ */
+val fetchBungee by tasks.registering {
+    group = "build"
+    description = "Clones the Bungee time-stretch library if it is not present"
+
+    // Everything is resolved here rather than inside the action: a task action
+    // that touches the build script gets captured with it, which the
+    // configuration cache refuses to serialize.
+    val target = rootProject.file("native-dsp/bungee")
+    val marker = target.resolve("bungee/Bungee.h")
+    val eigenMarker = target.resolve("submodules/eigen/Eigen/Core")
+    val tag = bungeeTag
+    outputs.dir(target)
+
+    doLast {
+        if (marker.exists() && eigenMarker.exists()) return@doLast
+
+        // 1. Clone Bungee core repository if not already present
+        if (!marker.exists()) {
+            target.deleteRecursively()
+            target.parentFile.mkdirs()
+
+            var cloneSuccess = false
+            var cloneOutput = ""
+            var cloneExit = -1
+            for (attempt in 1..3) {
+                val process = ProcessBuilder(
+                    "git", "clone",
+                    "--depth", "1",
+                    "--branch", tag,
+                    "https://github.com/bungee-audio-stretch/bungee.git",
+                    target.absolutePath,
+                ).redirectErrorStream(true).start()
+
+                cloneOutput = process.inputStream.bufferedReader().readText()
+                cloneExit = process.waitFor()
+                if (cloneExit == 0 && marker.exists()) {
+                    cloneSuccess = true
+                    break
+                }
+                logger.warn("Bungee core clone attempt $attempt failed ($cloneExit): $cloneOutput")
+                Thread.sleep(2000L * attempt)
+            }
+            check(cloneSuccess && marker.exists()) {
+                "could not clone Bungee $tag into $target (exit $cloneExit): $cloneOutput"
+            }
+        }
+
+        // 2. Initialize fast submodules (cxxopts from GitHub, pffft from Bitbucket)
+        ProcessBuilder(
+            "git", "submodule", "update", "--init", "--depth", "1",
+            "submodules/cxxopts", "submodules/pffft"
+        ).directory(target).redirectErrorStream(true).start().waitFor()
+
+        // 3. Ensure Eigen headers are present in submodules/eigen
+        // Eigen is a header-only C++ library; Bungee only includes <Eigen/Core>.
+        // GitLab's git clone server frequently rejects connections under load (HTTP 503).
+        if (!eigenMarker.exists()) {
+            val eigenDir = target.resolve("submodules/eigen")
+            eigenDir.mkdirs()
+
+            var eigenGitSuccess = false
+            try {
+                val eigenGit = ProcessBuilder(
+                    "git", "submodule", "update", "--init", "--depth", "1", "submodules/eigen"
+                ).directory(target).redirectErrorStream(true).start()
+                val eigenGitExit = eigenGit.waitFor()
+                if (eigenGitExit == 0 && eigenMarker.exists()) {
+                    eigenGitSuccess = true
+                }
+            } catch (e: Exception) {
+                logger.warn("Git submodule update for eigen threw: ${e.message}")
+            }
+
+            // Fallback: download Cloudflare CDN-cached release tarball if GitLab git clone failed
+            if (!eigenGitSuccess || !eigenMarker.exists()) {
+                logger.warn("GitLab git clone for Eigen failed/unavailable. Using CDN archive fallback...")
+                val archiveFile = File(target, "eigen-3.4.0.tar.gz")
+                try {
+                    val url = URI.create("https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz").toURL()
+                    val conn = url.openConnection() as HttpURLConnection
+                    conn.instanceFollowRedirects = true
+                    conn.connectTimeout = 15000
+                    conn.readTimeout = 30000
+                    conn.inputStream.use { input ->
+                        archiveFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+
+                    val tarProcess = ProcessBuilder(
+                        "tar", "-xzf", archiveFile.absolutePath, "--strip-components=1", "-C", eigenDir.absolutePath
+                    ).redirectErrorStream(true).start()
+                    val tarOut = tarProcess.inputStream.bufferedReader().readText()
+                    val tarExit = tarProcess.waitFor()
+                    check(tarExit == 0 && eigenMarker.exists()) {
+                        "Failed to extract Eigen archive into $eigenDir (exit $tarExit): $tarOut"
+                    }
+                } finally {
+                    archiveFile.delete()
+                }
+            }
+        }
+
+        check(marker.exists() && eigenMarker.exists()) {
+            "Bungee setup incomplete: Bungee.h exists=${marker.exists()}, Eigen/Core exists=${eigenMarker.exists()}"
+        }
+    }
+}
+
+
+/**
+ * Cross-compiles the Rust core and drops the resulting `.so` files straight into
+ * `jniLibs`.
+ *
+ * This shells out to `cargo-ndk` instead of using externalNativeBuild because
+ * the crate is Cargo-driven, not CMake-driven. Install it once with
+ * `cargo install cargo-ndk` and add the targets with `rustup target add`.
+ */
+val cargoBuild by tasks.registering(Exec::class) {
+    group = "build"
+    description = "Cross-compiles the librespot core for all configured ABIs"
+
+    val nativeDir = rootProject.file("native")
+    workingDir = nativeDir
+
+    // Gradle can skip this entirely when nothing in the crate changed.
+    inputs.dir(nativeDir.resolve("src"))
+    // The patched copies of librespot's own crates, which are compiled from
+    // here rather than fetched. Left out, a change to one of them was not a
+    // change to this task, and the build quietly shipped the previous library.
+    inputs.dir(nativeDir.resolve("vendor"))
+    inputs.file(nativeDir.resolve("Cargo.toml"))
+    inputs.file(nativeDir.resolve("Cargo.lock"))
+    outputs.dir(layout.projectDirectory.dir("src/main/jniLibs"))
+
+    val outputDir = layout.projectDirectory.dir("src/main/jniLibs").asFile.absolutePath
+    val abiArgs = nativeAbis.flatMap { listOf("-t", it) }
+    // -P 26 must match minSdk: libaaudio.so only exists in the sysroot from API
+    // 26 up, and cargo-ndk otherwise links against API 21 and fails with
+    // "unable to find library -laaudio".
+    // The rustup cargo by absolute path, not whatever `cargo` resolves to first.
+    // A Homebrew rust earlier on PATH has neither the Android targets nor a new
+    // enough rustc for the dependency tree, and the failure it produces
+    // ("requires rustc 1.88") points at the crates rather than at the toolchain.
+    val cargo = File(System.getProperty("user.home"), ".cargo/bin/cargo")
+        .takeIf { it.canExecute() }?.absolutePath ?: "cargo"
+    commandLine(
+        listOf(cargo, "ndk") + abiArgs +
+            listOf("-P", "26", "-o", outputDir, "build", "--release"),
+    )
+
+    // Everything is resolved here rather than in a doFirst block: a task action
+    // closure would capture the build script instance, which the configuration
+    // cache refuses to serialize.
+    val ndkDir = File(android.sdkDirectory, "ndk/$ndkVersionForCargo")
+    val unmappedAbis = nativeAbis.filterNot { rustTargets.containsKey(it) }
+    require(unmappedAbis.isEmpty()) { "No Rust target mapped for ABI(s): $unmappedAbis" }
+    require(ndkDir.isDirectory) {
+        "NDK $ndkVersionForCargo not found at $ndkDir — install it with " +
+            "sdkmanager --install \"ndk;$ndkVersionForCargo\""
+    }
+
+    // cargo-ndk finds the toolchain through this; AGP's own ndkVersion is not
+    // visible to an external process.
+    environment("ANDROID_NDK_HOME", ndkDir.absolutePath)
+
+    // cargo-ndk re-invokes plain `cargo` for each target, so pointing the task
+    // at the rustup binary is not enough on its own: the child would still pick
+    // up a Homebrew rust earlier on PATH, which has neither the Android targets
+    // nor a new enough rustc, and reports it as "requires rustc 1.88".
+    File(System.getProperty("user.home"), ".cargo/bin").takeIf { it.isDirectory }?.let {
+        environment("PATH", "${it.absolutePath}:${System.getenv("PATH")}")
+    }
+}
+
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }
+    .configureEach { dependsOn(cargoBuild) }
+
+// CMake reads Bungee's sources at configure time, so the clone has to have
+// happened before any of the native build tasks run.
+tasks.matching { it.name.startsWith("configureCMake") || it.name.startsWith("buildCMake") }
+    .configureEach { dependsOn(fetchBungee) }

@@ -1,0 +1,1134 @@
+package com.abhishek.ame.backend.youtube
+
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import com.abhishek.ame.backend.BackendAuthState
+import com.abhishek.ame.backend.BackendId
+import com.abhishek.ame.backend.MusicBackend
+import com.abhishek.ame.backend.PlaybackHost
+import com.abhishek.ame.backend.SearchLabels
+import com.abhishek.ame.backend.lyrics.LrcLib
+import com.abhishek.ame.backend.lyrics.Lossless
+import com.abhishek.ame.backend.lyrics.LyricsOvh
+import com.abhishek.ame.data.CatalogPlaylist
+import com.abhishek.ame.data.CatalogTrack
+import com.abhishek.ame.data.Lyrics
+import com.abhishek.ame.data.SearchItem
+import com.abhishek.ame.data.SearchResults
+import com.abhishek.ame.download.DownloadExtras
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.encodeToString
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.withContext
+import com.metrolist.innertube.YouTube
+import com.metrolist.innertube.models.AlbumItem
+import com.metrolist.innertube.models.ArtistItem
+import com.metrolist.innertube.models.EpisodeItem
+import com.metrolist.innertube.models.PodcastItem
+import com.metrolist.innertube.models.PlaylistItem
+import com.metrolist.innertube.models.SongItem
+import com.metrolist.innertube.models.YTItem
+import com.metrolist.innertube.pages.HomePage
+import com.abhishek.ame.backend.HomeChip
+import com.abhishek.ame.backend.HomeFeed
+import com.abhishek.ame.backend.HomeRow
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
+
+/**
+ * YouTube Music, over two clients rather than one.
+ *
+ * The split is by what needs an account, not by preference. Search, trending
+ * and stream URLs are public, and NewPipeExtractor reads them without any
+ * credentials — which is what lets the app work before anyone has signed in,
+ * and for anyone who never does. The library is the account's own, so
+ * [playlists] goes through the vendored InnerTube module with the session
+ * cookie attached; see [YouTubeAccount].
+ *
+ * The other half of this backend is [YouTubeStreamResolver], which turns one of
+ * these URIs into a URL ExoPlayer can read.
+ */
+@UnstableApi
+class YouTubeBackend(private val account: YouTubeAccount) : MusicBackend {
+
+    override val id = BackendId.YOUTUBE_MUSIC
+
+    private val _authState = MutableStateFlow<BackendAuthState>(
+        account.accountName.value?.let(BackendAuthState::LoggedIn) ?: ANONYMOUS,
+    )
+    override val authState: StateFlow<BackendAuthState> = _authState.asStateFlow()
+
+    /**
+     * Always. Signing in adds the account's own library on top; it is not what
+     * makes the backend usable, and search and playback work without it.
+     */
+    override val isReady = true
+
+    private data class SearchCacheEntry(val storedAt: Long, val results: SearchResults)
+
+    /** Reopening a recent query should not perform another InnerTube round trip. */
+    private val searchCache = java.util.concurrent.ConcurrentHashMap<String, SearchCacheEntry>()
+
+    override suspend fun refreshAuth() {
+        // Brings the stored cookie up to date and finds out whether it still
+        // works; see [YouTubeAccount.revalidate].
+        account.revalidate()
+        _authState.value = account.accountName.value?.let(BackendAuthState::LoggedIn) ?: ANONYMOUS
+    }
+
+    override suspend fun logOut() {
+        account.signOut()
+        _authState.value = ANONYMOUS
+    }
+
+    /**
+     * The fast search surface: songs, artists and albums in parallel.
+     *
+     * Playlists, podcasts and video uploads are secondary catalogue views. The
+     * old implementation waited for seven independent InnerTube requests before
+     * showing the song the listener typed, so a slow secondary endpoint made the
+     * whole search feel broken.
+     */
+    override suspend fun search(
+        query: String,
+        labels: SearchLabels,
+        offset: Int,
+    ): SearchResults =
+        withContext(Dispatchers.IO) {
+            // One page only. YouTube's search is a continuation token rather
+            // than an offset, and asking for a second page means keeping that
+            // token — worth doing when this backend's search is the one being
+            // used, and not worth pretending to do from here.
+            if (offset > 0) return@withContext SearchResults()
+            val trimmed = query.trim()
+
+            searchCache[trimmed.lowercase()]?.takeIf {
+                android.os.SystemClock.elapsedRealtime() - it.storedAt < SEARCH_CACHE_TTL_MS
+            }?.let { return@withContext it.results }
+
+            coroutineScope {
+                val songs = async { searchItems(trimmed, YouTube.SearchFilter.FILTER_SONG) }
+                val artists = async { searchItems(trimmed, YouTube.SearchFilter.FILTER_ARTIST) }
+                val albums = async { searchItems(trimmed, YouTube.SearchFilter.FILTER_ALBUM) }
+                val results = SearchResults(
+                    tracks = songs.await().filterIsInstance<SongItem>().map(::toCatalogTrack),
+                    albums = albums.await().filterIsInstance<AlbumItem>().map { album ->
+                        SearchItem(
+                            uri = "$PLAYLIST_PREFIX${album.playlistId}",
+                            title = album.title,
+                            subtitle = album.artists?.joinToString(", ") { it.name }
+                                ?.ifBlank { labels.album } ?: labels.album,
+                            artworkUrl = album.thumbnail.atSize(COVER_SIZE),
+                        )
+                    },
+                    artists = artists.await().filterIsInstance<ArtistItem>().map { artist ->
+                        SearchItem(
+                            uri = "$ARTIST_PREFIX${artist.id}",
+                            title = artist.title,
+                            subtitle = labels.artist,
+                            artworkUrl = artist.thumbnail?.atSize(COVER_SIZE),
+                        )
+                    },
+                )
+                searchCache[trimmed.lowercase()] = SearchCacheEntry(
+                    android.os.SystemClock.elapsedRealtime(),
+                    results,
+                )
+                while (searchCache.size > SEARCH_CACHE_SIZE) {
+                    searchCache.entries.minByOrNull { it.value.storedAt }?.let { searchCache.remove(it.key) }
+                }
+                results
+            }
+        }
+
+    /** One filtered search, with a failure treated as "nothing of this kind". */
+    private suspend fun searchItems(query: String, filter: YouTube.SearchFilter): List<YTItem> =
+        YouTube.search(query, filter)
+            .map { it.items }
+            .getOrDefault(emptyList())
+
+    /**
+     * The account's own playlists — empty until someone has signed in.
+     *
+     * This is the one thing the anonymous path genuinely cannot do, and the
+     * reason the InnerTube module is vendored at all: it goes out with the
+     * session cookie attached, so YouTube answers with *this* account's library
+     * rather than the public catalogue.
+     */
+    override suspend fun playlists(): List<CatalogPlaylist> = withContext(Dispatchers.IO) {
+        if (!account.isSignedIn) return@withContext emptyList()
+
+        YouTube.library(LIKED_PLAYLISTS_BROWSE_ID)
+            .getOrThrow()
+            .items
+            .filterIsInstance<PlaylistItem>()
+            .filterNot { it.id == "SE" || it.id == "VLSE" || it.title.equals("Episodes for Later", ignoreCase = true) }
+            .onEach { if (it.isEditable || it.id in editable || it.id == LIKED_MUSIC_ID || !it.isPodcast) editable.add(it.id) }
+            .map { item ->
+                val isLiked = item.id == LIKED_MUSIC_ID || item.id == "VLLM" ||
+                    item.title.equals("Liked Music", ignoreCase = true) ||
+                    item.title.equals("Liked Songs", ignoreCase = true)
+                CatalogPlaylist(
+                    uri = if (isLiked) LIKED_MUSIC_URI else "$PLAYLIST_PREFIX${item.id}",
+                    name = if (isLiked) "Liked Music" else item.title,
+                    artworkUrl = item.thumbnail?.atSize(COVER_SIZE),
+                )
+            }
+            .distinctBy { it.uri }
+    }
+
+    /**
+     * The albums in the account's library.
+     *
+     * Its own browse page rather than a filter over the playlists: YouTube
+     * keeps saved albums on a page of their own, exactly as it keeps saved
+     * playlists on theirs.
+     */
+    override suspend fun savedAlbums(): List<CatalogPlaylist> = withContext(Dispatchers.IO) {
+        if (!account.isSignedIn) return@withContext emptyList()
+        runCatching {
+            YouTube.library(SAVED_ALBUMS_BROWSE_ID)
+                .getOrThrow()
+                .items
+                .filterIsInstance<AlbumItem>()
+                .mapNotNull(::toCatalogPlaylist)
+        }.getOrElse {
+            android.util.Log.w(LOG_TAG, "saved albums unavailable: $it")
+            emptyList()
+        }
+    }
+
+    /** The podcasts saved to the library, from YouTube Music's page of them. */
+    override suspend fun savedShows(): List<CatalogPlaylist> = withContext(Dispatchers.IO) {
+        if (!account.isSignedIn) return@withContext emptyList()
+        runCatching {
+            YouTube.savedPodcastShows().getOrThrow().mapNotNull(::toCatalogPlaylist)
+        }.getOrElse {
+            android.util.Log.w(LOG_TAG, "saved podcasts unavailable: $it")
+            emptyList()
+        }
+    }
+
+    /** YouTube Music's own "New episodes" list, of the podcasts saved. */
+    override suspend fun newEpisodes(): List<CatalogTrack> = withContext(Dispatchers.IO) {
+        if (!account.isSignedIn) return@withContext emptyList()
+        runCatching {
+            YouTube.newEpisodes().getOrThrow().map { toCatalogTrack(it).copy(releasedAt = "") }
+        }.getOrElse {
+            android.util.Log.w(LOG_TAG, "new episodes unavailable: $it")
+            emptyList()
+        }
+    }
+
+    /** The artists the account subscribed to, from the library page of them. */
+    override suspend fun followedArtists(): List<SearchItem> = withContext(Dispatchers.IO) {
+        if (!account.isSignedIn) return@withContext emptyList()
+        runCatching {
+            YouTube.library(FOLLOWED_ARTISTS_BROWSE_ID)
+                .getOrThrow()
+                .items
+                .filterIsInstance<ArtistItem>()
+                .map { artist ->
+                    SearchItem(
+                        uri = "$ARTIST_PREFIX${publicArtistId(artist.id)}",
+                        title = artist.title,
+                        subtitle = "",
+                        artworkUrl = artist.thumbnail?.atSize(COVER_SIZE),
+                    )
+                }
+        }.getOrElse {
+            android.util.Log.w(LOG_TAG, "followed artists unavailable: $it")
+            emptyList()
+        }
+    }
+
+    /**
+     * YouTube Music's own home page, shelf by shelf.
+     *
+     * `FEmusic_home` is the page the app itself opens on, and it is the only
+     * way to get what YouTube actually wants to show: signed in it is built
+     * around what the account listens to, signed out it is charts and moods.
+     * Either way the shelves arrive already titled, so nothing here has to
+     * invent a name for them.
+     *
+     * A page at a time, because that is how it is served. The first response
+     * carries four or five shelves and a token; the twenty that follow — the
+     * mixes, the artists, the charts, the moods — only exist behind it. Reading
+     * one response and stopping is what made this page look like an app with
+     * nothing in it.
+     */
+    override suspend fun homeFeed(cursor: String?, params: String?): HomeFeed =
+        withContext(Dispatchers.IO) {
+            val page = wherever({ it.sections.isEmpty() }) {
+                YouTube.home(continuation = cursor, params = params).getOrThrow()
+            }
+            HomeFeed(
+                rows = page.sections.map(::toHomeRow).filterNot { it.isEmpty },
+                cursor = page.continuation,
+                chips = page.chips.orEmpty().map { chip ->
+                    HomeChip(
+                        title = chip.title,
+                        // The chip that clears the filter has no view of its
+                        // own: it is the home page, which is what null asks for.
+                        params = chip.endpoint?.params,
+                    )
+                },
+            )
+        }
+
+    private fun toHomeRow(section: HomePage.Section): HomeRow =
+        rowOf(section.title, section.items, section.label)
+
+    private fun rowOf(title: String, items: List<YTItem>, strapline: String? = null): HomeRow {
+        val songs = items.filterIsInstance<SongItem>()
+        // An episode plays like a song and is listed like one; the only
+        // difference the queue would notice is its length.
+        val episodes = items.filterIsInstance<EpisodeItem>()
+        return HomeRow(
+            title = title,
+            strapline = strapline,
+            tracks = songs.map(::toCatalogTrack) + episodes.map(::toCatalogTrack),
+            // Everything that is not a song opens something: an album, a
+            // playlist, an artist. They travel as one list because the row
+            // draws them identically.
+            items = items.filterNot { it is SongItem || it is EpisodeItem }
+                .mapNotNull(::toCatalogPlaylist),
+        )
+    }
+
+    /**
+     * The New tab: YouTube Music's own page of new releases, then its charts.
+     *
+     * Both are the same for anyone in the country, signed in or not, which is
+     * what a tab of what came out should be. Read side by side, and either can
+     * fail without taking the other with it. Titled by YouTube, in the phone's
+     * language: renaming them would be this app pretending it chose them.
+     */
+    override suspend fun newRows(): List<HomeRow> = withContext(Dispatchers.IO) {
+        wherever({ it.isEmpty() }) {
+        coroutineScope {
+            val releases = async {
+                runCatching { YouTube.browse(NEW_RELEASES_BROWSE_ID, null).getOrThrow() }
+                    .onFailure { android.util.Log.w(LOG_TAG, "new releases unavailable: $it") }
+                    .getOrNull()
+                    ?.items.orEmpty()
+                    .mapNotNull { section -> section.title?.let { rowOf(it, section.items) } }
+            }
+            val newAlbums = async {
+                runCatching { YouTube.newReleaseAlbums().getOrThrow() }
+                    .onFailure { android.util.Log.w(LOG_TAG, "new albums unavailable: $it") }
+                    .getOrNull()
+                    ?.mapNotNull(::toCatalogPlaylist)
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let {
+                        listOf(
+                            HomeRow(
+                                title = "Albums for you",
+                                items = it,
+                                strapline = "NEW FULL-LENGTH RECORDS",
+                            )
+                        )
+                    }.orEmpty()
+            }
+            val charts = async {
+                runCatching { YouTube.getChartsPage().getOrThrow() }
+                    .onFailure { android.util.Log.w(LOG_TAG, "charts unavailable: $it") }
+                    .getOrNull()
+                    ?.let { page ->
+                        val sections = page.sections.map { section ->
+                            val isTrending = section.title.contains("trend", ignoreCase = true) ||
+                                section.title.contains("top song", ignoreCase = true) ||
+                                section.title.contains("top track", ignoreCase = true) ||
+                                section.chartType == com.metrolist.innertube.pages.ChartsPage.ChartType.TRENDING
+                            val title = if (isTrending) "Trending songs for you" else section.title
+                            val strapline = if (isTrending) "POPULAR TODAY" else null
+                            rowOf(title, section.items, strapline = strapline)
+                        }
+                        val hasTrending = sections.any { it.title == "Trending songs for you" && it.tracks.isNotEmpty() }
+                        if (!hasTrending) {
+                            val allChartSongs = page.sections.flatMap { it.items.filterIsInstance<SongItem>() }
+                                .distinctBy { it.id }
+                                .take(25)
+                            if (allChartSongs.isNotEmpty()) {
+                                listOf(
+                                    HomeRow(
+                                        title = "Trending songs for you",
+                                        tracks = allChartSongs.map(::toCatalogTrack),
+                                        strapline = "POPULAR TODAY",
+                                    )
+                                ) + sections
+                            } else sections
+                        } else sections
+                    }.orEmpty()
+            }
+            val energize = async {
+                runCatching {
+                    val groups = YouTube.moodAndGenres().getOrThrow()
+                    val energizeItem = groups.flatMap { it.items }.firstOrNull { item ->
+                        item.title.contains("Energize", ignoreCase = true) ||
+                        item.title.contains("Energy", ignoreCase = true) ||
+                        item.title.contains("Workout", ignoreCase = true)
+                    }
+                    if (energizeItem != null) {
+                        val browse = YouTube.browse(energizeItem.endpoint.browseId, energizeItem.endpoint.params).getOrThrow()
+                        browse.items.firstOrNull { it.items.isNotEmpty() }?.let { section ->
+                            rowOf("Energize", section.items, strapline = "HIGH ENERGY & FOCUS")
+                        }
+                    } else null
+                }.onFailure { android.util.Log.w(LOG_TAG, "energize unavailable: $it") }
+                 .getOrNull()
+            }
+
+            (releases.await() + newAlbums.await() + charts.await() + listOfNotNull(energize.await()))
+                .filterNot { it.isEmpty }
+                // The charts page repeats the new albums under the same name.
+                .distinctBy { it.title }
+        }
+        }
+    }
+
+    /**
+     * The Radio tab: YouTube Music's moods and genres, a row of lists each.
+     *
+     * What the service itself files as stations to put on, rather than records
+     * to look at, and there to read without an account. A handful from each
+     * group rather than all of them: every mood is its own request, and the
+     * tab should arrive in one breath rather than trickle in over twenty.
+     */
+    override suspend fun radioRows(): List<HomeRow> = withContext(Dispatchers.IO) {
+        wherever({ it.isEmpty() }) {
+        val groups = runCatching { YouTube.moodAndGenres().getOrThrow() }
+            .onFailure { android.util.Log.w(LOG_TAG, "moods unavailable: $it") }
+            .getOrNull()
+            .orEmpty()
+        val picks = groups.flatMap { group ->
+            group.items.take(RADIO_PER_GROUP).map { mood -> group.title to mood }
+        }
+        coroutineScope {
+            picks.map { (group, mood) ->
+                async {
+                    runCatching {
+                        YouTube.browse(mood.endpoint.browseId, mood.endpoint.params).getOrThrow()
+                    }
+                        .getOrNull()
+                        ?.items
+                        ?.firstOrNull { it.items.isNotEmpty() }
+                        ?.let { rowOf(mood.title, it.items, strapline = group) }
+                }
+            }.awaitAll().filterNotNull().filterNot { it.isEmpty }
+        }
+        }
+    }
+
+    /**
+     * Asks, and asks again from somewhere the service is open to everyone when
+     * the answer comes back with nothing in it.
+     *
+     * What is browsed carries the country the phone is set to. Where YouTube
+     * Music has no free tier, South Korea among them, the pages this app's
+     * home, New and Radio are made of answer empty to an account that is not
+     * paying for it, while search and playback, which are asked for another
+     * way, go on working. So the tabs were blank on a phone where the music
+     * played (#23).
+     *
+     * Only the country changes, not the language: the rows come back under
+     * YouTube's own titles in the language the phone reads. And only when the
+     * phone's own country has nothing to say, since what is worth listening to
+     * is a local question first.
+     *
+     * Remembered for the session once it has worked, so a country that answers
+     * with nothing is asked once rather than before every page.
+     */
+    private suspend fun <T> wherever(empty: (T) -> Boolean, ask: suspend () -> T): T {
+        if (!openRegion) {
+            val here = ask()
+            if (!empty(here)) return here
+        }
+        val answer = regionLock.withLock {
+            val kept = YouTube.locale
+            YouTube.locale = kept.copy(gl = OPEN_REGION)
+            try {
+                ask()
+            } finally {
+                YouTube.locale = kept
+            }
+        }
+        if (!empty(answer)) {
+            if (!openRegion) {
+                android.util.Log.i(LOG_TAG, "browsing as $OPEN_REGION: nothing is served here")
+            }
+            openRegion = true
+        }
+        return answer
+    }
+
+    private fun toCatalogPlaylist(item: YTItem): CatalogPlaylist? {
+        val uri = when (item) {
+            is AlbumItem -> "$PLAYLIST_PREFIX${item.playlistId}"
+            is PlaylistItem -> "$PLAYLIST_PREFIX${item.id}"
+            is ArtistItem -> "$ARTIST_PREFIX${item.id}"
+            // A show is a playlist of episodes, and opens as one.
+            is PodcastItem -> "$PLAYLIST_PREFIX${item.id}"
+            else -> return null
+        }
+        return CatalogPlaylist(
+            uri = uri,
+            name = item.title,
+            artworkUrl = item.thumbnail?.atSize(COVER_SIZE),
+            // What the official app writes under the name: who made it, or how
+            // many listen to it. Without it half a shelf of mixes is a column
+            // of covers with interchangeable titles.
+            subtitle = when (item) {
+                is AlbumItem -> item.artists?.joinToString(", ") { it.name }
+                is PlaylistItem -> item.author?.name
+                is PodcastItem -> item.author?.name
+                // An artist has no line worth writing: the portrait and the
+                // name are the whole of it, and YouTube's own shelf says the
+                // same nothing under theirs.
+                is ArtistItem -> null
+                else -> null
+            }?.takeIf { it.isNotBlank() },
+            isArtist = item is ArtistItem,
+        )
+    }
+
+    private fun toCatalogTrack(item: EpisodeItem): CatalogTrack {
+        val uri = "$TRACK_PREFIX${item.id}"
+        val durationSec = item.duration?.toLong() ?: 0L
+        com.abhishek.ame.backend.fidelity.FidelityManager.registerTrack(
+            uri = uri,
+            title = item.title,
+            artist = item.author?.name.orEmpty(),
+            durationSec = durationSec
+        )
+        return CatalogTrack(
+            uri = uri,
+            name = item.title,
+            artist = item.author?.name.orEmpty(),
+            album = item.podcast?.name.orEmpty(),
+            durationMs = item.duration?.takeIf { it > 0 }?.times(1000L) ?: 0L,
+            explicit = item.explicit,
+            artworkUrl = item.thumbnail,
+            releasedAt = "",
+        )
+    }
+
+    /**
+     * The account's YouTube Music history: sections, newest first, each with
+     * its songs, newest first. Null when no account is signed in.
+     *
+     * Asked for in English whatever the phone reads, because the section
+     * titles are the only dates the page has ("Today", "Last week", a month)
+     * and they have to be read back into days; see YouTubeListening. The
+     * language is swapped under the same lock as the country in [wherever].
+     */
+    suspend fun listeningHistory(): List<Pair<String, List<CatalogTrack>>>? = withContext(Dispatchers.IO) {
+        if (!account.isSignedIn) return@withContext null
+        val page = regionLock.withLock {
+            val kept = YouTube.locale
+            YouTube.locale = kept.copy(hl = "en")
+            try {
+                YouTube.musicHistory()
+            } finally {
+                YouTube.locale = kept
+            }
+        }.getOrThrow()
+        page.sections.orEmpty().map { section -> section.title to section.songs.map(::toCatalogTrack) }
+    }
+
+    private fun toCatalogTrack(item: SongItem): CatalogTrack {
+        // Every name its own way in, and the record too: what makes the lines
+        // under the title in the player lead somewhere, as they do for Spotify.
+        // A video's byline arrives as runs, and the joining words between the
+        // names ("," "&" "e" "and") come through as artists of their own.
+        val named = item.artists.filter { artist ->
+            val name = artist.name.trim()
+            name.isNotEmpty() && name.lowercase() !in BYLINE_JOINERS && name.any { it.isLetterOrDigit() }
+        }
+        val credited = named.map { artist ->
+            com.abhishek.ame.data.CatalogArtist(
+                name = artist.name.trim(),
+                uri = artist.id?.takeIf { it.isNotBlank() }?.let { "$ARTIST_PREFIX$it" },
+            )
+        }
+        val artistsString = named.joinToString(", ") { it.name.trim() }
+        val durationSec = item.duration?.toLong() ?: 0L
+        com.abhishek.ame.backend.fidelity.FidelityManager.registerTrack(
+            uri = "$TRACK_PREFIX${item.id}",
+            title = item.title,
+            artist = artistsString,
+            durationSec = durationSec
+        )
+        com.abhishek.ame.backend.fidelity.FidelityManager.registerTrack(
+            uri = "$VIDEO_PREFIX${item.id}",
+            title = item.title,
+            artist = artistsString,
+            durationSec = durationSec
+        )
+        return CatalogTrack(
+            uri = "$TRACK_PREFIX${item.id}",
+            name = item.title,
+            artist = artistsString,
+            artistUri = credited.firstNotNullOfOrNull { it.uri },
+            artists = credited,
+            album = item.album?.name.orEmpty(),
+            albumUri = item.album?.id?.takeIf { it.startsWith("MPRE") }?.let { "$ALBUM_PREFIX$it" },
+            durationMs = item.duration?.takeIf { it > 0 }?.times(1000L) ?: 0L,
+            explicit = item.explicit,
+            artworkUrl = item.thumbnail.atSize(COVER_SIZE),
+        )
+    }
+
+    override suspend fun tracksOf(uri: String): List<CatalogTrack> = withContext(Dispatchers.IO) {
+        val id = uri.substringAfterLast(':')
+        when {
+            uri.startsWith(TRACK_PREFIX) || uri.startsWith(VIDEO_PREFIX) -> emptyList()
+
+            // A song's radio, reopened: asked again, as there is no list to browse.
+            isStation(uri) -> radio("$TRACK_PREFIX${id.removePrefix(RADIO_LIST)}")
+
+            // Videos stay videos: no swapping them for their songs here, which
+            // is the whole reason somebody opened this list.
+            uri.startsWith(VIDEOS_PREFIX) -> wholePlaylist(id).map(::toVideoTrack)
+
+            // A record opened from the player, by the album's own id.
+            uri.startsWith(ALBUM_PREFIX) -> YouTube.album(id).getOrThrow().songs.map(::toCatalogTrack)
+
+            // An artist has no track list of its own, so what "open an artist"
+            // means here is the same as everywhere else: their best-known
+            // songs.
+            uri.startsWith(ARTIST_PREFIX) -> {
+                val page = YouTube.artist(publicArtistId(id)).getOrThrow()
+                // Kept for the follow button, which asks right after the page
+                // opens: the same response already says both.
+                artists[publicArtistId(id)] = ArtistFacts(
+                    channelId = page.artist.channelId ?: id,
+                    subscribed = page.isSubscribed,
+                )
+                page.sections
+                    .flatMap { it.items }
+                    .filterIsInstance<SongItem>()
+                    .map(::toCatalogTrack)
+            }
+
+            else -> playlistTracks(id, wholePlaylist(id))
+        }
+    }
+
+    /**
+     * A playlist's songs, unless they are what [stamp] says they were; and the
+     * stamp they have now. Null songs for a list that has not changed, which
+     * its first page says without the rest being read: what it holds, and how
+     * many. The way Spotify's snapshot id is used for its lists, for a service
+     * that has none, and the reason a long list opens at once the second time.
+     *
+     * Null stamp for anything that is not a playlist, read in full as before.
+     */
+    suspend fun tracksIfChanged(uri: String, stamp: String?): Pair<String?, List<CatalogTrack>?> =
+        withContext(Dispatchers.IO) {
+            val listed = uri.startsWith(PLAYLIST_PREFIX) || uri.startsWith(VIDEOS_PREFIX)
+            if (!listed || isStation(uri)) return@withContext null to tracksOf(uri)
+            val id = uri.substringAfterLast(':')
+            val first = YouTube.playlist(id).getOrThrow()
+            val now = stampOf(first)
+            if (stamp != null && now == stamp) return@withContext now to null
+            val songs = wholePlaylist(id, first)
+            now to if (uri.startsWith(VIDEOS_PREFIX)) songs.map(::toVideoTrack) else playlistTracks(id, songs)
+        }
+
+    /** What a list's first page says about all of it; see [tracksIfChanged]. */
+    private fun stampOf(first: com.metrolist.innertube.pages.PlaylistPage): String {
+        val entries = first.songs.joinToString(",") { it.setVideoId ?: it.id }
+        return "${first.playlist.songCountText.orEmpty()}|${entries.hashCode()}|${first.songs.size}"
+    }
+
+    /** A playlist's entries as the songs to show; see the note on own lists. */
+    private suspend fun playlistTracks(id: String, listed: List<SongItem>): List<CatalogTrack> {
+        // Only the listener's own lists: a video there is a song they saved,
+        // and they want the song. A list YouTube made of videos (a chart of
+        // music videos) is meant to be videos, and an album's entries are
+        // already its songs.
+        val own = id == LIKED_MUSIC_ID || id in editable
+        val songs = if (own) asSongs(listed) else listed
+        listed.zip(songs).forEach { (entry, song) ->
+            // What taking a song out of this list will need: YouTube removes an
+            // entry, not a song, and names the entry here — under the song it
+            // now plays as, too, if it was a video.
+            entry.setVideoId?.let {
+                entries["$id/${entry.id}"] = it
+                entries["$id/${song.id}"] = it
+            }
+        }
+        return songs.map(::toCatalogTrack)
+    }
+
+    /**
+     * Every song of a playlist, not just its first page.
+     *
+     * YouTube answers a playlist with a hundred songs and a token for the
+     * rest, and the token was never spent: every list stopped at a hundred,
+     * however long it was. The pages after it are asked for one at a time, up
+     * to [PLAYLIST_CAP] songs, and a page that fails ends the list where it
+     * got to rather than losing what was already there.
+     */
+    private suspend fun wholePlaylist(
+        id: String,
+        given: com.metrolist.innertube.pages.PlaylistPage? = null,
+    ): List<SongItem> {
+        val first = given ?: YouTube.playlist(id).getOrThrow()
+        val songs = first.songs.toMutableList()
+        var token = first.songsContinuation ?: first.continuation
+        var pages = 0
+        while (token != null && songs.size < PLAYLIST_CAP && pages++ < PLAYLIST_MAX_PAGES) {
+            val page = YouTube.playlistContinuation(token).getOrNull() ?: break
+            if (page.songs.isEmpty()) break
+            songs += page.songs
+            token = page.continuation
+        }
+        return songs
+    }
+
+    /**
+     * A station built from one song, as YouTube Music's own "Start radio" does.
+     *
+     * The radio is a watch queue rather than a playlist that can be browsed:
+     * YouTube assembles it from `RDAMVM` and the song's id when the song is
+     * played with that list, so this asks for the queue that playing would
+     * bring, and once more for the page after it. The song itself comes first.
+     */
+    suspend fun radio(trackUri: String): List<CatalogTrack> = withContext(Dispatchers.IO) {
+        val id = videoIdOfUri(trackUri)
+        val first = YouTube.next(
+            com.metrolist.innertube.models.WatchEndpoint(videoId = id, playlistId = "$RADIO_LIST$id"),
+        ).getOrThrow()
+        val more = first.continuation
+            ?.let { runCatching { YouTube.next(first.endpoint, it).getOrThrow().items }.getOrNull() }
+            .orEmpty()
+        (first.items + more)
+            .distinctBy { it.id }
+            .map(::toCatalogTrack)
+    }
+
+    /** Conversions run on past the list that asked for them; see [asSongs]. */
+    private val background = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * [items] with every music video swapped for the song it is a video of, as
+     * far as is known within [LIST_WAIT_MS]; see [SongCounterparts].
+     *
+     * The list does not wait for the rest: those keep being looked up, each
+     * row is put right as its song arrives (see [conversions]), and a row
+     * played before then plays its song anyway, because the resolver asks too.
+     */
+    private suspend fun asSongs(items: List<SongItem>): List<SongItem> {
+        SongCounterparts.remember(items)
+        val pending = items
+            .filter { SongCounterparts.isVideo(it) && SongCounterparts.known(it.id) == null }
+            .distinctBy { it.id }
+        if (pending.isNotEmpty()) {
+            val gate = kotlinx.coroutines.sync.Semaphore(COUNTERPART_PARALLELISM)
+            val jobs = pending.map { video ->
+                background.launch { gate.withPermit { SongCounterparts.find(video) } }
+            }
+            kotlinx.coroutines.withTimeoutOrNull(LIST_WAIT_MS) { jobs.joinAll() }
+        }
+        return items.map { item ->
+            if (SongCounterparts.isVideo(item)) SongCounterparts.known(item.id) ?: item else item
+        }
+    }
+
+    /** Each song found for a video a list showed, as (the video's uri, the song). */
+    val conversions: kotlinx.coroutines.flow.Flow<Pair<String, CatalogTrack>> =
+        SongCounterparts.resolved.map { (video, song) -> "$TRACK_PREFIX$video" to toCatalogTrack(song) }
+
+    /**
+     * An artist's page as YouTube Music lays it out: their best-known songs, then
+     * each shelf under its own heading — albums, singles, videos, performances,
+     * the lists they are in, the artists their fans also play.
+     */
+    suspend fun artistPage(uri: String): com.abhishek.ame.data.YouTubeArtistPage? = withContext(Dispatchers.IO) {
+        val id = publicArtistId(uri.removePrefix(ARTIST_PREFIX))
+        val page = runCatching { YouTube.artist(id).getOrThrow() }
+            .onFailure { android.util.Log.w(TAG, "artist $id", it) }
+            .getOrNull() ?: return@withContext null
+        artists[id] = ArtistFacts(channelId = page.artist.channelId ?: id, subscribed = page.isSubscribed)
+
+        // The first shelf of songs is the "top songs" list; any later one is
+        // videos, whose pictures are wide.
+        val top = page.sections.firstOrNull { section -> section.items.isNotEmpty() && section.items.all { it is SongItem } }
+        val shelves = page.sections.filter { it !== top }.mapNotNull { section ->
+            val more = moreUriOf(section.moreEndpoint?.browseId)
+            val songs = section.items.filterIsInstance<SongItem>()
+            if (songs.size == section.items.size && songs.isNotEmpty()) {
+                return@mapNotNull com.abhishek.ame.data.ArtistShelf(
+                    title = section.title,
+                    tracks = songs.map(::toVideoTrack),
+                    moreUri = section.moreEndpoint?.browseId?.takeIf { it.startsWith("VL") }
+                        ?.let { "$VIDEOS_PREFIX${it.removePrefix("VL")}" },
+                )
+            }
+            val items = section.items.mapNotNull { item ->
+                val playlist = toCatalogPlaylist(item) ?: return@mapNotNull null
+                SearchItem(
+                    uri = playlist.uri,
+                    title = playlist.name,
+                    // What the reference writes under a record: the year.
+                    subtitle = (item as? AlbumItem)?.year?.toString() ?: playlist.subtitle.orEmpty(),
+                    artworkUrl = playlist.artworkUrl,
+                )
+            }
+            items.takeIf { it.isNotEmpty() }?.let {
+                com.abhishek.ame.data.ArtistShelf(title = section.title, items = it)
+            }
+        }
+        com.abhishek.ame.data.YouTubeArtistPage(
+            name = page.artist.title,
+            artworkUrl = page.artist.thumbnail?.atSize(HERO_SIZE),
+            description = page.description?.takeIf { it.isNotBlank() },
+            subscribers = page.subscriberCountText?.takeIf { it.isNotBlank() },
+            monthlyListeners = page.monthlyListenerCount?.takeIf { it.isNotBlank() },
+            topSongs = top?.items.orEmpty().filterIsInstance<SongItem>().map(::toCatalogTrack),
+            topSongsMoreUri = moreUriOf(top?.moreEndpoint?.browseId),
+            shelves = shelves,
+        )
+    }
+
+    /** A video as a video: its wide picture, and an address that plays the picture. */
+    private fun toVideoTrack(item: SongItem) =
+        toCatalogTrack(item).copy(uri = "$VIDEO_PREFIX${item.id}", artworkUrl = item.thumbnail)
+
+    /** A shelf's "see all", where it leads to a list this app can open. */
+    private fun moreUriOf(browseId: String?): String? =
+        browseId?.takeIf { it.startsWith("VL") }?.let { "$PLAYLIST_PREFIX${it.removePrefix("VL")}" }
+
+    /** The lists the library said the account can write to; see [canWriteTo]. */
+    private val editable = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    override fun canWriteTo(playlistUri: String): Boolean =
+        account.isSignedIn && (playlistUri.removePrefix(PLAYLIST_PREFIX) in editable || playlistUri.removePrefix(PLAYLIST_PREFIX) == LIKED_MUSIC_ID)
+
+    /** Playlist entry ids, by "playlist/video"; see [removeFromPlaylist]. */
+    private val entries = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /**
+     * The id an artist's public page answers to.
+     *
+     * The library lists the artists it follows under an id of its own, the
+     * channel's with "MPLA" in front, and that page only opens with the
+     * account's credentials: opened as it came, it was a 401 in place of the
+     * artist. Their public page is the channel itself.
+     */
+    private fun publicArtistId(id: String): String = id.removePrefix(LIBRARY_ARTIST_PREFIX)
+
+    /** What an artist's page said about following them. */
+    private data class ArtistFacts(val channelId: String, val subscribed: Boolean)
+
+    private val artists = java.util.concurrent.ConcurrentHashMap<String, ArtistFacts>()
+
+    /**
+     * lossless.wtf first, LrcLib for everything it does not have.
+     *
+     * The TTML archive is the better answer where it has the track and much the
+     * smaller of the two, so it is asked first and LrcLib carries the rest of
+     * the catalogue as it did before.
+     */
+    private val lyricsJson = Json { ignoreUnknownKeys = true }
+
+    override suspend fun lyrics(
+        uri: String,
+        title: String,
+        artist: String,
+        durationMs: Long,
+    ): Lyrics? {
+        DownloadExtras.lyrics(uri)?.let { raw ->
+            runCatching { lyricsJson.decodeFromString<Lyrics>(raw) }.getOrNull()
+                ?.takeIf { com.abhishek.ame.backend.lyrics.LyricsLibrary.shows(uri, it) }
+                ?.let { downloaded ->
+                // As for Spotify's downloads: the sources asked whether one is
+                // timed to the word now, and which one this copy came from.
+                val library = com.abhishek.ame.backend.lyrics.LyricsLibrary
+                if (library.worthAskingAgain(uri, downloaded)) {
+                    library.improveLater(
+                        com.abhishek.ame.backend.lyrics.LyricsQuery(uri, title, artist, durationMs),
+                        downloaded,
+                    )
+                }
+                return downloaded
+            }
+        }
+
+        val found = com.abhishek.ame.backend.lyrics.LyricsLibrary.lyrics(
+            com.abhishek.ame.backend.lyrics.LyricsQuery(uri, title, artist, durationMs),
+        )
+
+        if (found != null) {
+            runCatching { DownloadExtras.rememberLyrics(uri, lyricsJson.encodeToString(found)) }
+        }
+        return found
+    }
+
+    override val canEditPlaylists: Boolean
+        get() = account.isSignedIn
+
+    override suspend fun createPlaylist(name: String, description: String, public: Boolean): CatalogPlaylist =
+        withContext(Dispatchers.IO) {
+            // Blocking upstream, deliberately not wrapped in runCatching there:
+            // a failure has to reach the caller, which is a screen waiting to
+            // open what it just made.
+            val id = YouTube.createPlaylist(name)
+            editable.add(id)
+            CatalogPlaylist(uri = "$PLAYLIST_PREFIX$id", name = name, artworkUrl = null)
+        }
+
+    override suspend fun renamePlaylist(uri: String, name: String) {
+        withContext(Dispatchers.IO) {
+            YouTube.renamePlaylist(uri.substringAfterLast(':'), name).getOrThrow()
+        }
+    }
+
+    override suspend fun deletePlaylist(uri: String) {
+        withContext(Dispatchers.IO) {
+            YouTube.deletePlaylist(uri.substringAfterLast(':')).getOrThrow()
+        }
+    }
+
+    /**
+     * The account's own lists, and its liked songs.
+     *
+     * Liked songs are a list on YouTube Music like any other, and the one a
+     * listener reaches for first, so they are offered here; what writes to them
+     * is the like button, see [addToPlaylist].
+     */
+    override suspend fun writablePlaylists(): List<CatalogPlaylist> = withContext(Dispatchers.IO) {
+        if (!account.isSignedIn) return@withContext emptyList()
+        val lists = runCatching {
+            YouTube.library(LIKED_PLAYLISTS_BROWSE_ID)
+                .getOrThrow()
+                .items
+                .filterIsInstance<PlaylistItem>()
+        }.getOrElse {
+            android.util.Log.w(LOG_TAG, "writable playlists fetch failed: $it")
+            emptyList()
+        }.filterNot {
+            it.id == "SE" || it.id == "VLSE" || it.title.equals("Episodes for Later", ignoreCase = true)
+        }
+
+        android.util.Log.i(LOG_TAG, "writablePlaylists: fetched ${lists.size} items: ${lists.map { "${it.id}:${it.title}:${it.isEditable}" }}")
+
+        lists.forEach { item ->
+            if (item.isEditable || item.id in editable || item.id == LIKED_MUSIC_ID) {
+                editable.add(item.id)
+            }
+        }
+
+        val filteredLists = lists.filter { it.isEditable || it.id in editable || it.id == LIKED_MUSIC_ID }
+        val effective = if (filteredLists.isNotEmpty()) filteredLists else lists.filter { !it.isPodcast }
+        effective.forEach { editable.add(it.id) }
+
+        val result = effective
+            .map { item ->
+                val isLiked = item.id == LIKED_MUSIC_ID || item.id == "VLLM" ||
+                    item.title.equals("Liked Music", ignoreCase = true) ||
+                    item.title.equals("Liked Songs", ignoreCase = true)
+                CatalogPlaylist(
+                    uri = if (isLiked) LIKED_MUSIC_URI else "$PLAYLIST_PREFIX${item.id}",
+                    name = if (isLiked) "Liked Music" else item.title,
+                    artworkUrl = item.thumbnail?.atSize(COVER_SIZE),
+                )
+            }
+            .distinctBy { it.uri }
+            // Liked songs first, as the other source puts its own.
+            .sortedBy { if (it.uri == LIKED_MUSIC_URI) 0 else 1 }
+
+        if (result.none { it.uri == LIKED_MUSIC_URI }) {
+            listOf(
+                CatalogPlaylist(
+                    uri = LIKED_MUSIC_URI,
+                    name = "Liked Music",
+                    artworkUrl = null,
+                )
+            ) + result
+        } else {
+            result
+        }
+    }
+
+    override suspend fun addToPlaylist(playlistUri: String, trackUri: String) {
+        withContext(Dispatchers.IO) {
+            val playlistId = playlistUri.removePrefix(PLAYLIST_PREFIX)
+            val videoId = videoIdOfUri(trackUri)
+            android.util.Log.i(LOG_TAG, "addToPlaylist: playlistId=$playlistId, videoId=$videoId")
+            if (playlistId == LIKED_MUSIC_ID) {
+                YouTube.likeVideo(videoId, like = true).getOrThrow()
+            } else {
+                YouTube.addToPlaylist(playlistId, videoId).getOrThrow()
+            }
+        }
+    }
+
+    override suspend fun removeFromPlaylist(playlistUri: String, trackUri: String) {
+        withContext(Dispatchers.IO) {
+            val playlistId = playlistUri.removePrefix(PLAYLIST_PREFIX)
+            val videoId = videoIdOfUri(trackUri)
+            if (playlistId == LIKED_MUSIC_ID) {
+                YouTube.likeVideo(videoId, like = false).getOrThrow()
+                return@withContext
+            }
+            // The list holds the video a song was shown in place of.
+            val listedId = SongCounterparts.videoOf(videoId) ?: videoId
+            val key = "$playlistId/$listedId"
+            // Read again when the list was not read here: the entry id is the
+            // only thing YouTube removes by.
+            if (entries[key] == null) tracksOf(playlistUri)
+            val entry = entries[key] ?: error("no entry for $videoId in $playlistId")
+            YouTube.removeFromPlaylist(playlistId, listedId, entry).getOrThrow()
+            entries.remove(key)
+        }
+    }
+
+    override suspend fun uploadPlaylistBanner(playlistUri: String, imageBytes: ByteArray): String? =
+        withContext(Dispatchers.IO) {
+            if (!account.isSignedIn) return@withContext null
+            val playlistId = playlistUri.removePrefix(PLAYLIST_PREFIX)
+            if (playlistId == LIKED_MUSIC_ID) return@withContext null
+            runCatching {
+                YouTube.uploadCustomThumbnailLink(playlistId, imageBytes).getOrThrow()
+            }.onFailure {
+                android.util.Log.e(LOG_TAG, "Failed to upload playlist custom thumbnail to YouTube for $playlistId", it)
+            }.getOrNull()
+        }
+
+    override suspend fun removePlaylistBanner(playlistUri: String): Unit =
+        withContext(Dispatchers.IO) {
+            if (!account.isSignedIn) return@withContext
+            val playlistId = playlistUri.removePrefix(PLAYLIST_PREFIX)
+            if (playlistId == LIKED_MUSIC_ID) return@withContext
+            runCatching {
+                YouTube.removeThumbnailPlaylist(playlistId).getOrThrow()
+            }.onFailure {
+                android.util.Log.e(LOG_TAG, "Failed to remove playlist custom thumbnail on YouTube for $playlistId", it)
+            }
+        }
+
+    override suspend fun isFollowing(artistUri: String): Boolean? = withContext(Dispatchers.IO) {
+        if (!account.isSignedIn) return@withContext null
+        val id = publicArtistId(artistUri.removePrefix(ARTIST_PREFIX))
+        artists[id]?.subscribed ?: runCatching {
+            val page = YouTube.artist(id).getOrThrow()
+            ArtistFacts(page.artist.channelId ?: id, page.isSubscribed).also { artists[id] = it }
+        }.getOrNull()?.subscribed
+    }
+
+    override suspend fun setFollowing(artistUri: String, follow: Boolean) {
+        withContext(Dispatchers.IO) {
+            val id = publicArtistId(artistUri.removePrefix(ARTIST_PREFIX))
+            val channel = artists[id]?.channelId
+                ?: YouTube.artist(id).getOrThrow().artist.channelId
+                ?: id
+            YouTube.subscribeChannel(channel, subscribe = follow).getOrThrow()
+            artists[id] = ArtistFacts(channel, follow)
+        }
+    }
+
+    override fun owns(uri: String) = uri.startsWith(URI_SCHEME)
+
+    override fun createPlayer(host: PlaybackHost): Player =
+        YouTubePlayerFactory.create(host)
+
+    companion object {
+        private const val TAG = "AmeYouTube"
+        private const val SEARCH_CACHE_TTL_MS = 2 * 60 * 1000L
+        private const val SEARCH_CACHE_SIZE = 12
+        private const val HERO_SIZE = 1200
+        private val BYLINE_JOINERS = setOf("&", "e", "and", "y", "et", "und", "x", "i", "и", "ve", "और", "feat.", "ft.")
+        private const val COUNTERPART_PARALLELISM = 6
+
+        /** How long a list waits for its videos' songs before opening without them. */
+        private const val LIST_WAIT_MS = 1_500L
+        const val URI_SCHEME = "ytmusic:"
+        const val TRACK_PREFIX = "ytmusic:track:"
+        const val PLAYLIST_PREFIX = "ytmusic:playlist:"
+        const val ARTIST_PREFIX = "ytmusic:artist:"
+        const val ALBUM_PREFIX = "ytmusic:album:"
+        /** A video played as one, picture and all, whatever the video button says. */
+        const val VIDEO_PREFIX = "ytmusic:video:"
+        /** A list of videos, opened from an artist's video shelf. */
+        const val VIDEOS_PREFIX = "ytmusic:videos:"
+
+        /** YouTube Music's own browse id for the account's playlist library. */
+        private const val LOG_TAG = "AmeYouTube"
+        private const val LIKED_PLAYLISTS_BROWSE_ID = "FEmusic_liked_playlists"
+        private const val SAVED_ALBUMS_BROWSE_ID = "FEmusic_liked_albums"
+        private const val FOLLOWED_ARTISTS_BROWSE_ID = "FEmusic_library_corpus_track_artists"
+        private const val NEW_RELEASES_BROWSE_ID = "FEmusic_new_releases"
+
+        /** What the library puts in front of the artists it follows; see publicArtistId. */
+        private const val LIBRARY_ARTIST_PREFIX = "MPLA"
+
+        /** What a song's radio is named after: this, then the song's id. */
+        private const val RADIO_LIST = "RDAMVM"
+
+        /** As long as a playlist is read: well past what anyone keeps in one. */
+        private const val PLAYLIST_CAP = 5_000
+
+        /** The pages that takes, at a hundred songs a page, with room to spare. */
+        private const val PLAYLIST_MAX_PAGES = 60
+
+        /** A song's radio as an address, for the page that shows it. */
+        fun stationUri(trackUri: String): String = "$PLAYLIST_PREFIX$RADIO_LIST${videoIdOfUri(trackUri)}"
+
+        fun isStation(uri: String?): Boolean = uri?.startsWith("$PLAYLIST_PREFIX$RADIO_LIST") == true
+
+        /** YouTube Music's own id for the account's liked songs. */
+        private const val LIKED_MUSIC_ID = "LM"
+
+        /** The account's liked songs as a playlist address; what a heart adds to. */
+        const val LIKED_MUSIC_URI = "${PLAYLIST_PREFIX}LM"
+
+        /** How many moods, and how many genres, the Radio tab reads. */
+        private const val RADIO_PER_GROUP = 5
+
+        /**
+         * The country asked instead, when the phone's own has nothing to
+         * serve: the largest catalogue, open without an account.
+         */
+        private const val OPEN_REGION = "US"
+
+        /** One swap of the country at a time; the field it changes is shared. */
+        private val regionLock = Mutex()
+
+        /** Whether the phone's own country has already answered with nothing. */
+        @Volatile
+        private var openRegion = false
+
+        /** The `list=` id of a playlist URL. */
+        private fun playlistIdOf(url: String?): String? =
+            runCatching { android.net.Uri.parse(url ?: return null) }
+                .getOrNull()?.getQueryParameter("list")
+
+        /** The id half of a `ytmusic:track:` URI, for the stream resolver. */
+        fun videoIdOfUri(uri: String): String = uri.substringAfterLast(':')
+
+        private const val PLAYLIST_URL = "https://www.youtube.com/playlist?list="
+
+        private val ANONYMOUS = BackendAuthState.LoggedIn("YouTube Music")
+
+        /** `https://www.youtube.com/watch?v=<id>` and its short forms. */
+        private fun videoIdOf(url: String?): String? {
+            val parsed = runCatching { android.net.Uri.parse(url ?: return null) }.getOrNull()
+                ?: return null
+            return parsed.getQueryParameter("v")
+                ?: parsed.lastPathSegment?.takeIf { parsed.host?.contains("youtu.be") == true }
+        }
+    }
+}
