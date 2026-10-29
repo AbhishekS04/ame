@@ -26,6 +26,14 @@ jobs:
 
       - uses: ./.github/actions/setup
 
+      # The PR gate: a change that fails these never reaches main, which is
+      # what releases are tagged from.
+      - name: Test
+        run: ./gradlew :app:testDevUnitTest --stacktrace
+
+      - name: Lint
+        run: ./gradlew :app:lintDev --stacktrace
+
       - name: Build
         run: ./gradlew :app:assembleDev --stacktrace
 

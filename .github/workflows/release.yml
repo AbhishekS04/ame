@@ -65,6 +65,11 @@ jobs:
           } > keystore.properties
           chmod 600 "$RUNNER_TEMP/ame-release.jks" keystore.properties
 
+      # A tag cannot produce an APK unless the code passes its own tests and
+      # lint: the release gate that makes a tag on broken code a no-op.
+      - name: Test and lint
+        run: ./gradlew :app:testReleaseUnitTest :app:lintRelease --stacktrace
+
       - name: Build
         run: ./gradlew :app:assembleRelease --stacktrace
 
