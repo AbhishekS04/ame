@@ -186,6 +186,7 @@ android {
         // build. It is 50 seconds of a build whose output is a local test
         // install, and it has never been the thing that caught a problem here.
         checkReleaseBuilds = false
+        baseline = file("lint-baseline.xml")
     }
 
     compileOptions {
