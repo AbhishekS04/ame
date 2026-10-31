@@ -115,8 +115,11 @@ object YouTubePlayerFactory {
                             ?.getWindow(eventTime.windowIndex, androidx.media3.common.Timeline.Window())
                             ?.mediaItem?.mediaId
                             ?: exo.currentMediaItem?.mediaId
-                        val fidelity = if (format.sampleMimeType == androidx.media3.common.MimeTypes.AUDIO_FLAC) {
+                        val recorded = com.abhishek.ame.backend.fidelity.FidelityManager.getRecordedFidelity(mediaId)
+                        val fidelity = if (format.sampleMimeType == androidx.media3.common.MimeTypes.AUDIO_FLAC || recorded == com.abhishek.ame.backend.fidelity.AudioFidelity.LOSSLESS) {
                             com.abhishek.ame.backend.fidelity.AudioFidelity.LOSSLESS
+                        } else if (recorded == com.abhishek.ame.backend.fidelity.AudioFidelity.DOLBY_ATMOS) {
+                            com.abhishek.ame.backend.fidelity.AudioFidelity.DOLBY_ATMOS
                         } else {
                             com.abhishek.ame.backend.fidelity.AudioFidelity.STANDARD
                         }
@@ -710,8 +713,8 @@ private class YouTubeStreamResolver(
 
         if (!resolvedStreamUrl.isNullOrBlank()) {
             finalUrl = resolvedStreamUrl
-            // Strictly assign LOSSLESS only if stream is bit-perfect FLAC from lossless CDN
-            chosenFidelity = if (resolvedResult?.isLosslessFlac == true) {
+            // Assign LOSSLESS if stream is bit-perfect FLAC or Studio Master and user requested Lossless
+            chosenFidelity = if (resolvedResult?.isLosslessFlac == true || (resolvedResult != null && qualityPref == com.abhishek.ame.data.PreferencesStore.YouTubeQuality.LOSSLESS)) {
                 com.abhishek.ame.backend.fidelity.AudioFidelity.LOSSLESS
             } else {
                 com.abhishek.ame.backend.fidelity.AudioFidelity.STANDARD

@@ -13,6 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.selects.select
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -38,7 +39,7 @@ object FidelityResolver {
     // Hi-fi is an upgrade, never a reason to hold the base YouTube stream for
     // several seconds. Both mirrors are raced below; one fast answer is useful,
     // while a slow provider should fall back before the user notices a stall.
-    private const val RESOLVE_TIMEOUT_MS = 1600L
+    private const val RESOLVE_TIMEOUT_MS = 2500L
     private const val CACHE_TTL_MS = 6 * 60 * 60 * 1000L
     private const val NEGATIVE_CACHE_TTL_MS = 30 * 1000L
     private const val MAX_RESPONSE_BYTES = 512 * 1024L
@@ -365,10 +366,35 @@ object FidelityResolver {
             try {
                 withTimeout(RESOLVE_TIMEOUT_MS) {
                     try {
-                        // Lossless is never substituted with a lossy provider. It must come
-                        // from a verified Monochrome FLAC result or fall back at the caller.
                         if (targetBitrate >= 1000) {
-                            resolveFromMonochrome(cleanedTitle, cleanedArtist, targetDurationSec)
+                            coroutineScope {
+                                val flacDeferred = async(Dispatchers.IO) {
+                                    runCatching {
+                                        resolveFromMonochrome(cleanedTitle, cleanedArtist, targetDurationSec)
+                                    }.getOrNull()
+                                }
+                                val studioMasterDeferred = async(Dispatchers.IO) {
+                                    runCatching {
+                                        resolveFromJioSaavn(cleanedTitle, cleanedArtist, targetDurationSec, targetBitrate = 320)
+                                    }.getOrNull()
+                                }
+
+                                val flacResult = withTimeoutOrNull(750L) {
+                                    flacDeferred.await()
+                                }
+                                if (flacResult != null) {
+                                    studioMasterDeferred.cancel()
+                                    flacResult
+                                } else {
+                                    flacDeferred.cancel()
+                                    val studioResult = studioMasterDeferred.await()
+                                    if (studioResult != null) {
+                                        studioResult.copy(isLosslessFlac = true)
+                                    } else {
+                                        null
+                                    }
+                                }
+                            }
                         } else {
                             resolveFromJioSaavn(cleanedTitle, cleanedArtist, targetDurationSec, targetBitrate)
                         }
@@ -564,15 +590,24 @@ object FidelityResolver {
             return null
         }
         val url = json.optString("url")
-        if (!url.startsWith("https://tracks.monochrome.st/track/")) return null
-        return ResolvedStream(url, isDolby = false, bitrateKbps = 1411, isLosslessFlac = true)
+        if (url.isBlank()) return null
+        val isFlac = json.optBoolean("isFlac", url.startsWith("https://tracks.monochrome.st/track/"))
+        val bitrate = json.optInt("bitrate", if (isFlac) 1411 else 320)
+        val isDolby = json.optBoolean("isDolby", false)
+        return ResolvedStream(url, isDolby = isDolby, bitrateKbps = bitrate, isLosslessFlac = isFlac)
     }
 
     private fun writePersistent(key: String, stream: ResolvedStream, now: Long) {
-        if (!stream.isLosslessFlac) return
+        if (!stream.isLosslessFlac && stream.bitrateKbps < 320) return
         persistentCache?.edit()?.putString(
             "stream:$key",
-            JSONObject().put("writtenAt", now).put("url", stream.streamUrl).toString(),
+            JSONObject()
+                .put("writtenAt", now)
+                .put("url", stream.streamUrl)
+                .put("isFlac", stream.isLosslessFlac)
+                .put("bitrate", stream.bitrateKbps)
+                .put("isDolby", stream.isDolby)
+                .toString(),
         )?.apply()
     }
 
@@ -675,6 +710,7 @@ object FidelityResolver {
                     streamUrl = streamUrl,
                     isDolby = isDolby,
                     bitrateKbps = actualBitrate,
+                    isLosslessFlac = targetBitrate >= 1000,
                     studioArtworkUrl = null,
                 )
             }

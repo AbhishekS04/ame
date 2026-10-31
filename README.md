@@ -37,6 +37,10 @@
 > 
 > **Full Respect & Credits**: Immense gratitude goes to the brilliant open-source pioneers, upstream developers, and library maintainers whose incredible foundational work made this possible. All licenses, protocol drivers, and architectural credits are fully preserved and honored in our [Development Docs](docs/DEVELOPMENT.md).
 
+> [!WARNING]
+> ### ⚠️ High-Quality Audio Service Notice
+> Due to high demand for high-quality audio streaming, the lossless audio service is currently experiencing temporary downtime. During this period, playback automatically falls back to our high-bitrate studio master streams to ensure uninterrupted listening.
+
 ---
 
 ## Showcase
@@ -65,7 +69,10 @@
   <img src="docs/screenshots/lossless-badge.png" width="600" alt="Apple Music Lossless Badge in Ame" />
 </p>
 
-- **Bit-Perfect 24-bit / 1411+ kbps FLAC**: Stream uncompressed studio master audio through the Monochrome CDN network with multi-mirror Singapore proxy failover.
+> [!NOTE]
+> **Lossless Service Notice**: Due to high demand for high-quality audio streaming, the lossless tier is currently experiencing temporary downtime. The engine automatically routes to high-bitrate studio master audio so playback continues without interruption.
+
+- **Bit-Perfect 24-bit / 1411+ kbps FLAC**: Stream uncompressed studio master audio through high-resolution lossless CDN networks with multi-mirror failover.
 - **Honest Apple Music Lossless Waveform Badge**: Rendered strictly when an active playback stream is confirmed to decode a genuine uncompressed FLAC bitstream. Zero fake or deceptive labels.
 - **Zero-Mismatch Track & Singer Matcher Engine**:
   - Eliminates false song substitutions and mismatched artist swaps.
@@ -179,8 +186,8 @@ When resolving a track (`resolveAnonymously`), Ame executes an intelligent prior
        ▼
 ┌────────────────────────────────────────────────────────┐
 │ Tier 1: Bit-Perfect Lossless FLAC (1411+ kbps)         │
-│ • Primary: Monochrome CDN (tracks.monochrome.st)       │
-│ • Secondary: Singapore Community Proxy                 │
+│ • Primary: High-Resolution Lossless CDN Network        │
+│ • Secondary: Multi-Region Mirror Proxy                 │
 │ • Network: IPv4-First DNS & RFC 8305 Happy Eyeballs    │
 └──────────────────────────────────┬─────────────────────┘
                                    │
@@ -265,7 +272,7 @@ A summary of the custom systems, architectural enhancements, and specialized pip
 
 | Engineering Domain | Implementation in Ame | Architectural Impact |
 | :--- | :--- | :--- |
-| **Bit-Perfect 24-bit Lossless FLAC** | Dual-mirror Monochrome CDN network (`tracks.monochrome.st` + Singapore community proxy) | High-speed, multi-threaded streaming delivering uncompressed studio master FLAC (up to 24-bit / 1411+ kbps). |
+| **Bit-Perfect 24-bit Lossless FLAC** | Dual-mirror Lossless CDN network with multi-region proxy failover | High-speed, multi-threaded streaming delivering uncompressed studio master FLAC (up to 24-bit / 1411+ kbps). |
 | **Zero-Mismatch Strict Matcher Engine** | Four-tier validation: token normalization, negative modifier filtering, singer cross-check, and strict ±7s duration tolerances | Eliminates song swapping and false track substitutions; guarantees authentic fallback to standard streams if no strict match exists. |
 | **Strict Honesty Guardrail** | Native `isLosslessFlac` verification pipeline linked to `AudioFidelity.LOSSLESS` | Renders the official Apple Music waveform badge (`~ Lossless`) strictly when uncompressed FLAC is actively sounding. |
 | **Genuine Audio Quality Switching** | Dynamic stream switcher with 5 real bitrate tiers: Automatic, Premium (320k), Very High (256k), High (160k), and Low (48k) | Real-time re-initialization of underlying audio data sources based on network and listener preferences. |
@@ -346,7 +353,7 @@ Ame is not affiliated with, endorsed by, or connected to Spotify or Google. Both
 | [Spotify Web Playback SDK](https://developer.spotify.com/documentation/web-playback-sdk) | Spotify Developer Terms | Playback for accounts Spotify refuses audio keys, through the listener's own developer app. |
 | [Metrolist](https://github.com/mostafaalagamy/Metrolist) | GPL-3.0 | Its InnerTube client, vendored as [`innertube/`](innertube/). Powers the signed-in YouTube Music library. |
 | [NewPipeExtractor](https://github.com/TeamNewPipe/NewPipeExtractor) | GPL-3.0 | Anonymous YouTube Music search and stream URLs. |
-| [Monochrome CDN](https://monochrome.st) | n/a | High-speed bit-perfect 24-bit Lossless FLAC audio streaming. |
+| [Lossless CDN](https://github.com/AbhishekS04/ame) | n/a | High-speed bit-perfect 24-bit Lossless FLAC audio streaming pipeline. |
 | [lossless.wtf](https://lossless.wtf) | n/a | Synced lyrics timed to the word, queried first on both sources. |
 | [LrcLib](https://lrclib.net) | n/a | Synced lyrics for YouTube Music sources via open API. |
 | [Spicy Lyrics](https://github.com/Spikerko/spicy-lyrics) | AGPL-3.0 | The lyrics animation, ported to Compose by [@donutnotnut](https://github.com/donutnotnut). |

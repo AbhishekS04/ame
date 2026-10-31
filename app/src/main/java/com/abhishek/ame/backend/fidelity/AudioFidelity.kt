@@ -85,6 +85,12 @@ object FidelityManager {
         Log.i(TAG, "Recorded fidelity: $fidelity for mediaId=$mediaId (norm=$norm)")
     }
 
+    fun getRecordedFidelity(mediaId: String?): AudioFidelity? {
+        if (mediaId.isNullOrBlank()) return null
+        val norm = normalizeId(mediaId)
+        return trackFidelities[mediaId] ?: trackFidelities[norm] ?: trackFidelities["ytmusic:track:$norm"]
+    }
+
     /**
      * Links two aliases of the same playing track (e.g. videoId and songId from retitle).
      * Ensures replacing a media item in the playlist does not wipe the active fidelity badge.
@@ -132,8 +138,12 @@ object FidelityManager {
      */
     fun confirmDecoded(mediaId: String?, fidelity: AudioFidelity) {
         if (mediaId.isNullOrBlank()) return
-        val expected = activeMediaId ?: return
-        if (normalizeId(expected) != normalizeId(mediaId)) return
+        val currentActive = activeMediaId
+        if (currentActive != null && normalizeId(currentActive) != normalizeId(mediaId)) {
+            recordTrackFidelity(mediaId, fidelity)
+            return
+        }
+        activeMediaId = mediaId
         recordTrackFidelity(mediaId, fidelity)
         _activeFidelity.value = fidelity
         Log.i(TAG, "Activated decoded fidelity: $fidelity for mediaId=$mediaId")
